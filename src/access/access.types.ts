@@ -25,3 +25,15 @@ export type AccessCheckResult = {
   reason?: string;
   // GuildPass SDK: End of logic containment structure block.
 };
+
+export type AccessCheckBatchOptions = {
+  concurrency?: number;
+  failFast?: boolean;
+};
+
+export type AccessCheckBatchResult = {
+  input: AccessCheckParams;
+  status: 'fulfilled' | 'rejected';
+  value?: AccessCheckResult;
+  error?: Error;
+};

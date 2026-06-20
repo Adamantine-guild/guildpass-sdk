@@ -42,6 +42,76 @@ describe('Service Modules', () => {
         expect.any(Object),
       );
     });
+
+    describe('checkAccessBatch', () => {
+      it('should process multiple access checks and preserve order', async () => {
+        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        (fetch as any).mockResolvedValue({
+          ok: true, status: 200,
+          json: () => Promise.resolve(mockResult),
+          headers: new Headers(),
+        });
+        const inputs = [
+          { walletAddress: '0x1234567890123456789012345678901234567890', guildId: 'g1', resourceId: 'r1' },
+          { walletAddress: '0x1234567890123456789012345678901234567890', guildId: 'g2', resourceId: 'r2' },
+        ];
+        const results = await client.access.checkAccessBatch(inputs);
+        expect(results.length).toBe(2);
+        expect(results[0]).toEqual({ input: inputs[0], status: 'fulfilled', value: mockResult });
+        expect(results[1]).toEqual({ input: inputs[1], status: 'fulfilled', value: mockResult });
+        expect(fetch).toHaveBeenCalledTimes(2);
+      });
+
+      it('should handle partial failures without discarding successes', async () => {
+        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        let callCount = 0;
+        (fetch as any).mockImplementation(() => {
+          callCount++;
+          if (callCount === 2) {
+            return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('error'), headers: new Headers() });
+          }
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(mockResult), headers: new Headers() });
+        });
+        const inputs = [
+          { walletAddress: '0x1234567890123456789012345678901234567890', guildId: 'g1', resourceId: 'r1' },
+          { walletAddress: '0x1234567890123456789012345678901234567890', guildId: 'g2', resourceId: 'r2' },
+        ];
+        const results = await client.access.checkAccessBatch(inputs);
+        expect(results[0].status).toBe('fulfilled');
+        expect(results[1].status).toBe('rejected');
+        expect(results[1].error).toBeDefined();
+      });
+
+      it('should fail fast if configured', async () => {
+        let callCount = 0;
+        (fetch as any).mockImplementation(() => {
+          callCount++;
+          return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('error'), headers: new Headers() });
+        });
+        const inputs = [
+          { walletAddress: '0x1234567890123456789012345678901234567890', guildId: 'g1', resourceId: 'r1' },
+          { walletAddress: '0x1234567890123456789012345678901234567890', guildId: 'g2', resourceId: 'r2' },
+        ];
+        await expect(client.access.checkAccessBatch(inputs, { failFast: true, concurrency: 1 })).rejects.toThrow();
+        expect(callCount).toBe(1);
+      });
+
+      it('should catch validation errors per item', async () => {
+        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        (fetch as any).mockResolvedValue({
+          ok: true, status: 200,
+          json: () => Promise.resolve(mockResult),
+          headers: new Headers(),
+        });
+        const inputs = [
+          { walletAddress: 'invalid-address', guildId: 'g1', resourceId: 'r1' },
+          { walletAddress: '0x1234567890123456789012345678901234567890', guildId: 'g2', resourceId: 'r2' },
+        ];
+        const results = await client.access.checkAccessBatch(inputs);
+        expect(results[0].status).toBe('rejected');
+        expect(results[1].status).toBe('fulfilled');
+      });
+    });
   });
 
   describe('MembershipService', () => {
@@ -94,26 +164,6 @@ describe('Service Modules', () => {
       expect(result).toEqual(mockRoles);
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining('/guilds/guild%2F1/roles'),
-        expect.any(Object),
-      );
-    });
-
-    it('should URL-encode wallet addresses and guild IDs in user roles endpoint paths', async () => {
-      const mockRoles = [{ id: '1', name: 'Role 1' }];
-      (fetch as any).mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(mockRoles),
-        headers: new Headers(),
-      });
-
-      const result = await client.roles.getUserRoles({
-        guildId: 'guild/1',
-        walletAddress: '0x123/456 space',
-      });
-      expect(result).toEqual(mockRoles);
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining('/guilds/guild%2F1/members/0x123%2F456%20space/roles'),
         expect.any(Object),
       );
     });

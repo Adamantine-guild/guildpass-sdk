@@ -33,6 +33,12 @@ Checks if a wallet can access a resource.
 
 - **Returns**: `Promise<AccessCheckResult>`
 
+### `checkAccessBatch(items: AccessCheckParams[], options?: AccessCheckBatchOptions)`
+
+Checks access for multiple resources or wallets concurrently.
+
+- **Returns**: `Promise<AccessCheckBatchResult[]>`
+
 ### `checkRoleAccess(params: RoleAccessCheckParams)`
 
 Checks if a wallet has a specific role.

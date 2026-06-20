@@ -10,7 +10,7 @@ import {
 import { assertValidResponse } from '../validation/assertResponse';
 import { isAccessCheckResult } from '../validation/responseGuards';
 // GuildPass SDK: Import external module dependencies.
-import { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams } from './access.types';
+import { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult } from './access.types';
 
 // GuildPass SDK: Exported component definition.
 export class AccessService {
@@ -48,6 +48,43 @@ export class AccessService {
       ? assertValidResponse(result, isAccessCheckResult, 'AccessCheckResult')
       : result;
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Checks access for multiple resources or wallets concurrently.
+   */
+  public async checkAccessBatch(
+    items: AccessCheckParams[],
+    options?: AccessCheckBatchOptions,
+  ): Promise<AccessCheckBatchResult[]> {
+    const concurrency = options?.concurrency ?? 5;
+    const failFast = options?.failFast ?? false;
+    const results: AccessCheckBatchResult[] = new Array(items.length);
+    let hasFailed = false;
+
+    const execute = async (item: AccessCheckParams, index: number) => {
+      if (hasFailed && failFast) return;
+      try {
+        const value = await this.checkAccess(item);
+        results[index] = { input: item, status: 'fulfilled', value };
+      } catch (error) {
+        if (failFast) hasFailed = true;
+        results[index] = { input: item, status: 'rejected', error: error instanceof Error ? error : new Error(String(error)) };
+        if (failFast) throw error;
+      }
+    };
+
+    const queue = items.map((item, index) => ({ item, index }));
+    await Promise.all(
+      Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
+        while (queue.length > 0) {
+          if (failFast && hasFailed) break;
+          const current = queue.shift();
+          if (current) await execute(current.item, current.index);
+        }
+      }),
+    );
+    return results;
   }
 
   /**

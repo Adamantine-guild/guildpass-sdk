@@ -57,3 +57,28 @@ Fetch guild configurations to build custom management dashboards.
 const config = await client.guilds.getGuildConfig({ guildId: 'my-guild' });
 // Use config.theme, config.socialLinks etc to render the UI
 ```
+
+## 4. Batch Access Checking
+
+Use `checkAccessBatch` to verify access for multiple resources or wallets concurrently, with graceful handling of partial failures.
+
+```typescript
+import { GuildPassClient } from '@guildpass/sdk';
+
+const client = new GuildPassClient({ apiUrl: process.env.GUILDPASS_API });
+
+const items = [
+  { walletAddress: '0x123...', guildId: 'guild-a', resourceId: 'res-1' },
+  { walletAddress: '0x456...', guildId: 'guild-a', resourceId: 'res-2' },
+];
+
+const results = await client.access.checkAccessBatch(items, { concurrency: 2 });
+
+results.forEach((result) => {
+  if (result.status === 'fulfilled') {
+    console.log(`Access for ${result.input.walletAddress}: ${result.value.hasAccess}`);
+  } else {
+    console.error(`Failed for ${result.input.walletAddress}`, result.error);
+  }
+});
+```
