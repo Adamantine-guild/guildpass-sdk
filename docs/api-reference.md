@@ -146,3 +146,15 @@ if (!isGuild(someUnknownValue)) {
 The guards are hand-written, dependency-free type predicates — no
 schema validation library is used, so enabling this option has a
 negligible effect on bundle size.
+
+## Contract Testing
+
+The SDK maintains an API schema fixture to ensure request and response assumptions are valid. Contract tests (`tests/services.test.ts`) assert that SDK method parameters map to the correct API endpoint and match expected schema response structures.
+
+When the API contract changes, you must update the fixture (`tests/fixtures/api-contract.json`) to reflect the new structure:
+
+1. Locate the endpoint within `api-contract.json`.
+2. Update the `request.path` or `request.query` array if parameters change.
+3. Update the `response.success` object to match the new successful response.
+4. Update the `response.error` object if error formats change.
+5. Run `npm test` to verify your SDK methods conform to the new API schema.

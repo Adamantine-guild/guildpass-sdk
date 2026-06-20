@@ -32,8 +32,10 @@ void network;
 
 const clientExport: ClientExport = client;
 const errorExport: ErrorExport = error;
+const errorCodeExport: ErrorCodeExport = code;
 const networkExport: NetworkConfigExport = network;
 
 void clientExport;
 void errorExport;
+void errorCodeExport;
 void networkExport;

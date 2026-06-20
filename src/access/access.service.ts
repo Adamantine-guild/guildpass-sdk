@@ -7,6 +7,7 @@ import {
   validateResourceId,
   validateRoleId,
 } from '../utils/validation';
+import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isAccessCheckResult } from '../validation/responseGuards';
 // GuildPass SDK: Import external module dependencies.
@@ -36,7 +37,7 @@ export class AccessService {
     const result = await this.http.get<AccessCheckResult>(`/access/check`, {
       // GuildPass SDK: Execution block boundary initialization.
       params: {
-        address: walletAddress,
+        address: normaliseAddress(walletAddress),
         guildId,
         resourceId,
         // GuildPass SDK: End of logic containment structure block.
@@ -55,35 +56,42 @@ export class AccessService {
    */
   public async checkAccessBatch(
     items: AccessCheckParams[],
-    options?: AccessCheckBatchOptions,
+    options?: AccessCheckBatchOptions
   ): Promise<AccessCheckBatchResult[]> {
     const concurrency = options?.concurrency ?? 5;
     const failFast = options?.failFast ?? false;
+
     const results: AccessCheckBatchResult[] = new Array(items.length);
     let hasFailed = false;
 
     const execute = async (item: AccessCheckParams, index: number) => {
       if (hasFailed && failFast) return;
       try {
-        const value = await this.checkAccess(item);
-        results[index] = { input: item, status: 'fulfilled', value };
+        const result = await this.checkAccess(item);
+        results[index] = { input: item, status: 'fulfilled', value: result };
       } catch (error) {
         if (failFast) hasFailed = true;
-        results[index] = { input: item, status: 'rejected', error: error instanceof Error ? error : new Error(String(error)) };
+        results[index] = { 
+          input: item, 
+          status: 'rejected', 
+          error: error instanceof Error ? error : new Error(String(error)) 
+        };
         if (failFast) throw error;
       }
     };
 
     const queue = items.map((item, index) => ({ item, index }));
-    await Promise.all(
-      Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
-        while (queue.length > 0) {
-          if (failFast && hasFailed) break;
-          const current = queue.shift();
-          if (current) await execute(current.item, current.index);
+    const workers = Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
+      while (queue.length > 0) {
+        if (failFast && hasFailed) break;
+        const current = queue.shift();
+        if (current) {
+          await execute(current.item, current.index);
         }
-      }),
-    );
+      }
+    });
+
+    await Promise.all(workers);
     return results;
   }
 
@@ -103,7 +111,7 @@ export class AccessService {
     const result = await this.http.get<{ hasRole: boolean }>(`/access/role-check`, {
       // GuildPass SDK: Execution block boundary initialization.
       params: {
-        address: walletAddress,
+        address: normaliseAddress(walletAddress),
         guildId,
         roleId,
         // GuildPass SDK: End of logic containment structure block.

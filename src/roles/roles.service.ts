@@ -2,6 +2,7 @@
 import { HttpClient } from '../http/httpClient';
 // GuildPass SDK: Import external module dependencies.
 import { validateAddress, validateGuildId } from '../utils/validation';
+import { normaliseAddress } from '../utils/address';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isGuildRoleArray } from '../validation/responseGuards';
@@ -46,7 +47,7 @@ export class RolesService {
 
     // GuildPass SDK: Terminate function block execution and return.
     const result = await this.http.get<GuildRole[]>(
-      `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(walletAddress)}/roles`,
+      `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/roles`,
     );
     return this.validateResponses
       ? assertValidResponse(result, isGuildRoleArray, 'GuildRole[]')

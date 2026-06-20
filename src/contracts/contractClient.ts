@@ -8,19 +8,29 @@ import { validateAddress } from '../utils/validation';
 import { RoleRequirementParams, TokenBalanceParams } from './contract.types';
 // GuildPass SDK: Pull in package or module bindings.
 import { validateRoleRequirementStub } from './contractHelpers';
+import { GuildPassClientConfig, resolveChainConfig } from '../config/sdkConfig';
 
 // GuildPass SDK: Exported function execution unit.
 export class ContractClient {
   // GuildPass SDK: Class member structure property or constructor.
-  private readonly rpcUrl?: string;
-  // GuildPass SDK: Class member structure property or constructor.
-  private readonly defaultContractAddress?: string;
+  private readonly config: GuildPassClientConfig;
 
   // GuildPass SDK: Class member structure property or constructor.
-  constructor(rpcUrl?: string, contractAddress?: string) {
-    this.rpcUrl = rpcUrl;
-    this.defaultContractAddress = contractAddress;
+  constructor(config: GuildPassClientConfig) {
+    this.config = config;
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Resolves the RPC URL and contract address for the given chain ID (or the
+   * client's default chainId when omitted).
+   */
+  public getChainConfig(chainId?: number) {
+    const id = chainId ?? this.config.chainId;
+    if (id === undefined) {
+      return { rpcUrl: this.config.rpcUrl, contractAddress: this.config.contractAddress };
+    }
+    return resolveChainConfig(this.config, id);
   }
 
   /**
@@ -30,7 +40,7 @@ export class ContractClient {
   // GuildPass SDK: Class member structure property or constructor.
   public async getMembershipTokenBalance(params: TokenBalanceParams): Promise<string> {
     // GuildPass SDK: Variable binding initialization.
-    const { walletAddress, contractAddress = this.defaultContractAddress } = params;
+    const { walletAddress, contractAddress = this.config.contractAddress } = params;
 
     validateAddress(walletAddress);
     // GuildPass SDK: Evaluate branch condition logic.

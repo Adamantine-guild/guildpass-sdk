@@ -7,6 +7,7 @@ export * from './membership/membership.service';
 export * from './roles/roles.service';
 export * from './guilds/guilds.service';
 export * from './contracts/contractClient';
+export * from './contracts/contract.types';
 
 // Types
 export * from './types';

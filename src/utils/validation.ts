@@ -2,15 +2,18 @@
 import { GuildPassError } from '../errors/GuildPassError';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../errors/errorCodes';
+// GuildPass SDK: Pull in package or module bindings.
+import { isChecksumAddress } from './address';
 
 /**
  * Validates an Ethereum address.
  *
  * @param address The address to validate
+ * @param options Validation options to enforce strict mode
  * @throws GuildPassError if the address is invalid
  */
 // GuildPass SDK: Exported component definition.
-export const validateAddress = (address: string): void => {
+export const validateAddress = (address: string, options: { strict?: boolean } = {}): void => {
   // GuildPass SDK: Evaluate branch condition logic.
   if (!address) {
     // GuildPass SDK: Raise exceptional condition and throw error.
@@ -28,6 +31,14 @@ export const validateAddress = (address: string): void => {
       GuildPassErrorCode.INVALID_ADDRESS,
     );
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  // GuildPass SDK: Evaluate branch condition logic.
+  if (options.strict && !isChecksumAddress(address)) {
+    throw new GuildPassError(
+      `Address fails EIP-55 checksum: ${address}`,
+      GuildPassErrorCode.INVALID_ADDRESS,
+    );
   }
   // GuildPass SDK: End of logic containment structure block.
 };

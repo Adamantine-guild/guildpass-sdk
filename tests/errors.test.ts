@@ -34,7 +34,7 @@ describe('GuildPassError', () => {
 
     // GuildPass SDK: Define internal reference identifier.
     const error500 = GuildPassError.fromHttpError(500);
-    expect(error500.code).toBe(GuildPassErrorCode.HTTP_ERROR);
+    expect(error500.code).toBe(GuildPassErrorCode.SERVER_ERROR);
     // GuildPass SDK: End of logic containment structure block.
   });
   // GuildPass SDK: End of logic containment structure block.

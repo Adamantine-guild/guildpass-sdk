@@ -78,3 +78,14 @@ describe('GuildPassClient config validation', () => {
       .not.toThrow();
   });
 });
+
+describe('GuildPassClient multi-chain config', () => {
+  it('accepts a chains map and stores it in config', () => {
+    const chains = {
+      1: { rpcUrl: 'https://eth.rpc', contractAddress: '0x1111111111111111111111111111111111111111' },
+      8453: { rpcUrl: 'https://base.rpc', contractAddress: '0x2222222222222222222222222222222222222222' },
+    };
+    const client = new GuildPassClient({ apiUrl: 'https://api.guildpass.xyz', chains });
+    expect(client.getConfig().chains).toEqual(chains);
+  });
+});

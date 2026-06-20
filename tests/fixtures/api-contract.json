@@ -1,0 +1,130 @@
+{
+  "access": {
+    "check": {
+      "request": {
+        "path": "/access/check",
+        "method": "GET",
+        "query": ["address", "guildId", "resourceId"]
+      },
+      "response": {
+        "success": {
+          "hasAccess": true,
+          "walletAddress": "0x1234567890123456789012345678901234567890",
+          "guildId": "guild_1",
+          "resourceId": "res_1",
+          "requiredRoles": ["role1"],
+          "matchedRoles": ["role1"]
+        },
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
+    },
+    "roleCheck": {
+      "request": {
+        "path": "/access/role-check",
+        "method": "GET",
+        "query": ["address", "guildId", "roleId"]
+      },
+      "response": {
+        "success": {
+          "hasRole": true
+        },
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
+    }
+  },
+  "membership": {
+    "get": {
+      "request": {
+        "path": "/membership",
+        "method": "GET",
+        "query": ["address", "guildId"]
+      },
+      "response": {
+        "success": {
+          "walletAddress": "0x1234567890123456789012345678901234567890",
+          "guildId": "guild_1",
+          "isActive": true,
+          "roles": ["member"]
+        },
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
+    }
+  },
+  "roles": {
+    "getRoles": {
+      "request": {
+        "path": "/guilds/guild_1/roles",
+        "method": "GET"
+      },
+      "response": {
+        "success": [
+          { "id": "role_1", "name": "Member" }
+        ],
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
+    },
+    "getUserRoles": {
+      "request": {
+        "path": "/guilds/guild_1/members/0x1234567890123456789012345678901234567890/roles",
+        "method": "GET"
+      },
+      "response": {
+        "success": [
+          { "id": "role_1", "name": "Member" }
+        ],
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
+    }
+  },
+  "guilds": {
+    "getGuild": {
+      "request": {
+        "path": "/guilds/guild_1",
+        "method": "GET"
+      },
+      "response": {
+        "success": {
+          "id": "guild_1",
+          "name": "Test Guild",
+          "ownerAddress": "0x1234567890123456789012345678901234567890",
+          "chainId": 1
+        },
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
+    },
+    "getGuildConfig": {
+      "request": {
+        "path": "/guilds/guild_1/config",
+        "method": "GET"
+      },
+      "response": {
+        "success": {
+          "id": "guild_1",
+          "theme": "dark"
+        },
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
+    }
+  }
+}

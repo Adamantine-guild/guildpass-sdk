@@ -60,7 +60,7 @@ const config = await client.guilds.getGuildConfig({ guildId: 'my-guild' });
 
 ## 4. Batch Access Checking
 
-Use `checkAccessBatch` to verify access for multiple resources or wallets concurrently, with graceful handling of partial failures.
+If you need to verify access for multiple resources or multiple users at once, use the batch access helper to manage concurrency and gracefully handle partial failures.
 
 ```typescript
 import { GuildPassClient } from '@guildpass/sdk';
@@ -78,7 +78,7 @@ results.forEach((result) => {
   if (result.status === 'fulfilled') {
     console.log(`Access for ${result.input.walletAddress}: ${result.value.hasAccess}`);
   } else {
-    console.error(`Failed for ${result.input.walletAddress}`, result.error);
+    console.error(`Failed to check access for ${result.input.walletAddress}`, result.error);
   }
 });
 ```

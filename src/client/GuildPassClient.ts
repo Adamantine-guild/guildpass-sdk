@@ -49,14 +49,19 @@ export class GuildPassClient {
       // GuildPass SDK: End of logic containment structure block.
     };
 
-    this.http = new HttpClient(this.config.apiUrl, this.config.apiKey, this.config.timeoutMs);
+    this.http = new HttpClient(
+      this.config.apiUrl,
+      this.config.apiKey,
+      this.config.timeoutMs,
+      this.config.retry || this.config.hooks,
+    );
 
     const validateResponses = this.config.validateResponses ?? false;
     this.access = new AccessService(this.http, validateResponses);
     this.membership = new MembershipService(this.http, validateResponses);
     this.roles = new RolesService(this.http, validateResponses);
     this.guilds = new GuildsService(this.http, validateResponses);
-    this.contracts = new ContractClient(this.config.rpcUrl, this.config.contractAddress);
+    this.contracts = new ContractClient(this.config);
     // GuildPass SDK: End of logic containment structure block.
   }
 
