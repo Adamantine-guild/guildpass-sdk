@@ -2,6 +2,8 @@
 import { GuildPassError } from '../errors/GuildPassError';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../errors/errorCodes';
+// GuildPass SDK: Import external module bindings.
+import { validateRetryConfig } from '../config/sdkConfig';
 // GuildPass SDK: Pull in package or module bindings.
 import {
   FetchLike,
@@ -124,6 +126,10 @@ export class HttpClient {
         this.hooks = configOrHooks;
       }
     }
+
+    if (this.globalRetry) {
+      validateRetryConfig(this.globalRetry, 'Global retry config');
+    }
   }
 
   // GuildPass SDK: Class member structure property or constructor.
@@ -152,7 +158,20 @@ export class HttpClient {
   ): Promise<HttpResponse<T>> {
     const { method = 'GET', headers = {}, body, params, timeoutMs = this.timeoutMs, retry, signal } = options;
 
+    const requestHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...headers,
+    };
+    if (this.apiKey) {
+      requestHeaders['X-API-Key'] = this.apiKey;
+    }
+
+    if (retry) {
+      validateRetryConfig(retry, 'Request retry config');
+    }
+
     const retryConfig = resolveRetry(this.globalRetry, retry);
+    validateRetryConfig(retryConfig, 'Resolved retry config');
     const canRetry =
       retryConfig.maxRetries > 0 &&
       (IDEMPOTENT_METHODS.has(method) || retryConfig.allowMutatingRetry);

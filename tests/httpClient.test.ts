@@ -355,6 +355,33 @@ describe('HttpClient', () => {
       ).rejects.toBeDefined();
       expect(fetch).toHaveBeenCalledTimes(2); // 1 initial + 1 retry
     });
+
+    it('throws before request when per-request retry override has invalid values', async () => {
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, { maxRetries: 1 });
+
+      await expect(
+        retryClient.get('/invalid-retry', { retry: { maxRetries: -1 } }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_CONFIG });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('throws when per-request retry override maxDelayMs is lower than baseDelayMs', async () => {
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, { maxRetries: 1 });
+
+      await expect(
+        retryClient.get('/invalid-delay', { retry: { maxRetries: 1, baseDelayMs: 500, maxDelayMs: 100 } }),
+      ).rejects.toThrow(/retry.*maxDelayMs must be equal to or greater than.*baseDelayMs/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('throws when per-request retry override contains invalid retryableStatuses', async () => {
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, { maxRetries: 1 });
+
+      await expect(
+        retryClient.get('/invalid-statuses', { retry: { maxRetries: 1, retryableStatuses: [600] } }),
+      ).rejects.toThrow(/retryableStatuses must contain valid HTTP status codes/i);
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 
   describe('AbortSignal support', () => {

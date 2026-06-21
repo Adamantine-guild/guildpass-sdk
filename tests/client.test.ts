@@ -98,6 +98,36 @@ describe('GuildPassClient config validation', () => {
       .toThrow(expect.objectContaining({ code: GuildPassErrorCode.INVALID_CONFIG }));
   });
 
+  it('should throw when global retry config has invalid maxRetries', () => {
+    expect(
+      () => new GuildPassClient({
+        apiUrl: 'https://api.guildpass.xyz',
+        retry: { maxRetries: -1 },
+      }),
+    ).toThrow(expect.objectContaining({ code: GuildPassErrorCode.INVALID_CONFIG }));
+    expect(
+      () => new GuildPassClient({
+        apiUrl: 'https://api.guildpass.xyz',
+        retry: { maxRetries: -1 },
+      }),
+    ).toThrow(/retry\.maxRetries/);
+  });
+
+  it('should throw when global retry config contains invalid status codes', () => {
+    expect(
+      () => new GuildPassClient({
+        apiUrl: 'https://api.guildpass.xyz',
+        retry: { retryableStatuses: [99] },
+      }),
+    ).toThrow(expect.objectContaining({ code: GuildPassErrorCode.INVALID_CONFIG }));
+    expect(
+      () => new GuildPassClient({
+        apiUrl: 'https://api.guildpass.xyz',
+        retry: { retryableStatuses: [99] },
+      }),
+    ).toThrow(/retryableStatuses must contain valid HTTP status codes/);
+  });
+
   it('should not throw for valid config', () => {
     expect(() => new GuildPassClient({ apiUrl: 'https://api.guildpass.xyz', timeoutMs: 5000 }))
       .not.toThrow();

@@ -56,6 +56,82 @@ export type GuildPassClientConfig = {
   // GuildPass SDK: End of logic containment structure block.
 };
 
+export function validateRetryConfig(retry: RetryConfig | undefined, fieldName = 'retry'): void {
+  if (retry === undefined) return;
+  if (typeof retry !== 'object' || retry === null) {
+    throw new GuildPassError(
+      `${fieldName} must be an object`,
+      GuildPassErrorCode.INVALID_CONFIG,
+    );
+  }
+
+  if (retry.maxRetries !== undefined) {
+    if (!Number.isInteger(retry.maxRetries) || retry.maxRetries < 0) {
+      throw new GuildPassError(
+        `${fieldName}.maxRetries must be a non-negative integer`,
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+  }
+
+  if (retry.baseDelayMs !== undefined) {
+    if (!Number.isFinite(retry.baseDelayMs) || retry.baseDelayMs < 0) {
+      throw new GuildPassError(
+        `${fieldName}.baseDelayMs must be a non-negative finite number`,
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+  }
+
+  if (retry.maxDelayMs !== undefined) {
+    if (!Number.isFinite(retry.maxDelayMs) || retry.maxDelayMs < 0) {
+      throw new GuildPassError(
+        `${fieldName}.maxDelayMs must be a non-negative finite number`,
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+  }
+
+  if (
+    retry.baseDelayMs !== undefined &&
+    retry.maxDelayMs !== undefined &&
+    retry.maxDelayMs < retry.baseDelayMs
+  ) {
+    throw new GuildPassError(
+      `${fieldName}.maxDelayMs must be equal to or greater than ${fieldName}.baseDelayMs`,
+      GuildPassErrorCode.INVALID_CONFIG,
+    );
+  }
+
+  if (retry.retryableStatuses !== undefined) {
+    if (!Array.isArray(retry.retryableStatuses) || retry.retryableStatuses.length === 0) {
+      throw new GuildPassError(
+        `${fieldName}.retryableStatuses must be a non-empty array of HTTP status codes`,
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+
+    for (const status of retry.retryableStatuses) {
+      if (!Number.isInteger(status) || status < 100 || status > 599) {
+        throw new GuildPassError(
+          `${fieldName}.retryableStatuses must contain valid HTTP status codes`,
+          GuildPassErrorCode.INVALID_CONFIG,
+        );
+      }
+    }
+  }
+
+  if (
+    retry.allowMutatingRetry !== undefined &&
+    typeof retry.allowMutatingRetry !== 'boolean'
+  ) {
+    throw new GuildPassError(
+      `${fieldName}.allowMutatingRetry must be a boolean`,
+      GuildPassErrorCode.INVALID_CONFIG,
+    );
+  }
+}
+
 export function validateConfig(config: GuildPassClientConfig): void {
   if (!config.apiUrl) {
     throw new GuildPassError('apiUrl is required', GuildPassErrorCode.INVALID_CONFIG);
@@ -80,6 +156,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
       GuildPassErrorCode.INVALID_CONFIG,
     );
   }
+  validateRetryConfig(config.retry, 'retry');
   const transport = config.fetch ?? globalThis.fetch;
   if (typeof transport !== 'function') {
     throw new GuildPassError(
