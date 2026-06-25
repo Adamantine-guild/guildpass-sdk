@@ -650,4 +650,112 @@ describe('HttpClient Hooks', () => {
     expect(consoleSpy).toHaveBeenCalledTimes(2);
     consoleSpy.mockRestore();
   });
+
+});
+
+// Content-Type validation tests (issue #86)
+describe('HttpClient Content-Type validation', () => {
+  const baseUrl = 'https://api.test.com';
+  let client: HttpClient;
+  let mockFetch: any;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+  });
+
+  it('should throw INVALID_CONTENT_TYPE when response has text/html content type and non-JSON body', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('<html><body>Error</body></html>'),
+      json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+      headers: new Headers({ 'Content-Type': 'text/html' }),
+    });
+
+    try {
+      await client.get('/html-response');
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.code).toBe(GuildPassErrorCode.INVALID_CONTENT_TYPE);
+      expect(error.message).toContain('text/html');
+      expect(error.message).toContain('application/json');
+    }
+  });
+
+  it('should throw INVALID_CONTENT_TYPE when response has text/plain content type and non-JSON body', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve('Internal Server Error'),
+      json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      headers: new Headers({ 'Content-Type': 'text/plain' }),
+    });
+
+    try {
+      await client.get('/text-response');
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.code).toBe(GuildPassErrorCode.INVALID_CONTENT_TYPE);
+      expect(error.message).toContain('text/plain');
+    }
+  });
+
+  it('should still parse JSON body even with wrong content-type (graceful fallback)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'works' }),
+      headers: new Headers({ 'Content-Type': 'text/plain' }),
+    });
+
+    const result = await client.get('/misconfigured-json');
+    expect(result).toEqual({ data: 'works' });
+  });
+
+  it('should parse normally when content type is application/json', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ result: 'ok' }),
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    });
+
+    const result = await client.get('/proper-json');
+    expect(result).toEqual({ result: 'ok' });
+  });
+
+  it('should throw INVALID_CONTENT_TYPE when no content-type header and non-JSON body', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+      headers: new Headers(),
+    });
+
+    try {
+      await client.get('/no-content-type');
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.code).toBe(GuildPassErrorCode.INVALID_CONTENT_TYPE);
+      expect(error.message).toContain('missing');
+    }
+  });
+
+  it('should throw INVALID_RESPONSE when content-type is JSON but body is malformed', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError('Unexpected token {')),
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    });
+
+    try {
+      await client.get('/malformed-json');
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.code).toBe(GuildPassErrorCode.INVALID_RESPONSE);
+      expect(error.message).toContain('could not be parsed');
+    }
+  });
 });

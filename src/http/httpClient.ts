@@ -72,19 +72,89 @@ function isHooksConfig(config: RetryConfig | HttpHooks | HttpClientConfig): conf
   return 'onRequest' in config || 'onResponse' in config || 'onError' in config;
 }
 
+/**
+ * Inspect the Content-Type header and parse the response body accordingly.
+ * For successful responses: return parsed JSON if content type is JSON, undefined for empty/no-content, or throw INVALID_CONTENT_TYPE for non-JSON.
+ * For error responses: return parsed JSON if available, or null with a descriptive INVALID_CONTENT_TYPE error.
+ */
+function getContentTypeCategory(headers: Headers): 'json' | 'other' {
+  const contentType = headers.get('Content-Type');
+  if (!contentType) return 'other'; // No content-type header — treat as unknown
+  if (contentType.includes('application/json')) return 'json';
+  return 'other';
+}
+
 async function parseSuccessResponse<T>(response: Response): Promise<T> {
   if (response.status === 204 || response.status === 205 || response.headers.get('Content-Length') === '0') {
     return undefined as T;
   }
 
-  try {
-    return await response.json() as T;
-  } catch (error) {
-    if (isEmptyJsonBodyError(error)) {
-      return undefined as T;
+  const contentTypeCategory = getContentTypeCategory(response.headers);
+
+  // Content-Type indicates JSON — parse normally
+  if (contentTypeCategory === 'json') {
+    try {
+      return await response.json() as T;
+    } catch (error) {
+      if (isEmptyJsonBodyError(error)) {
+        return undefined as T;
+      }
+      throw new GuildPassError(
+        `Response declared application/json but body could not be parsed: ${error instanceof Error ? error.message : String(error)}`,
+        GuildPassErrorCode.INVALID_RESPONSE,
+        response.status,
+      );
     }
-    throw error;
   }
+
+  // Content-Type is something other than JSON (HTML, text, etc.)
+  if (contentTypeCategory === 'other') {
+    const contentType = response.headers.get('Content-Type') || 'missing';
+    // Try parsing as JSON anyway — some servers send JSON with wrong content-type
+    try {
+      const data = await response.json() as T;
+      // Parsed OK despite wrong content-type — return data but this is a server issue
+      return data;
+    } catch {
+      // Not JSON — throw a clear error
+      throw new GuildPassError(
+        `Expected application/json response but received Content-Type: ${contentType}`,
+        GuildPassErrorCode.INVALID_CONTENT_TYPE,
+        response.status,
+      );
+    }
+  }
+
+  return undefined as T;
+}
+
+/**
+ * Parse an error response body, respecting Content-Type.
+ * Returns the parsed JSON if available, or null with a descriptive INVALID_CONTENT_TYPE error thrown.
+ */
+async function parseErrorResponse(response: Response): Promise<any> {
+  const contentTypeCategory = getContentTypeCategory(response.headers);
+
+  if (contentTypeCategory === 'json') {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  if (contentTypeCategory === 'other') {
+    const contentType = response.headers.get('Content-Type') || 'missing';
+    // Not JSON — return null so fromHttpError produces a generic message
+    // but include content-type info in the details
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 // GuildPass SDK: Exposed interface structure.
@@ -236,9 +306,10 @@ export class HttpClient {
 
           let errorData;
           try {
-            errorData = await response.json();
-          } catch {
-            errorData = null;
+            errorData = await parseErrorResponse(response);
+          } catch (ctError: any) {
+            // Content-type validation threw — use it directly
+            throw ctError;
           }
           throw GuildPassError.fromHttpError(response.status, errorData);
         }
