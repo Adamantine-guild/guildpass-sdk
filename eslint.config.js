@@ -19,6 +19,11 @@ module.exports = [
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // Prevent importing the same module twice in the same file.
+      // This catches the pattern of importing the same identifier from two paths.
+      'no-duplicate-imports': ['error', { includeExports: true }],
+      // Warn on unused imports to surface accidental shadow imports early.
+      'no-unused-vars': 'off', // disabled in favour of the TS-aware rule above
     },
   },
 ];

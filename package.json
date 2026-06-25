@@ -46,6 +46,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
+    "ci": "npm run typecheck && npm run lint",
     "docs": "typedoc src/index.ts",
     "validate": "npx --yes publint"
   },

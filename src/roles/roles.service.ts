@@ -1,14 +1,12 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { HttpClient } from '../http/httpClient';
-// GuildPass SDK: Pull in package or module bindings.
-import { RequestOptions } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
+import type { RequestOptions } from '../types/common';
 import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isGuildRoleArray } from '../validation/responseGuards';
-import type { RequestOptions } from '../types/common';
 // GuildPass SDK: Pull in package or module bindings.
 import { GetRolesParams, GetUserRolesParams, GuildRole } from './roles.types';
 

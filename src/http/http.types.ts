@@ -42,8 +42,8 @@ export type HttpRequestOptions = {
   // GuildPass SDK: End of logic containment structure block.
 };
 
-// GuildPass SDK: Simplified options for service methods.
-export type RequestOptions = Pick<HttpRequestOptions, 'timeoutMs' | 'signal'>;
+// NOTE: The public `RequestOptions` type lives in src/types/common.ts.
+// Do not re-export or redefine it here to avoid duplicate identifier errors.
 
 // GuildPass SDK: Exported component definition.
 export type HttpResponse<T = any> = {
