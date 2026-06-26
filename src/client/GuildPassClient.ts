@@ -130,7 +130,20 @@ export class GuildPassClient {
       `guilds:getGuild:${guildId}`,
       `guilds:getGuildConfig:${guildId}`,
     ];
-    await Promise.all(prefixes.map((k) => this.cache!.delete(k)));
+    // Delete all keys matching any prefix. The InMemoryCacheAdapter and other
+    // adapters that support key enumeration should scan their internal store.
+    // For adapters without key-scanning, we fall back to clear().
+    const adapter = this.cache as CacheAdapter & {
+      keys?: () => Promise<string[]> | string[];
+    };
+    if (typeof adapter.keys === 'function') {
+      const allKeys = await adapter.keys();
+      const matchingKeys = allKeys.filter((k) => prefixes.some((p) => k.startsWith(p)));
+      await Promise.all(matchingKeys.map((k) => this.cache!.delete(k)));
+    } else {
+      // Fallback: clear entire cache if prefix scanning is unsupported
+      await this.cache.clear();
+    }
   }
 
   /**
@@ -170,10 +183,18 @@ export class GuildPassClient {
   // ---------------------------------------------------------------------------
 
   private async withCache<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const cached = await this.cache!.get<T>(key);
-    if (cached !== null) return cached;
+    try {
+      const cached = await this.cache!.get<T>(key);
+      if (cached !== null) return cached;
+    } catch {
+      // Cache read failure — fall through to fetch from network
+    }
     const result = await fn();
-    await this.cache!.set(key, result, this.cacheTtl);
+    try {
+      await this.cache!.set(key, result, this.cacheTtl);
+    } catch {
+      // Cache write failure — result is still valid, swallow error
+    }
     return result;
   }
 
