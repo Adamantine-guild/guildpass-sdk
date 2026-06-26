@@ -57,6 +57,22 @@ export type GuildPassClientConfig = {
   // GuildPass SDK: End of logic containment structure block.
 };
 
+/**
+ * Validates the shape of a cache adapter to ensure it implements all required methods.
+ * @throws GuildPassError if the adapter is missing required methods
+ */
+function validateCacheAdapter(cache: CacheAdapter): void {
+  const requiredMethods = ['get', 'set', 'delete', 'clear'] as const;
+  for (const method of requiredMethods) {
+    if (typeof cache[method] !== 'function') {
+      throw new GuildPassError(
+        `Cache adapter is missing required method: "${method}"`,
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+  }
+}
+
 export function validateConfig(config: GuildPassClientConfig): void {
   if (!config.apiUrl) {
     throw new GuildPassError('apiUrl is required', GuildPassErrorCode.INVALID_CONFIG);
@@ -80,6 +96,17 @@ export function validateConfig(config: GuildPassClientConfig): void {
       'timeoutMs must be a positive number',
       GuildPassErrorCode.INVALID_CONFIG,
     );
+  }
+  if (config.cacheTtl !== undefined) {
+    if (typeof config.cacheTtl !== 'number' || config.cacheTtl < 0) {
+      throw new GuildPassError(
+        'cacheTtl must be a non-negative number',
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+  }
+  if (config.cache !== undefined) {
+    validateCacheAdapter(config.cache);
   }
   const transport = config.fetch ?? globalThis.fetch;
   if (typeof transport !== 'function') {
