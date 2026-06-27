@@ -37,6 +37,7 @@ describe('AccessService', () => {
     });
 
     expect(result).toEqual(accessResult);
+    // No options provided — pickRequestOptions returns undefined, so only params is sent.
     expect(get).toHaveBeenCalledWith('/access/check', {
       params: {
         address: mixedCaseAddress.toLowerCase(),
@@ -46,7 +47,7 @@ describe('AccessService', () => {
     });
   });
 
-  it('passes per-request timeout options to the access check request', async () => {
+  it('forwards timeoutMs to the access check request', async () => {
     const accessResult: AccessCheckResult = {
       hasAccess: true,
       walletAddress: validAddress,
@@ -67,13 +68,77 @@ describe('AccessService', () => {
     );
 
     expect(get).toHaveBeenCalledWith('/access/check', {
+      timeoutMs: 250,
       params: {
         address: mixedCaseAddress.toLowerCase(),
         guildId: 'guild_1',
         resourceId: 'resource_1',
       },
-      timeoutMs: 250,
-      retry: undefined,
+    });
+  });
+
+  it('forwards signal to the access check request', async () => {
+    const accessResult: AccessCheckResult = {
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      resourceId: 'resource_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
+    const { get, service } = createService(accessResult);
+    const controller = new AbortController();
+
+    await service.checkAccess(
+      {
+        walletAddress: mixedCaseAddress,
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
+      { signal: controller.signal },
+    );
+
+    expect(get).toHaveBeenCalledWith('/access/check', {
+      signal: controller.signal,
+      params: {
+        address: mixedCaseAddress.toLowerCase(),
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
+    });
+  });
+
+  it('forwards all three request options to the access check request', async () => {
+    const accessResult: AccessCheckResult = {
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      resourceId: 'resource_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
+    const { get, service } = createService(accessResult);
+    const controller = new AbortController();
+    const retryConfig = { maxRetries: 2 };
+
+    await service.checkAccess(
+      {
+        walletAddress: mixedCaseAddress,
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
+      { timeoutMs: 500, retry: retryConfig, signal: controller.signal },
+    );
+
+    expect(get).toHaveBeenCalledWith('/access/check', {
+      timeoutMs: 500,
+      retry: retryConfig,
+      signal: controller.signal,
+      params: {
+        address: mixedCaseAddress.toLowerCase(),
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
     });
   });
 
@@ -87,6 +152,7 @@ describe('AccessService', () => {
     });
 
     expect(result).toBe(true);
+    // No options — only params forwarded.
     expect(get).toHaveBeenCalledWith('/access/role-check', {
       params: {
         address: mixedCaseAddress.toLowerCase(),
@@ -96,7 +162,7 @@ describe('AccessService', () => {
     });
   });
 
-  it('passes per-request timeout options to role access checks', async () => {
+  it('forwards timeoutMs to role access checks', async () => {
     const { get, service } = createService({ hasRole: true });
 
     await service.checkRoleAccess(
@@ -109,13 +175,35 @@ describe('AccessService', () => {
     );
 
     expect(get).toHaveBeenCalledWith('/access/role-check', {
+      timeoutMs: 300,
       params: {
         address: mixedCaseAddress.toLowerCase(),
         guildId: 'guild_1',
         roleId: 'role_1',
       },
-      timeoutMs: 300,
-      retry: undefined,
+    });
+  });
+
+  it('forwards signal to role access checks', async () => {
+    const { get, service } = createService({ hasRole: true });
+    const controller = new AbortController();
+
+    await service.checkRoleAccess(
+      {
+        walletAddress: mixedCaseAddress,
+        guildId: 'guild_1',
+        roleId: 'role_1',
+      },
+      { signal: controller.signal },
+    );
+
+    expect(get).toHaveBeenCalledWith('/access/role-check', {
+      signal: controller.signal,
+      params: {
+        address: mixedCaseAddress.toLowerCase(),
+        guildId: 'guild_1',
+        roleId: 'role_1',
+      },
     });
   });
 
@@ -193,14 +281,44 @@ describe('AccessService', () => {
       { concurrency: 1, timeoutMs: 750 },
     );
 
+    // Batch-specific fields (concurrency, failFast) must NOT be forwarded to HttpClient.
     expect(get).toHaveBeenCalledWith('/access/check', {
+      timeoutMs: 750,
       params: {
         address: mixedCaseAddress.toLowerCase(),
         guildId: 'guild_1',
         resourceId: 'resource_1',
       },
-      timeoutMs: 750,
-      retry: undefined,
     });
+  });
+
+  it('does not leak batch-only keys to HttpClient when signal is also provided', async () => {
+    const accessResult: AccessCheckResult = {
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      resourceId: 'resource_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
+    const { get, service } = createService(accessResult);
+    const controller = new AbortController();
+
+    await service.checkAccessBatch(
+      [
+        {
+          walletAddress: mixedCaseAddress,
+          guildId: 'guild_1',
+          resourceId: 'resource_1',
+        },
+      ],
+      { concurrency: 2, failFast: true, timeoutMs: 500, signal: controller.signal },
+    );
+
+    const callArg = get.mock.calls[0][1] as Record<string, unknown>;
+    expect(callArg).not.toHaveProperty('concurrency');
+    expect(callArg).not.toHaveProperty('failFast');
+    expect(callArg).toHaveProperty('timeoutMs', 500);
+    expect(callArg).toHaveProperty('signal', controller.signal);
   });
 });

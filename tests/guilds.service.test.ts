@@ -33,7 +33,8 @@ describe('GuildsService', () => {
 
     await expect(service.getGuild({ guildId: 'guild_1' })).resolves.toEqual(guild);
 
-    expect(http.get).toHaveBeenCalledWith('/guilds/guild_1');
+    // No options provided — pickRequestOptions returns undefined as the second arg.
+    expect(http.get).toHaveBeenCalledWith('/guilds/guild_1', undefined);
   });
 
   it('fetches guild configuration from the config endpoint', async () => {
@@ -41,7 +42,7 @@ describe('GuildsService', () => {
 
     await expect(service.getGuildConfig({ guildId: 'guild_1' })).resolves.toEqual(guildConfig);
 
-    expect(http.get).toHaveBeenCalledWith('/guilds/guild_1/config');
+    expect(http.get).toHaveBeenCalledWith('/guilds/guild_1/config', undefined);
   });
 
   it('encodes guild IDs before adding them to endpoint paths', async () => {
@@ -50,8 +51,37 @@ describe('GuildsService', () => {
     await service.getGuild({ guildId: 'guild/with spaces' });
     await service.getGuildConfig({ guildId: 'guild/with spaces' });
 
-    expect(http.get).toHaveBeenNthCalledWith(1, '/guilds/guild%2Fwith%20spaces');
-    expect(http.get).toHaveBeenNthCalledWith(2, '/guilds/guild%2Fwith%20spaces/config');
+    expect(http.get).toHaveBeenNthCalledWith(1, '/guilds/guild%2Fwith%20spaces', undefined);
+    expect(http.get).toHaveBeenNthCalledWith(2, '/guilds/guild%2Fwith%20spaces/config', undefined);
+  });
+
+  it('forwards timeoutMs to getGuild', async () => {
+    http.get.mockResolvedValue(guild);
+
+    await service.getGuild({ guildId: 'guild_1' }, { timeoutMs: 1500 });
+
+    expect(http.get).toHaveBeenCalledWith('/guilds/guild_1', { timeoutMs: 1500 });
+  });
+
+  it('forwards signal to getGuild', async () => {
+    http.get.mockResolvedValue(guild);
+    const controller = new AbortController();
+
+    await service.getGuild({ guildId: 'guild_1' }, { signal: controller.signal });
+
+    expect(http.get).toHaveBeenCalledWith('/guilds/guild_1', { signal: controller.signal });
+  });
+
+  it('forwards timeoutMs and signal to getGuildConfig', async () => {
+    http.get.mockResolvedValue(guildConfig);
+    const controller = new AbortController();
+
+    await service.getGuildConfig({ guildId: 'guild_1' }, { timeoutMs: 2000, signal: controller.signal });
+
+    expect(http.get).toHaveBeenCalledWith('/guilds/guild_1/config', {
+      timeoutMs: 2000,
+      signal: controller.signal,
+    });
   });
 
   it('rejects invalid guild IDs before calling the API', async () => {

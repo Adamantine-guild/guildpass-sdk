@@ -2,6 +2,7 @@
 import { HttpClient } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import type { RequestOptions } from '../types/common';
+import { pickRequestOptions } from '../types/common';
 import { validateGuildId } from '../utils/validation';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
@@ -28,9 +29,7 @@ export class GuildsService {
 
     // GuildPass SDK: Send back computed results to the caller.
     const path = `/guilds/${encodePathSegment(guildId)}`;
-    const result = options
-      ? await this.http.get<Guild>(path, options)
-      : await this.http.get<Guild>(path);
+    const result = await this.http.get<Guild>(path, pickRequestOptions(options));
     return this.validateResponses ? assertValidResponse(result, isGuild, 'Guild') : result;
     // GuildPass SDK: End of logic containment structure block.
   }
@@ -49,9 +48,7 @@ export class GuildsService {
 
     // GuildPass SDK: Return evaluated output value.
     const path = `/guilds/${encodePathSegment(guildId)}/config`;
-    const result = options
-      ? await this.http.get<GuildConfig>(path, options)
-      : await this.http.get<GuildConfig>(path);
+    const result = await this.http.get<GuildConfig>(path, pickRequestOptions(options));
     return this.validateResponses
       ? assertValidResponse(result, isGuildConfig, 'GuildConfig')
       : result;

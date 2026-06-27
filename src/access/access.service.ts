@@ -2,6 +2,7 @@
 import { HttpClient } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import type { RequestOptions } from '../types/common';
+import { pickRequestOptions } from '../types/common';
 import {
   validateAddress,
   validateGuildId,
@@ -37,14 +38,13 @@ export class AccessService {
     // GuildPass SDK: Return evaluated output value.
     const result = await this.http.get<AccessCheckResult>(`/access/check`, {
       // GuildPass SDK: Execution block boundary initialization.
+      ...pickRequestOptions(options),
       params: {
         address: normaliseAddress(walletAddress),
         guildId,
         resourceId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
       // GuildPass SDK: End of logic containment structure block.
     });
 
@@ -115,16 +115,14 @@ export class AccessService {
 
     // GuildPass SDK: Define internal reference identifier.
     const result = await this.http.get<{ hasRole: boolean }>(`/access/role-check`, {
-      ...options,
       // GuildPass SDK: Execution block boundary initialization.
+      ...pickRequestOptions(options),
       params: {
         address: normaliseAddress(walletAddress),
         guildId,
         roleId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
       // GuildPass SDK: End of logic containment structure block.
     });
 
