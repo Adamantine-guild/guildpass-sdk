@@ -64,6 +64,10 @@ export type TokenBalancesBatchParams = {
   walletAddresses: string[];
   chainId?: number;
   contractAddress?: string;
+  /** Maximum number of RPC calls per JSON-RPC batch. Default: 100. */
+  maxBatchSize?: number;
+  /** Automatically split large requests into sequential batches. Default: false. */
+  chunk?: boolean;
 };
 
 /**
@@ -75,4 +79,8 @@ export type GuildOwnersBatchParams = {
   guildIds: string[];
   chainId?: number;
   contractAddress?: string;
+  /** Maximum number of RPC calls per JSON-RPC batch. Default: 100. */
+  maxBatchSize?: number;
+  /** Automatically split large requests into sequential batches. Default: false. */
+  chunk?: boolean;
 };
