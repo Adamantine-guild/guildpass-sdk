@@ -190,6 +190,60 @@ const owner = await client.contracts.getGuildOwner({
 });
 ```
 
+## Batch Contract Reads
+
+The batch helpers (`getMembershipTokenBalancesBatch`, `getGuildOwnersBatch`,
+`batchEthCall`) combine multiple contract reads into a single JSON-RPC batch
+request. By default, batches are limited to **100 calls** to stay within
+common RPC provider payload limits.
+
+If a batch exceeds the limit, the SDK throws a `GuildPassError` with code
+`INVALID_INPUT`:
+
+```typescript
+// Throws: Batch size 200 exceeds maxBatchSize 100. Use chunk: true to split requests.
+await client.contracts.getMembershipTokenBalancesBatch({
+  walletAddresses: twoHundredAddresses,
+});
+```
+
+### Automatic Chunking
+
+Set `chunk: true` to automatically split oversized batches into sequential
+requests of `maxBatchSize` each. Results are concatenated in order,
+preserving the original input positions. Per-item errors remain isolated
+across chunks.
+
+```typescript
+const results = await client.contracts.getMembershipTokenBalancesBatch({
+  walletAddresses: twoHundredAddresses,
+  chunk: true, // split into 2 × 100 sequential batch calls
+});
+// results.length === 200, order matches walletAddresses
+```
+
+### Tuning the Limit
+
+Override the default limit with `maxBatchSize`:
+
+```typescript
+const results = await client.contracts.getGuildOwnersBatch({
+  guildIds: largeGuildList,
+  maxBatchSize: 50, // conservative limit for rate-limited provider
+  chunk: true,
+});
+```
+
+The same options are available on the low-level `batchEthCall` method via
+its `options` parameter:
+
+```typescript
+await client.contracts.batchEthCall(calls, rpcUrl, {
+  maxBatchSize: 25,
+  chunk: true,
+});
+```
+
 ## Caching and Request Deduplication
 
 When a cache adapter is configured, the SDK automatically deduplicates concurrent
