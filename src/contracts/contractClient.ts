@@ -317,7 +317,7 @@ export class ContractClient {
   public async batchEthCall(
     calls: BatchEthCallItem[],
     rpcUrl: string,
-    options?: RequestOptions,
+    options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean },
   ): Promise<BatchItemResult[]> {
     if (!Array.isArray(calls) || calls.length === 0) {
       throw new GuildPassError(
@@ -331,6 +331,24 @@ export class ContractClient {
         'rpcUrl is required for batch contract calls',
         GuildPassErrorCode.INVALID_CONFIG,
       );
+    }
+
+    const limit = options?.maxBatchSize ?? 100;
+    if (calls.length > limit) {
+      if (!options?.chunk) {
+        throw new GuildPassError(
+          `Batch size ${calls.length} exceeds maxBatchSize ${limit}. Use chunk: true to split requests.`,
+          GuildPassErrorCode.INVALID_INPUT,
+        );
+      }
+
+      const results: BatchItemResult[] = [];
+      for (let i = 0; i < calls.length; i += limit) {
+        const chunkCalls = calls.slice(i, i + limit);
+        const chunkResults = await this.batchEthCall(chunkCalls, rpcUrl, { ...options, chunk: false });
+        results.push(...chunkResults);
+      }
+      return results;
     }
 
     // Validate each call descriptor up front
@@ -492,7 +510,11 @@ export class ContractClient {
       data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(addr)}`,
     }));
 
-    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl, options);
+    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl, {
+      ...options,
+      maxBatchSize: params.maxBatchSize,
+      chunk: params.chunk,
+    });
 
     // Decode uint256 results where successful
     return rawResults.map((item) => {
@@ -566,7 +588,11 @@ export class ContractClient {
       data: `${GET_GUILD_OWNER_SELECTOR}${encodeGuildId(gid)}`,
     }));
 
-    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl, options);
+    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl, {
+      ...options,
+      maxBatchSize: params.maxBatchSize,
+      chunk: params.chunk,
+    });
 
     // Decode address results where successful
     return rawResults.map((item) => {

@@ -1002,6 +1002,58 @@ describe('ContractClient Batch', () => {
     });
   });
 
+  it('should reject requests exceeding maxBatchSize when chunking is disabled', async () => {
+    const calls = Array(101).fill({ to: CONTRACT, data: '0x70a08231' + '0'.repeat(64) });
+    await expect(
+      client.contracts.batchEthCall(calls, RPC_URL),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_INPUT,
+      message: expect.stringContaining('exceeds maxBatchSize 100'),
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('should split requests into chunks when chunk: true is provided', async () => {
+    mockFetch()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000001' },
+            { jsonrpc: '2.0', id: 2, result: '0x0000000000000000000000000000000000000000000000000000000000000002' },
+          ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000003' },
+          ]),
+      });
+
+    const calls = Array(3).fill({ to: CONTRACT, data: '0x70a08231' + '0'.repeat(64) });
+    const results = await client.contracts.batchEthCall(calls, RPC_URL, { maxBatchSize: 2, chunk: true });
+
+    expect(results).toHaveLength(3);
+    expect(results[0].result).toContain('1');
+    expect(results[1].result).toContain('2');
+    expect(results[2].result).toContain('3');
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    const request1 = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+    const request2 = JSON.parse(mockFetch().mock.calls[1][1].body as string);
+
+    expect(request1).toHaveLength(2);
+    expect(request1[0].id).toBe(1);
+    expect(request1[1].id).toBe(2);
+
+    expect(request2).toHaveLength(1);
+    expect(request2[0].id).toBe(1);
+  });
+
   // ---------------------------------------------------------------------------
   // getMembershipTokenBalancesBatch
   // ---------------------------------------------------------------------------
@@ -1123,6 +1175,87 @@ describe('ContractClient Batch', () => {
     expect(requestBody[0].params[0].to).toBe(overrideContract);
   });
 
+  it('should reject oversized balance batch when chunking is disabled', async () => {
+    const wallets = Array(101)
+      .fill(null)
+      .map((_, i) => `0x${(i + 1).toString(16).padStart(40, '0')}`);
+
+    await expect(
+      client.contracts.getMembershipTokenBalancesBatch({
+        walletAddresses: wallets,
+      }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_INPUT,
+      message: expect.stringContaining('exceeds maxBatchSize'),
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('should chunk balance batch when chunk: true is set', async () => {
+    mockFetch()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: '0x000000000000000000000000000000000000000000000000000000000000000a' },
+            { jsonrpc: '2.0', id: 2, result: '0x0000000000000000000000000000000000000000000000000000000000000014' },
+          ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: '0x000000000000000000000000000000000000000000000000000000000000001e' },
+          ]),
+      });
+
+    const results = await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: [WALLET_A, WALLET_B, WALLET_C],
+      maxBatchSize: 2,
+      chunk: true,
+    });
+
+    expect(results).toHaveLength(3);
+    expect(results[0]).toMatchObject({ status: 'success', result: '10' });
+    expect(results[1]).toMatchObject({ status: 'success', result: '20' });
+    expect(results[2]).toMatchObject({ status: 'success', result: '30' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('should isolate per-item errors across chunked balance batches', async () => {
+    mockFetch()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: '0x000000000000000000000000000000000000000000000000000000000000000a' },
+            { jsonrpc: '2.0', id: 2, error: { code: -32000, message: 'execution reverted' } },
+          ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: '0x000000000000000000000000000000000000000000000000000000000000001e' },
+          ]),
+      });
+
+    const results = await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: [WALLET_A, WALLET_B, WALLET_C],
+      maxBatchSize: 2,
+      chunk: true,
+    });
+
+    expect(results).toHaveLength(3);
+    expect(results[0]).toMatchObject({ status: 'success', result: '10' });
+    expect(results[1]).toMatchObject({ status: 'error', error: 'execution reverted' });
+    expect(results[2]).toMatchObject({ status: 'success', result: '30' });
+  });
+
   // ---------------------------------------------------------------------------
   // getGuildOwnersBatch
   // ---------------------------------------------------------------------------
@@ -1187,6 +1320,36 @@ describe('ContractClient Batch', () => {
       code: GuildPassErrorCode.INVALID_INPUT,
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('should chunk guild owner batch when chunk: true is set', async () => {
+    mockFetch()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: `0x000000000000000000000000${OWNER.slice(2)}` },
+          ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { jsonrpc: '2.0', id: 1, result: `0x000000000000000000000000${WALLET_A.slice(2)}` },
+          ]),
+      });
+
+    const results = await client.contracts.getGuildOwnersBatch({
+      guildIds: ['guild_1', 'guild_2'],
+      maxBatchSize: 1,
+      chunk: true,
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({ status: 'success', result: OWNER });
+    expect(results[1]).toMatchObject({ status: 'success', result: WALLET_A });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('should report malformed individual results as errors', async () => {
