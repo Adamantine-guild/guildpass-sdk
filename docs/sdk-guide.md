@@ -388,6 +388,8 @@ const client = new GuildPassClient({
 
 The hook receives a `CacheErrorHookPayload` containing the operation name (`get`, `set`, `delete`, `clear`), the affected `key` (if any), and the original `error`.
 
+For full details on implementing custom cache adapters — including TTL semantics, `deleteByPrefix`, serialisation, and production examples — see the [Cache Adapters Guide](./cache-adapters.md).
+
 ### Security Note
 
 The SDK ensures that sensitive information such as API keys and authorization

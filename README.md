@@ -133,7 +133,7 @@ const guild = await client.guilds.getGuild({ guildId: 'prime-guild' });
 
 ### Custom adapter (e.g. Redis)
 
-Implement the `CacheAdapter` interface and pass it in:
+Implement the `CacheAdapter` interface and pass it in. A minimal example:
 
 ```typescript
 import { CacheAdapter } from '@guildpass/sdk';
@@ -158,13 +158,9 @@ const redisAdapter: CacheAdapter = {
     await redis.flushDb();
   },
 };
-
-const client = new GuildPassClient({
-  apiUrl: 'https://api.guildpass.xyz',
-  cache: redisAdapter,
-  cacheTtl: 30_000,
-});
 ```
+
+For production adapters — including TTL semantics, prefix deletion, error isolation, serialisation expectations, and a full Redis example with `deleteByPrefix` — see the [Cache Adapters Guide](./docs/cache-adapters.md).
 
 ### Cache invalidation
 
@@ -206,6 +202,7 @@ For more detailed guides and API references, check out:
 - [SDK Usage Guide](./docs/sdk-guide.md)
 - [Full API Reference](./docs/api-reference.md)
 - [Integration Guide](./docs/integration-guide.md)
+- [Cache Adapters Guide](./docs/cache-adapters.md)
 
 ## 🏗️ Development
 
