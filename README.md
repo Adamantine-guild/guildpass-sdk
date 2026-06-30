@@ -38,7 +38,7 @@ GuildPass is a Web3 membership and access-control protocol designed for token-ga
 - **⚡ Pluggable Caching**: Built-in TTL cache with optional custom adapter support (Redis, etc.).
 - **🧩 Modular Architecture**: Clean service-based design for minimal bundle size.
 - **💪 Type Safe**: First-class TypeScript support with comprehensive definitions.
-- **🌐 Universal**: Seamless integration with Node.js, modern browsers, and Edge runtimes.
+- **🌐 Universal**: Seamless integration with Node.js (18+), modern browsers (JSDOM verified), and Edge runtimes (V8/Cloudflare Workers verified). Fully tested in continuous integration across all environments.
 
 ## 📦 Installation
 

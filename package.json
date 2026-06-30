@@ -42,6 +42,7 @@
     "build": "tsup",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:compat": "vitest run --workspace=browser-jsdom --workspace=edge",
     "test:smoke": "node tests/smoke/esm.smoke.mjs && node tests/smoke/cjs.smoke.cjs && tsc -p tsconfig.smoke.json",
     "lint": "eslint .",
     "format": "prettier --write .",
