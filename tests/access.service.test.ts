@@ -67,13 +67,73 @@ describe('AccessService', () => {
     );
 
     expect(get).toHaveBeenCalledWith('/access/check', {
+      timeoutMs: 250,
       params: {
         address: mixedCaseAddress.toLowerCase(),
         guildId: 'guild_1',
         resourceId: 'resource_1',
       },
-      timeoutMs: 250,
-      retry: undefined,
+    });
+  });
+
+  it('passes signal option to the access check request', async () => {
+    const accessResult: AccessCheckResult = {
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      resourceId: 'resource_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
+    const { get, service } = createService(accessResult);
+    const controller = new AbortController();
+
+    await service.checkAccess(
+      {
+        walletAddress: mixedCaseAddress,
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
+      { signal: controller.signal },
+    );
+
+    expect(get).toHaveBeenCalledWith('/access/check', {
+      signal: controller.signal,
+      params: {
+        address: mixedCaseAddress.toLowerCase(),
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
+    });
+  });
+
+  it('passes retry option to the access check request', async () => {
+    const accessResult: AccessCheckResult = {
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      resourceId: 'resource_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
+    const { get, service } = createService(accessResult);
+
+    await service.checkAccess(
+      {
+        walletAddress: mixedCaseAddress,
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
+      { retry: { maxRetries: 2 } },
+    );
+
+    expect(get).toHaveBeenCalledWith('/access/check', {
+      retry: { maxRetries: 2 },
+      params: {
+        address: mixedCaseAddress.toLowerCase(),
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
     });
   });
 
@@ -109,13 +169,35 @@ describe('AccessService', () => {
     );
 
     expect(get).toHaveBeenCalledWith('/access/role-check', {
+      timeoutMs: 300,
       params: {
         address: mixedCaseAddress.toLowerCase(),
         guildId: 'guild_1',
         roleId: 'role_1',
       },
-      timeoutMs: 300,
-      retry: undefined,
+    });
+  });
+
+  it('passes signal option to role access checks', async () => {
+    const { get, service } = createService({ hasRole: true });
+    const controller = new AbortController();
+
+    await service.checkRoleAccess(
+      {
+        walletAddress: mixedCaseAddress,
+        guildId: 'guild_1',
+        roleId: 'role_1',
+      },
+      { signal: controller.signal },
+    );
+
+    expect(get).toHaveBeenCalledWith('/access/role-check', {
+      signal: controller.signal,
+      params: {
+        address: mixedCaseAddress.toLowerCase(),
+        guildId: 'guild_1',
+        roleId: 'role_1',
+      },
     });
   });
 
@@ -190,17 +272,53 @@ describe('AccessService', () => {
           resourceId: 'resource_1',
         },
       ],
-      { concurrency: 1, timeoutMs: 750 },
+      { concurrency: 1, timeoutMs: 750, signal: undefined, retry: undefined },
     );
 
     expect(get).toHaveBeenCalledWith('/access/check', {
+      timeoutMs: 750,
+      signal: undefined,
+      retry: undefined,
       params: {
         address: mixedCaseAddress.toLowerCase(),
         guildId: 'guild_1',
         resourceId: 'resource_1',
       },
-      timeoutMs: 750,
+    });
+  });
+
+  it('passes signal option through batch access checks', async () => {
+    const accessResult: AccessCheckResult = {
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      resourceId: 'resource_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
+    const { get, service } = createService(accessResult);
+    const controller = new AbortController();
+
+    await service.checkAccessBatch(
+      [
+        {
+          walletAddress: mixedCaseAddress,
+          guildId: 'guild_1',
+          resourceId: 'resource_1',
+        },
+      ],
+      { concurrency: 1, signal: controller.signal },
+    );
+
+    expect(get).toHaveBeenCalledWith('/access/check', {
+      signal: controller.signal,
+      timeoutMs: undefined,
       retry: undefined,
+      params: {
+        address: mixedCaseAddress.toLowerCase(),
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      },
     });
   });
 });
