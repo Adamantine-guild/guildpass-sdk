@@ -12,11 +12,7 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
+    "outDir": "dist"
   },
   "include": ["src/**/*", "tests/**/*", "examples/**/*"],
   "exclude": ["node_modules", "dist", "tests/smoke"]

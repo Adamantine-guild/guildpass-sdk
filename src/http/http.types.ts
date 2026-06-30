@@ -22,10 +22,37 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type ClientMetadata = {
+  /**
+   * SDK version to send in the `X-GuildPass-SDK-Version` header.
+   * Defaults to the bundled SDK version. Set to an empty string to omit
+   * only the version header (client name will still be sent if provided).
+   */
+  sdkVersion?: string;
+  /**
+   * Optional client or integration name (e.g. `"my-dapp"`, `"discord-bot"`).
+   * Sent as `X-GuildPass-Client` alongside the SDK version.
+   */
+  clientName?: string;
+  /**
+   * Optional client version string sent as part of `X-GuildPass-Client`.
+   * When omitted, only the client name is sent (if provided).
+   */
+  clientVersion?: string;
+  /**
+   * Whether to send client metadata headers (`X-GuildPass-SDK-Version`,
+   * `X-GuildPass-Client`) on GuildPass API-relative requests.
+   * Defaults to `true`. Set to `false` to disable all metadata headers.
+   */
+  sendClientMetadata?: boolean;
+};
+
 export type HttpClientConfig = {
   retry?: RetryConfig;
   hooks?: HttpHooks;
   fetch?: FetchLike;
+  /** Optional client metadata attached as headers on API-relative requests. */
+  metadata?: ClientMetadata;
 };
 
 // GuildPass SDK: Exported function execution unit.
@@ -42,8 +69,10 @@ export type HttpRequestOptions = {
   // GuildPass SDK: End of logic containment structure block.
 };
 
-// GuildPass SDK: Simplified options for service methods.
-export type RequestOptions = Pick<HttpRequestOptions, 'timeoutMs' | 'signal'>;
+// The public, service-method request options live in ../types/common
+// (`RequestOptions`, which also carries `retry`). This module intentionally does
+// NOT redeclare a second `RequestOptions` type — having two same-named types in
+// different modules is the import conflict this removal resolves (see #83).
 
 // GuildPass SDK: Exported component definition.
 export type HttpResponse<T = any> = {
@@ -73,9 +102,20 @@ export type ErrorHookPayload = RequestHookPayload & {
   durationMs: number;
 };
 
+export type CacheErrorHookPayload = {
+  /** The cache operation that failed. */
+  operation: 'get' | 'set' | 'delete' | 'clear';
+  /** The cache key involved, if applicable. */
+  key?: string;
+  /** The error thrown by the cache adapter. */
+  error: Error;
+};
+
 // GuildPass SDK: Lifecycle hooks interface.
 export interface HttpHooks {
   onRequest?: (payload: RequestHookPayload) => void | Promise<void>;
   onResponse?: (payload: ResponseHookPayload) => void | Promise<void>;
   onError?: (payload: ErrorHookPayload) => void | Promise<void>;
+  /** Called when a cache adapter operation fails. Cache failures are non-fatal. */
+  onCacheError?: (payload: CacheErrorHookPayload) => void | Promise<void>;
 }

@@ -8,6 +8,8 @@ export type RequestOptions = {
   timeoutMs?: number;
   /** Override retry behavior for this service call. */
   retry?: RetryConfig;
+  /** External AbortSignal. Aborts the underlying fetch when fired; composes with the timeout. */
+  signal?: AbortSignal;
 };
 
 // GuildPass SDK: Core operational type definition.

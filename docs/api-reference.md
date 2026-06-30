@@ -135,6 +135,77 @@ await client.contracts.getMembershipTokenBalance({
 - **Contract call**: `eth_call` to `balanceOf(address)`
 - **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config, `INVALID_ADDRESS` for invalid wallet or contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
 
+### `getMembershipTokenBalancesBatch(params: TokenBalancesBatchParams)`
+
+Fetches membership token balances for multiple wallet addresses in a single
+JSON-RPC batch request. Preserves the input order of wallet addresses.
+
+```typescript
+await client.contracts.getMembershipTokenBalancesBatch({
+  walletAddresses: [
+    '0x1234567890123456789012345678901234567890',
+    '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+  ],
+  chainId: 8453, // optional chain override
+  contractAddress: '0x0000000000000000000000000000000000000000', // optional contract override
+  maxBatchSize: 100, // optional limit to avoid provider payload limits (default 100)
+  chunk: true, // optional automatic splitting
+});
+```
+
+- **Returns**: `Promise<BatchItemResult[]>` — ordered results, one per input address.
+  Each result has `{ status: 'success', result: '<balance-as-string>' }` or
+  `{ status: 'error', error: '<reason>' }`.
+- **Requires**: same config as `getMembershipTokenBalance`
+- **Contract call**: single JSON-RPC batch of `eth_call` to `balanceOf(address)`
+- **Partial failures**: a failed address is reported individually; other addresses are unaffected
+- **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_ADDRESS` if any address is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
+
+### `getGuildOwnersBatch(params: GuildOwnersBatchParams)`
+
+Fetches owners for multiple guild IDs in a single JSON-RPC batch request.
+Preserves the input order of guild IDs.
+
+```typescript
+await client.contracts.getGuildOwnersBatch({
+  guildIds: ['guild_1', 'guild_2', '42'],
+  chainId: 8453, // optional chain override
+  contractAddress: '0x0000000000000000000000000000000000000000', // optional contract override
+  maxBatchSize: 100, // optional limit (default 100)
+  chunk: true, // automatically split if guildIds exceeds maxBatchSize
+});
+```
+
+- **Returns**: `Promise<BatchItemResult[]>` — ordered results, one per input guild ID.
+  Each result has `{ status: 'success', result: '<owner-address>' }` or
+  `{ status: 'error', error: '<reason>' }`.
+- **Requires**: same config as `getGuildOwner`
+- **Contract call**: single JSON-RPC batch of `eth_call` to `getGuildOwner(bytes32)`
+- **Partial failures**: a failed guild is reported individually; other guilds are unaffected
+- **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_INPUT` if any guild ID is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
+
+### `batchEthCall(calls: BatchEthCallItem[], rpcUrl: string, options?: RequestOptions & { maxBatchSize?: number, chunk?: boolean })`
+
+Low-level helper for sending multiple arbitrary `eth_call` requests in one
+JSON-RPC batch. Returns ordered per-item results. By default, it limits batches to 100 calls and throws an error if exceeded, unless `chunk: true` is passed.
+
+```typescript
+const results = await client.contracts.batchEthCall(
+  [
+    { to: '0xContractA', data: '0x70a08231...' },
+    { to: '0xContractB', data: '0xab4511dc...' },
+  ],
+  'https://rpc.example.com',
+  { maxBatchSize: 50, chunk: true }
+);
+```
+
+- **Returns**: `Promise<BatchItemResult[]>` — ordered results, one per input call
+- **Partial failures**: each call is individually resolved; errors do not affect sibling calls
+- **Input validation**: each `to` address is validated as an Ethereum address before the RPC request is built
+- **Errors**: throws `INVALID_INPUT` for empty/ invalid call descriptors, `INVALID_CONFIG` for missing `rpcUrl`, `INVALID_ADDRESS` for malformed `to` addresses, `HTTP_ERROR` for HTTP or RPC-level failures, `INVALID_RESPONSE` for non-array or structurally malformed batch responses
+- **Provider compatibility**: works with any JSON-RPC provider that supports [batch requests](https://www.jsonrpc.org/specification#batch)
+
 ---
 
 ## Response Validation

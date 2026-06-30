@@ -1,4 +1,4 @@
-// GuildPass SDK: Import external module dependencies.
+﻿// GuildPass SDK: Import external module dependencies.
 import { HttpClient } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import {
@@ -61,6 +61,7 @@ export class AccessService {
     items: AccessCheckParams[],
     options?: AccessCheckBatchOptions & RequestOptions
   ): Promise<AccessCheckBatchResult[]> {
+    this.validateBatchOptions(items, options);
     const concurrency = options?.concurrency ?? 5;
     const failFast = options?.failFast ?? false;
 
@@ -102,6 +103,19 @@ export class AccessService {
    * Checks whether a wallet has a specific role in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
+  private validateBatchOptions(items: AccessCheckParams[], options?: AccessCheckBatchOptions): void {
+    const concurrency = options?.concurrency ?? 5;
+    if (!Number.isInteger(concurrency) || concurrency < 1 || !Number.isFinite(concurrency)) {
+      throw new Error("concurrency must be a positive finite integer");
+    }
+    if (concurrency > 50) {
+      throw new Error("concurrency must not exceed 50");
+    }
+    if (!items || items.length === 0) {
+      throw new Error("items array must not be empty");
+    }
+  }
+
   public async checkRoleAccess(
     params: RoleAccessCheckParams,
     options?: RequestOptions,
@@ -134,3 +148,4 @@ export class AccessService {
   }
   // GuildPass SDK: End of logic containment structure block.
 }
+

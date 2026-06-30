@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to validate (for example, v0.1.0). Defaults to the current ref name.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Run all checks and npm publish in dry-run mode without publishing.'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    name: Build, test, and publish
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && -n "${DISPATCH_TAG}" ]]; then
+            TAG="${DISPATCH_TAG}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          VERSION="${TAG#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must look like v1.2.3 or v1.2.3-beta.1; got ${TAG}." >&2
+            exit 1
+          fi
+
+          if [[ "${VERSION}" != "${PACKAGE_VERSION}" ]]; then
+            echo "Tag ${TAG} does not match package.json version ${PACKAGE_VERSION}." >&2
+            exit 1
+          fi
+
+          if ! grep -Eq "^## \\[${VERSION}\\]" CHANGELOG.md; then
+            echo "CHANGELOG.md must include a release entry for ${VERSION}." >&2
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test:run
+
+      - name: Build
+        run: pnpm build
+
+      - name: Smoke tests
+        run: pnpm test:smoke
+
+      - name: Generate docs
+        run: pnpm docs
+
+      - name: Validate package metadata
+        run: pnpm validate
+
+      - name: Pack preview
+        run: pnpm pack --pack-destination ./artifacts
+
+      - name: Publish to npm
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Dry-run publish preview
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm publish --dry-run --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -133,7 +133,7 @@ const guild = await client.guilds.getGuild({ guildId: 'prime-guild' });
 
 ### Custom adapter (e.g. Redis)
 
-Implement the `CacheAdapter` interface and pass it in:
+Implement the `CacheAdapter` interface and pass it in. A minimal example:
 
 ```typescript
 import { CacheAdapter } from '@guildpass/sdk';
@@ -158,13 +158,9 @@ const redisAdapter: CacheAdapter = {
     await redis.flushDb();
   },
 };
-
-const client = new GuildPassClient({
-  apiUrl: 'https://api.guildpass.xyz',
-  cache: redisAdapter,
-  cacheTtl: 30_000,
-});
 ```
+
+For production adapters — including TTL semantics, prefix deletion, error isolation, serialisation expectations, and a full Redis example with `deleteByPrefix` — see the [Cache Adapters Guide](./docs/cache-adapters.md).
 
 ### Cache invalidation
 
@@ -206,6 +202,7 @@ For more detailed guides and API references, check out:
 - [SDK Usage Guide](./docs/sdk-guide.md)
 - [Full API Reference](./docs/api-reference.md)
 - [Integration Guide](./docs/integration-guide.md)
+- [Cache Adapters Guide](./docs/cache-adapters.md)
 
 ## 🏗️ Development
 
@@ -239,7 +236,35 @@ pnpm docs
 
 # Validate package metadata (publint — catches malformed exports, missing files, etc.)
 pnpm validate
+
+# Run the same quality gates used by releases
+pnpm release:check
 ```
+
+## 🚢 Release process
+
+Releases are automated by the [`Release`](./.github/workflows/release.yml) GitHub Actions workflow. Maintainers can test the workflow safely with **Run workflow** by leaving `dry_run` enabled; tag pushes publish to npm only after all quality gates pass.
+
+### Quality gates
+
+The workflow installs dependencies with `pnpm install --frozen-lockfile` and then runs:
+
+1. `pnpm lint`
+2. `pnpm typecheck`
+3. `pnpm test:run`
+4. `pnpm build`
+5. `pnpm test:smoke`
+6. `pnpm docs`
+7. `pnpm validate`
+8. `pnpm pack --pack-destination ./artifacts`
+
+### Versioning and changelog
+
+Release tags must use the package version prefixed with `v`, for example `v0.1.0` for package version `0.1.0`. Before creating a tag, update `package.json` and add a matching `## [x.y.z]` entry to `CHANGELOG.md`; the workflow fails if the tag and package version do not match or if the changelog entry is missing.
+
+### Publishing and provenance
+
+Production publishing runs only for pushed `v*.*.*` tags. The workflow uses `npm publish --provenance --access public`, requires the `id-token: write` permission for npm provenance, and reads the npm automation token from the `NPM_TOKEN` repository or environment secret. Do not hard-code maintainer tokens in the repository. The workflow is assigned to the `npm` GitHub environment so maintainers can add environment protection rules before publishing.
 
 ## 🗺️ Roadmap
 

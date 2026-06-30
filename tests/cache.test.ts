@@ -189,7 +189,7 @@ describe('GuildPassClient – cache integration', () => {
     vi.useRealTimers();
   });
 
-  it('caches access checks with the correct composite key', async () => {
+  it('caches access checks with the correct composite key (normalised to lowercase)', async () => {
     const adapter = buildMockAdapter();
     const setSpy = vi.spyOn(adapter, 'set');
 
@@ -203,10 +203,54 @@ describe('GuildPassClient – cache integration', () => {
     });
 
     expect(setSpy).toHaveBeenCalledWith(
-      'access:checkAccess:g1:res1:0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      'access:checkAccess:g1:res1:0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
       mockAccess,
       undefined,
     );
+  });
+
+  it('mixed-case and lowercase wallet produce the same cache key (cache hit)', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await client.access.checkAccess({
+      walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      guildId: 'g1',
+      resourceId: 'res1',
+    });
+
+    // Second call with the same address but different casing — must be a cache hit
+    await client.access.checkAccess({
+      walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+      guildId: 'g1',
+      resourceId: 'res1',
+    });
+
+    expect(httpGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidateWalletCache normalises the address before building the deletion prefix', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const addr1 = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
+    const addr2 = '0xabcdef1234567890abcdef1234567890abcdef12';
+    // Store entries under the normalised (lowercase) prefix
+    await adapter.set(`wallet:${addr1}:balance`, 100);
+    await adapter.set(`wallet:${addr1}:nonce`, 5);
+    await adapter.set(`wallet:${addr2}:balance`, 200);
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    // Invalidate with mixed-case address — should still find the normalised keys
+    await client.invalidateWalletCache('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+
+    expect(await adapter.get(`wallet:${addr1}:balance`)).toBeNull();
+    expect(await adapter.get(`wallet:${addr1}:nonce`)).toBeNull();
+    expect(await adapter.get(`wallet:${addr2}:balance`)).toBe(200);
+  });
+
+  it('invalidateWalletCache throws for an invalid address', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    await expect(client.invalidateWalletCache('not-an-address')).rejects.toThrow();
   });
 
   it('invalidateGuildCache removes all guild-scoped keys', async () => {
@@ -245,19 +289,21 @@ describe('GuildPassClient – cache integration', () => {
 
   it('invalidateWalletCache uses deleteByPrefix when adapter supports it', async () => {
     const adapter = new InMemoryCacheAdapter();
-    await adapter.set('wallet:0xabc:balance', 100);
-    await adapter.set('wallet:0xabc:nonce', 5);
-    await adapter.set('wallet:0xdef:balance', 200);
+    const addrA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const addrB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    await adapter.set(`wallet:${addrA}:balance`, 100);
+    await adapter.set(`wallet:${addrA}:nonce`, 5);
+    await adapter.set(`wallet:${addrB}:balance`, 200);
     await adapter.set('guilds:getGuild:g1', { id: 'g1' });
 
     const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
-    await client.invalidateWalletCache('0xabc');
+    await client.invalidateWalletCache(addrA);
 
-    // 0xabc wallet entries removed
-    expect(await adapter.get('wallet:0xabc:balance')).toBeNull();
-    expect(await adapter.get('wallet:0xabc:nonce')).toBeNull();
-    // 0xdef wallet entries preserved
-    expect(await adapter.get('wallet:0xdef:balance')).toBe(200);
+    // addrA wallet entries removed
+    expect(await adapter.get(`wallet:${addrA}:balance`)).toBeNull();
+    expect(await adapter.get(`wallet:${addrA}:nonce`)).toBeNull();
+    // addrB wallet entries preserved
+    expect(await adapter.get(`wallet:${addrB}:balance`)).toBe(200);
     // Guild cache preserved
     expect(await adapter.get('guilds:getGuild:g1')).toEqual({ id: 'g1' });
   });
@@ -320,5 +366,74 @@ describe('GuildPassClient – cache integration', () => {
     const httpSpy = vi.spyOn(client['http'] as any, 'get');
     await client.guilds.getGuild({ guildId: 'prime-guild' });
     expect(httpSpy).not.toHaveBeenCalled();
+  });
+
+  describe('Resilience - cache failures', () => {
+    const mockGuild = { id: 'g1', name: 'G1', ownerAddress: '0x1', chainId: 1 };
+
+    it('falls back to network if cache.get() fails', async () => {
+      const adapter = buildMockAdapter();
+      vi.spyOn(adapter, 'get').mockRejectedValue(new Error('Cache Get Failure'));
+
+      const onCacheError = vi.fn();
+      const client = new GuildPassClient({
+        ...BASE_CONFIG,
+        cache: adapter,
+        hooks: { onCacheError }
+      });
+
+      const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
+
+      const result = await client.guilds.getGuild({ guildId: 'g1' });
+
+      expect(result).toEqual(mockGuild);
+      expect(httpSpy).toHaveBeenCalledTimes(1);
+      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
+        operation: 'get',
+        key: 'guilds:getGuild:g1',
+        error: expect.any(Error)
+      }));
+    });
+
+    it('still returns response if cache.set() fails', async () => {
+      const adapter = buildMockAdapter();
+      vi.spyOn(adapter, 'set').mockRejectedValue(new Error('Cache Set Failure'));
+
+      const onCacheError = vi.fn();
+      const client = new GuildPassClient({
+        ...BASE_CONFIG,
+        cache: adapter,
+        hooks: { onCacheError }
+      });
+
+      vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
+
+      const result = await client.guilds.getGuild({ guildId: 'g1' });
+
+      expect(result).toEqual(mockGuild);
+      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
+        operation: 'set',
+        key: 'guilds:getGuild:g1',
+        error: expect.any(Error)
+      }));
+    });
+
+    it('isolates failures in invalidateGuildCache', async () => {
+      const adapter = buildMockAdapter();
+      vi.spyOn(adapter, 'delete').mockRejectedValue(new Error('Cache Delete Failure'));
+
+      const onCacheError = vi.fn();
+      const client = new GuildPassClient({
+        ...BASE_CONFIG,
+        cache: adapter,
+        hooks: { onCacheError }
+      });
+
+      await expect(client.invalidateGuildCache('g1')).resolves.toBeUndefined();
+      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
+        operation: 'delete',
+        error: expect.any(Error)
+      }));
+    });
   });
 });

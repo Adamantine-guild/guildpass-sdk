@@ -16,5 +16,6 @@ export enum GuildPassErrorCode {
   INVALID_RESPONSE = 'INVALID_RESPONSE',
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
   ABORTED = 'ABORTED',
+  CACHE_ERROR = 'CACHE_ERROR',
   // GuildPass SDK: End of logic containment structure block.
 }

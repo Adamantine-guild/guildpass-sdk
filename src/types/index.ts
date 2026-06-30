@@ -7,6 +7,7 @@ export * from '../contracts/contract.types';
 export * from '../config/sdkConfig';
 export * from '../config/networkConfig';
 export type {
+  CacheErrorHookPayload,
   ErrorHookPayload,
   FetchLike,
   HttpClientConfig,
