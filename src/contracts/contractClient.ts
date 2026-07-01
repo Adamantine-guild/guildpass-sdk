@@ -19,6 +19,7 @@ import {
 import {
   BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
+  DECIMALS_SELECTOR, // <-- ADD THIS IMPORT
   HEX_32_BYTES_LENGTH,
   decodeAddressResult,
   decodeUint256Result,
@@ -30,15 +31,39 @@ import { GuildPassClientConfig, resolveChainConfig } from '../config/sdkConfig';
 import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
 
+// Local pure helper function for exact decimal string shift math
+export const formatUnits = (value: string, decimals: number): string => {
+  // Guard against negative decimal counts or non-integers
+  if (decimals < 0 || !Number.isInteger(decimals)) {
+    throw new Error('Decimals must be a non-negative integer');
+  }
+
+  // Guard against invalid base unit numeric strings (letters or pre-existing decimals)
+  if (!/^\d+$/.test(value)) {
+    throw new Error('Value must be a valid big integer string containing only digits');
+  }
+
+  if (value === '0' || !value) return '0';
+
+  const padded = value.padStart(decimals + 1, '0');
+  const loc = padded.length - decimals;
+  const whole = padded.slice(0, loc);
+  let fraction = padded.slice(loc).replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole;
+};
+
 export {
   BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
+  DECIMALS_SELECTOR, // <-- ADD THIS EXPORT
   HEX_32_BYTES_LENGTH,
   decodeAddressResult,
   decodeUint256Result,
   encodeAddressArgument,
   encodeGuildId,
 };
+
+
 
 type JsonRpcSuccess = {
   result?: unknown;
