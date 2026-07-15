@@ -8,7 +8,7 @@ on:
 
 jobs:
   verify:
-    name: Build & Verify API Surface
+    name: Build & Verify SDK Runtime
     runs-on: ubuntu-latest
 
     steps:
@@ -31,6 +31,9 @@ jobs:
 
       - name: Run Build
         run: pnpm build
+
+      - name: Run Unit & Compatibility Tests
+        run: pnpm test:run
 
       - name: Verify Public API Report
         run: pnpm api-report:ci
