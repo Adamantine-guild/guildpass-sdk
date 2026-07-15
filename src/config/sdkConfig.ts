@@ -78,7 +78,10 @@ export type GuildPassClientConfig = {
 
 export function validateConfig(config: GuildPassClientConfig): void {
   if (!config.apiUrl) {
-    throw new GuildPassError('apiUrl is required', GuildPassErrorCode.INVALID_CONFIG);
+    throw new GuildPassError('apiUrl is required', GuildPassErrorCode.INVALID_CONFIG, undefined, {
+      field: 'apiUrl',
+      reason: 'required',
+    });
   }
 
   try {
@@ -90,6 +93,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throw new GuildPassError(
       `Invalid apiUrl: "${config.apiUrl}"`,
       GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      { field: 'apiUrl', reason: 'format' },
     );
   }
 
@@ -100,10 +105,12 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throw new GuildPassError(
       'timeoutMs must be a positive number',
       GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      { field: 'timeoutMs', reason: 'invalid_type' },
     );
   }
 
-  // INSERT CACHE VALIDATION 
+  // INSERT CACHE VALIDATION
   if (
     config.cacheTtl !== undefined &&
     (typeof config.cacheTtl !== 'number' || config.cacheTtl < 0 || !Number.isFinite(config.cacheTtl))
@@ -111,6 +118,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throw new GuildPassError(
       'cacheTtl must be a non-negative finite number (milliseconds)',
       GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      { field: 'cacheTtl', reason: 'invalid_range' },
     );
   }
 
@@ -122,6 +131,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
         throw new GuildPassError(
           `cache adapter must implement ${method}(): function`,
           GuildPassErrorCode.INVALID_CONFIG,
+          undefined,
+          { field: 'cache', reason: 'missing_method' },
         );
       }
     }
@@ -136,6 +147,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throw new GuildPassError(
       'sendClientMetadata must be a boolean',
       GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      { field: 'sendClientMetadata', reason: 'invalid_type' },
     );
   }
 
@@ -146,6 +159,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throw new GuildPassError(
       'clientName must be a string',
       GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      { field: 'clientName', reason: 'invalid_type' },
     );
   }
 
@@ -156,6 +171,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throw new GuildPassError(
       'clientVersion must be a string',
       GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      { field: 'clientVersion', reason: 'invalid_type' },
     );
   }
   // END METADATA VALIDATION
@@ -165,26 +182,41 @@ export function validateConfig(config: GuildPassClientConfig): void {
     const r = config.retry;
 
     if (r.maxRetries !== undefined && (typeof r.maxRetries !== 'number' || !Number.isFinite(r.maxRetries) || r.maxRetries < 0)) {
-      throw new GuildPassError('retry.maxRetries must be a non-negative finite number', GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassError('retry.maxRetries must be a non-negative finite number', GuildPassErrorCode.INVALID_CONFIG, undefined, {
+        field: 'retry.maxRetries',
+        reason: 'invalid_range',
+      });
     }
 
     if (r.baseDelayMs !== undefined && (typeof r.baseDelayMs !== 'number' || !Number.isFinite(r.baseDelayMs) || r.baseDelayMs < 0)) {
-      throw new GuildPassError('retry.baseDelayMs must be a non-negative finite number', GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassError('retry.baseDelayMs must be a non-negative finite number', GuildPassErrorCode.INVALID_CONFIG, undefined, {
+        field: 'retry.baseDelayMs',
+        reason: 'invalid_range',
+      });
     }
 
     if (r.maxDelayMs !== undefined && (typeof r.maxDelayMs !== 'number' || !Number.isFinite(r.maxDelayMs) || r.maxDelayMs < 0)) {
-      throw new GuildPassError('retry.maxDelayMs must be a non-negative finite number', GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassError('retry.maxDelayMs must be a non-negative finite number', GuildPassErrorCode.INVALID_CONFIG, undefined, {
+        field: 'retry.maxDelayMs',
+        reason: 'invalid_range',
+      });
     }
 
     if (r.baseDelayMs !== undefined && r.maxDelayMs !== undefined && r.maxDelayMs < r.baseDelayMs) {
-      throw new GuildPassError('retry.maxDelayMs cannot be less than baseDelayMs', GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassError('retry.maxDelayMs cannot be less than baseDelayMs', GuildPassErrorCode.INVALID_CONFIG, undefined, {
+        field: 'retry.maxDelayMs',
+        reason: 'invalid_range',
+      });
     }
 
     if (r.retryableStatuses !== undefined && (!Array.isArray(r.retryableStatuses) || r.retryableStatuses.length === 0 || r.retryableStatuses.some((s) => typeof s !== 'number' || !Number.isFinite(s)))) {
-      throw new GuildPassError('retryableStatuses must be a non-empty array of valid HTTP status numbers', GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassError('retryableStatuses must be a non-empty array of valid HTTP status numbers', GuildPassErrorCode.INVALID_CONFIG, undefined, {
+        field: 'retry.retryableStatuses',
+        reason: 'invalid_format',
+      });
     }
   }
-  // END RETRY VALIDATION 
+  // END RETRY VALIDATION
 
   validateChainsConfig(config.chains);
 
@@ -193,6 +225,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throw new GuildPassError(
       'A fetch-compatible transport is required. Provide config.fetch or use a runtime with globalThis.fetch.',
       GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      { field: 'fetch', reason: 'missing' },
     );
   }
 }
