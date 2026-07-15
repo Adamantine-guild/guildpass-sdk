@@ -15,6 +15,7 @@ export const BALANCE_OF_SELECTOR = '0x70a08231';
 export const ERC721_OWNER_OF_SELECTOR = '0x6352211e';
 /** OpenZeppelin AccessControl `hasRole(bytes32,address)`. */
 export const HAS_ROLE_SELECTOR = '0x91d14854';
+export const DECIMALS_SELECTOR = '0x313ce567'; // 4-byte signature for decimals()
 
 export const HEX_32_BYTES_LENGTH = 64;
 
