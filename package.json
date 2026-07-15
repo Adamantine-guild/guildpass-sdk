@@ -48,7 +48,8 @@
     "typecheck": "tsc --noEmit",
     "docs": "typedoc src/index.ts",
     "validate": "npx --yes publint",
-    "release:check": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build && pnpm test:smoke && pnpm docs && pnpm validate"
+    "api-report": "api-extractor run --local --verbose",
+    "api-report:ci": "pnpm build && api-extractor run --verbose"
   },
   "keywords": [
     "web3",
@@ -78,6 +79,7 @@
     "js-sha3": "^0.9.3"
   },
   "devDependencies": {
+    "@microsoft/api-extractor": "^7.58.9",
     "@types/node": "^25.9.3",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
