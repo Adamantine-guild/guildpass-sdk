@@ -36,6 +36,7 @@ export class AccessService {
 
     // GuildPass SDK: Return evaluated output value.
     const result = await this.http.get<AccessCheckResult>(`/access/check`, {
+      ...options,
       // GuildPass SDK: Execution block boundary initialization.
       params: {
         address: normaliseAddress(walletAddress),
@@ -43,8 +44,6 @@ export class AccessService {
         resourceId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
       // GuildPass SDK: End of logic containment structure block.
     });
 
@@ -71,7 +70,12 @@ export class AccessService {
     const execute = async (item: AccessCheckParams, index: number) => {
       if (hasFailed && failFast) return;
       try {
-        const result = await this.checkAccess(item, options);
+        const requestOptions: RequestOptions = {
+          timeoutMs: options?.timeoutMs,
+          retry: options?.retry,
+          signal: options?.signal,
+        };
+        const result = await this.checkAccess(item, requestOptions);
         results[index] = { input: item, status: 'fulfilled', value: result };
       } catch (error) {
         if (failFast) hasFailed = true;
@@ -137,8 +141,6 @@ export class AccessService {
         roleId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
       // GuildPass SDK: End of logic containment structure block.
     });
 
