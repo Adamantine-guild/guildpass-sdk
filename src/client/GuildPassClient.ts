@@ -20,7 +20,7 @@ import { normaliseAddress } from '../utils/address';
 import { validateAddress } from '../utils/validation';
 import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult } from '../access/access.types';
 import type { MembershipParams, Membership } from '../membership/membership.types';
-import type { GetRolesParams, GetUserRolesParams, GuildRole } from '../roles/roles.types';
+import type { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from '../roles/roles.types';
 import type { GetGuildParams, Guild, GuildConfig } from '../guilds/guilds.types';
 
 /**
@@ -108,7 +108,7 @@ export class GuildPassClient {
 
     const rawAccess = new AccessService(this.http, validateResponses);
     const rawMembership = new MembershipService(this.http, validateResponses);
-    const rawRoles = new RolesService(this.http, validateResponses);
+    const rawRoles = new RolesService(this.http, validateResponses, rawAccess);
     const rawGuilds = new GuildsService(this.http, validateResponses);
 
     this.access = this.cache ? this.buildCachedAccessService(rawAccess) : rawAccess;
@@ -314,6 +314,13 @@ export class GuildPassClient {
           const wallet = normaliseAddress(params.walletAddress);
           const key = `roles:getUserRoles:${params.guildId}:${wallet}`;
           return this.withCache(key, () => raw.getUserRoles(params));
+        },
+      },
+      hasRole: {
+        value: async (params: HasRoleParams): Promise<boolean> => {
+          const wallet = normaliseAddress(params.walletAddress);
+          const key = `access:checkRoleAccess:${params.guildId}:${params.roleId}:${wallet}`;
+          return this.withCache(key, () => raw.hasRole(params));
         },
       },
     });

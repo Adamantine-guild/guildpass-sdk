@@ -78,6 +78,29 @@ Fetches roles assigned to a user.
 
 - **Returns**: `Promise<GuildRole[]>`
 
+### `hasRole(params: HasRoleParams, options?: RequestOptions)`
+
+Convenience method that checks whether a wallet holds a specific role in a
+guild. Delegates to `client.access.checkRoleAccess` internally — no HTTP logic
+is duplicated and the result is cached the same way as any other role check.
+
+- **Params**: `{ walletAddress: string; guildId: string; roleId: string }`
+- **Returns**: `Promise<boolean>` — `true` if the wallet holds the role, `false` otherwise.
+
+**Example**:
+
+```typescript
+const isModerator = await client.roles.hasRole({
+  walletAddress: '0x1234...5678',
+  guildId: 'prime-guild',
+  roleId: 'moderator',
+});
+
+if (isModerator) {
+  console.log('Wallet is a moderator');
+}
+```
+
 ---
 
 ## Guilds Module (`client.guilds`)
