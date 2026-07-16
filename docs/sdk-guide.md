@@ -341,3 +341,76 @@ Non-idempotent methods (POST, PATCH) are never retried unless you explicitly set
 Hook payloads expose safe request metadata only. Sensitive values like the API key, `Authorization` and `Cookie` headers, and full request body are not included in hook payloads. Headers are redacted consistently before reaching your callbacks, and hook failures are logged without changing the normal SDK response behavior.
 
 ⚠️ **Warning:** Be careful not to log sensitive application data. Although the SDK automatically redacts known sensitive headers (`authorization`, `x-api-key`, `cookie`, `set-cookie`), any proprietary query parameters or custom headers containing sensitive info should be handled securely.
+
+## Response Metadata
+
+Pass `includeMeta: true` in any service call's `RequestOptions` to receive diagnostic metadata alongside the response data. This is useful for correlating client-side failures with backend logs and support tickets without changing the default ergonomic API.
+
+```typescript
+import { GuildPassClient } from '@guildpass/sdk';
+
+const client = new GuildPassClient({ apiUrl: 'https://api.guildpass.xyz' });
+
+// Default: returns plain data (backwards-compatible)
+const guild = await client.guilds.getGuild({ guildId: 'prime-guild' });
+// → { id: 'prime-guild', name: 'Prime Guild', ... }
+
+// Opt-in: includeMeta returns { data, meta }
+const result = await client.guilds.getGuild(
+  { guildId: 'prime-guild' },
+  { includeMeta: true },
+);
+console.log(result.data.name);          // 'Prime Guild'
+console.log(result.meta.requestId);     // 'req-abc-123' (if present)
+console.log(result.meta.correlationId); // 'corr-xyz-789' (if present)
+console.log(result.meta.traceId);       // W3C traceparent (if present)
+console.log(result.meta.status);        // 200
+console.log(result.meta.durationMs);    // 142
+```
+
+### Metadata Fields
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `requestId` | `string \| undefined` | Value of the `X-Request-ID` response header. |
+| `correlationId` | `string \| undefined` | Value of the `X-Correlation-ID` response header. |
+| `traceId` | `string \| undefined` | Value of the `Traceparent` (W3C) response header. |
+| `status` | `number` | HTTP status code of the response. |
+| `durationMs` | `number` | Round-trip duration in milliseconds. |
+
+### Supported Services
+
+All read-oriented service methods support `includeMeta`:
+
+- `client.access.checkAccess(params, { includeMeta: true })`
+- `client.access.checkRoleAccess(params, { includeMeta: true })`
+- `client.membership.getMembership(params, { includeMeta: true })`
+- `client.roles.getRoles(params, { includeMeta: true })`
+- `client.roles.getUserRoles(params, { includeMeta: true })`
+- `client.guilds.getGuild(params, { includeMeta: true })`
+- `client.guilds.getGuildConfig(params, { includeMeta: true })`
+
+### Metadata on Errors
+
+When an HTTP error occurs (4xx, 5xx), the thrown `GuildPassError` includes a `requestMeta` property with the same diagnostic information. This lets you correlate failures with backend logs even in catch blocks:
+
+```typescript
+try {
+  await client.guilds.getGuild({ guildId: 'unknown' });
+} catch (error) {
+  if (error instanceof GuildPassError) {
+    console.error(`Request failed`, {
+      code: error.code,
+      status: error.status,
+      requestId: error.requestMeta?.requestId,
+      correlationId: error.requestMeta?.correlationId,
+    });
+  }
+}
+```
+
+The `requestMeta` property is `undefined` for network errors, timeouts, and cancellations where no HTTP response was received.
+
+### Security
+
+Only the safe diagnostic headers (`X-Request-ID`, `X-Correlation-ID`, `Traceparent`) are captured. Sensitive headers like `Authorization`, `X-API-Key`, `Cookie`, and `Set-Cookie` are never exposed in response metadata. The metadata object is intentionally limited to fields useful for diagnostics and support.

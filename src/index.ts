@@ -14,6 +14,7 @@ export * from './contracts/contract.types';
 
 // Types
 export * from './types';
+export type { ResponseMetadata } from './http/http.types';
 
 // Errors
 export * from './errors/GuildPassError';
