@@ -84,6 +84,76 @@ The SDK keeps the real API key internally and continues to use it for
 authenticated requests. Avoid logging the original constructor config object
 directly if it contains secrets.
 
+## Client Metadata Headers
+
+The SDK can attach lightweight metadata headers to API requests, helping backend
+services identify the SDK version, runtime, and integration source during
+debugging and support.
+
+### Default Behaviour
+
+By default, every GuildPass API-relative request includes an
+`X-GuildPass-SDK-Version` header with the bundled SDK version:
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  apiKey: process.env.GUILDPASS_API_KEY,
+});
+
+// Requests automatically include:
+//   X-GuildPass-SDK-Version: 0.1.0
+await client.guilds.getGuild({ guildId: 'prime-guild' });
+```
+
+### Custom Client Identification
+
+Set `clientName` and `clientVersion` to identify your integration in the
+`X-GuildPass-Client` header:
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  clientName: 'my-dapp',
+  clientVersion: '2.1.0',
+});
+
+// Requests include:
+//   X-GuildPass-SDK-Version: 0.1.0
+//   X-GuildPass-Client: my-dapp/2.1.0
+await client.access.checkAccess({ ... });
+```
+
+When `clientVersion` is omitted, only the client name is sent. When only
+`clientVersion` is provided, it is sent alone.
+
+### Disabling Metadata
+
+Set `sendClientMetadata: false` to suppress all metadata headers:
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  sendClientMetadata: false,
+});
+
+// No X-GuildPass-* headers are attached.
+await client.roles.getRoles({ guildId: 'guild-1' });
+```
+
+### Privacy and Security Considerations
+
+- **Metadata headers are only sent to GuildPass API-relative requests.** External
+  absolute URLs (e.g., custom RPC endpoints) never receive `X-GuildPass-*`
+  headers. Similarly, the `X-API-Key` header is never sent to external URLs.
+- **Metadata headers never include API keys, wallet secrets, or tokens.** The
+  header values only contain the SDK version and the consumer-provided client
+  name/version strings.
+- **Client name and version are public by design.** Use generic identifiers if
+  you prefer not to expose specific application names in network logs.
+- **Configuration is inspectable.** `client.getConfig()` returns `clientName`,
+  `clientVersion`, and `sendClientMetadata` (non-sensitive by design).
+
 ## Address Normalization and Checksums
 
 The SDK automatically normalizes addresses to lowercase for consistency and accepts both lowercase and mixed-case addresses by default.
@@ -175,6 +245,75 @@ The SDK validates the RPC and contract configuration before making the call,
 encodes the guild ID as `bytes32`, calls `getGuildOwner(bytes32)`, and validates
 that the RPC response decodes to an Ethereum address.
 
+Contract reads inherit the SDK's transport configuration. This means they
+support the same custom `fetch` transport, global `timeoutMs`, and `retry`
+policy as standard API calls.
+
+You can also provide per-call overrides for contract methods:
+
+```typescript
+const owner = await client.contracts.getGuildOwner({
+  guildId: 'guild_1'
+}, {
+  timeoutMs: 2000,
+  retry: { maxRetries: 2 }
+});
+```
+
+## Batch Contract Reads
+
+The batch helpers (`getMembershipTokenBalancesBatch`, `getGuildOwnersBatch`,
+`batchEthCall`) combine multiple contract reads into a single JSON-RPC batch
+request. By default, batches are limited to **100 calls** to stay within
+common RPC provider payload limits.
+
+If a batch exceeds the limit, the SDK throws a `GuildPassError` with code
+`INVALID_INPUT`:
+
+```typescript
+// Throws: Batch size 200 exceeds maxBatchSize 100. Use chunk: true to split requests.
+await client.contracts.getMembershipTokenBalancesBatch({
+  walletAddresses: twoHundredAddresses,
+});
+```
+
+### Automatic Chunking
+
+Set `chunk: true` to automatically split oversized batches into sequential
+requests of `maxBatchSize` each. Results are concatenated in order,
+preserving the original input positions. Per-item errors remain isolated
+across chunks.
+
+```typescript
+const results = await client.contracts.getMembershipTokenBalancesBatch({
+  walletAddresses: twoHundredAddresses,
+  chunk: true, // split into 2 × 100 sequential batch calls
+});
+// results.length === 200, order matches walletAddresses
+```
+
+### Tuning the Limit
+
+Override the default limit with `maxBatchSize`:
+
+```typescript
+const results = await client.contracts.getGuildOwnersBatch({
+  guildIds: largeGuildList,
+  maxBatchSize: 50, // conservative limit for rate-limited provider
+  chunk: true,
+});
+```
+
+The same options are available on the low-level `batchEthCall` method via
+its `options` parameter:
+
+```typescript
+await client.contracts.batchEthCall(calls, rpcUrl, {
+  maxBatchSize: 25,
+  chunk: true,
+});
+```
+
 ## Caching and Request Deduplication
 
 When a cache adapter is configured, the SDK automatically deduplicates concurrent
@@ -249,6 +388,8 @@ const client = new GuildPassClient({
 
 The hook receives a `CacheErrorHookPayload` containing the operation name (`get`, `set`, `delete`, `clear`), the affected `key` (if any), and the original `error`.
 
+For full details on implementing custom cache adapters — including TTL semantics, `deleteByPrefix`, serialisation, and production examples — see the [Cache Adapters Guide](./cache-adapters.md).
+
 ### Security Note
 
 The SDK ensures that sensitive information such as API keys and authorization
@@ -266,11 +407,17 @@ const controller = new AbortController();
 setTimeout(() => controller.abort(), 2000);
 
 try {
-  const data = await client.guilds.getGuild(guildId, {
+  // Standard API call
+  const data = await client.guilds.getGuild({ guildId }, {
     signal: controller.signal,
   });
+
+  // Contract read
+  const balance = await client.contracts.getMembershipTokenBalance({
+    walletAddress: '0x...',
+  }, { signal: controller.signal });
 } catch (err) {
-  if (err instanceof GuildPassError && err.code === GuildPassErrorCode.ABORTED) {
+  if (err instanceof GuildPassError && err.code === GuildPassErrorCode.REQUEST_CANCELLED) {
     // Request was cancelled by the caller
   } else if (err instanceof GuildPassError && err.code === GuildPassErrorCode.TIMEOUT) {
     // Request exceeded the configured timeout

@@ -29,17 +29,10 @@ export class GuildsService {
     const { guildId } = params;
     validateGuildId(guildId);
 
-    // GuildPass SDK: Send back computed results to the caller.
+    // GuildPass SDK: Endpoint request method.
     const path = `/guilds/${encodePathSegment(guildId)}`;
-    const result = options
-      ? await this.http.get<Guild>(path, options as any)
-      : await this.http.get<Guild>(path);
-
-    if (options?.includeMeta) {
-      return result as { data: Guild; meta: ResponseMetadata };
-    }
-
-    return this.validateResponses ? assertValidResponse(result as Guild, isGuild, 'Guild') : (result as Guild);
+    const result = await this.http.get<Guild>(path, options);
+    return this.validateResponses ? assertValidResponse(result, isGuild, 'Guild') : result;
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -64,14 +57,7 @@ export class GuildsService {
 
     // GuildPass SDK: Return evaluated output value.
     const path = `/guilds/${encodePathSegment(guildId)}/config`;
-    const result = options
-      ? await this.http.get<GuildConfig>(path, options as any)
-      : await this.http.get<GuildConfig>(path);
-
-    if (options?.includeMeta) {
-      return result as { data: GuildConfig; meta: ResponseMetadata };
-    }
-
+    const result = await this.http.get<GuildConfig>(path, options);
     return this.validateResponses
       ? assertValidResponse(result as GuildConfig, isGuildConfig, 'GuildConfig')
       : (result as GuildConfig);

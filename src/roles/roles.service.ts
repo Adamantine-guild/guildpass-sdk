@@ -33,14 +33,7 @@ export class RolesService {
 
     // GuildPass SDK: Return evaluated output value.
     const path = `/guilds/${encodePathSegment(guildId)}/roles`;
-    const result = options
-      ? await this.http.get<GuildRole[]>(path, options as any)
-      : await this.http.get<GuildRole[]>(path);
-
-    if (options?.includeMeta) {
-      return result as { data: GuildRole[]; meta: ResponseMetadata };
-    }
-
+    const result = await this.http.get<GuildRole[]>(path, options);
     return this.validateResponses
       ? assertValidResponse(result as GuildRole[], isGuildRoleArray, 'GuildRole[]')
       : (result as GuildRole[]);
@@ -70,14 +63,7 @@ export class RolesService {
 
     // GuildPass SDK: Terminate function block execution and return.
     const path = `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/roles`;
-    const result = options
-      ? await this.http.get<GuildRole[]>(path, options as any)
-      : await this.http.get<GuildRole[]>(path);
-
-    if (options?.includeMeta) {
-      return result as { data: GuildRole[]; meta: ResponseMetadata };
-    }
-
+    const result = await this.http.get<GuildRole[]>(path, options);
     return this.validateResponses
       ? assertValidResponse(result as GuildRole[], isGuildRoleArray, 'GuildRole[]')
       : (result as GuildRole[]);

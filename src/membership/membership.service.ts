@@ -41,15 +41,13 @@ export class MembershipService {
 
     // GuildPass SDK: Terminate function block execution and return.
     const result = await this.http.get<Membership>(`/membership`, {
+      ...options,
       // GuildPass SDK: Execution block boundary initialization.
       params: {
         address: normaliseAddress(walletAddress),
         guildId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
-      includeMeta: options?.includeMeta,
       // GuildPass SDK: End of logic containment structure block.
     });
 

@@ -6,41 +6,66 @@ import { GuildPassErrorCode } from '../errors/errorCodes';
 import { isChecksumAddress } from './address';
 
 /**
+ * Interface detailing structured error metadata for downstream consumers.
+ */
+export interface ValidationErrorDetails {
+  field: string;
+  reason: 'REQUIRED' | 'INVALID_FORMAT' | 'CHECKSUM_FAILED' | 'INVALID_TYPE';
+  value?: any;
+  valueType: string;
+}
+
+/**
+ * Common validation error helper to keep error shapes consistent across the SDK.
+ */
+const throwValidationError = (
+  message: string,
+  code: GuildPassErrorCode,
+  details: ValidationErrorDetails,
+): never => {
+  // Safe-guard: Mask any potential hidden fields or raw secrets from leaking down
+  const sensitiveKeys = ['apikey', 'secret', 'privatekey', 'password', 'token'];
+  if (sensitiveKeys.includes(details.field.toLowerCase())) {
+    delete details.value;
+  }
+
+  throw new GuildPassError(message, code, undefined, details);
+};
+
+/**
  * Validates an Ethereum address.
  *
  * @param address The address to validate
  * @param options Validation options to enforce strict mode
  * @throws GuildPassError if the address is invalid
  */
-// GuildPass SDK: Exported component definition.
 export const validateAddress = (address: string, options: { strict?: boolean } = {}): void => {
-  // GuildPass SDK: Evaluate branch condition logic.
   if (!address) {
-    // GuildPass SDK: Raise exceptional condition and throw error.
-    throw new GuildPassError('Address is required', GuildPassErrorCode.INVALID_INPUT);
-    // GuildPass SDK: End of logic containment structure block.
+    throwValidationError('Address is required', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'address',
+      reason: 'REQUIRED',
+      valueType: 'string',
+    });
   }
 
-  // GuildPass SDK: Define internal reference identifier.
   const ethAddressRegex = /^0x[a-fA-F0-9]{40}$/;
-  // GuildPass SDK: Conditional check guard path.
   if (!ethAddressRegex.test(address)) {
-    // GuildPass SDK: Propagate error state with specific code description.
-    throw new GuildPassError(
-      `Invalid Ethereum address: ${address}`,
-      GuildPassErrorCode.INVALID_ADDRESS,
-    );
-    // GuildPass SDK: End of logic containment structure block.
+    throwValidationError(`Invalid Ethereum address: ${address}`, GuildPassErrorCode.INVALID_ADDRESS, {
+      field: 'address',
+      reason: 'INVALID_FORMAT',
+      value: address,
+      valueType: typeof address,
+    });
   }
 
-  // GuildPass SDK: Evaluate branch condition logic.
   if (options.strict && !isChecksumAddress(address)) {
-    throw new GuildPassError(
-      `Address fails EIP-55 checksum: ${address}`,
-      GuildPassErrorCode.INVALID_ADDRESS,
-    );
+    throwValidationError(`Address fails EIP-55 checksum: ${address}`, GuildPassErrorCode.INVALID_ADDRESS, {
+      field: 'address',
+      reason: 'CHECKSUM_FAILED',
+      value: address,
+      valueType: typeof address,
+    });
   }
-  // GuildPass SDK: End of logic containment structure block.
 };
 
 /**
@@ -49,15 +74,31 @@ export const validateAddress = (address: string, options: { strict?: boolean } =
  * @param guildId The guild ID to validate
  * @throws GuildPassError if the guild ID is invalid
  */
-// GuildPass SDK: Exposed interface structure.
 export const validateGuildId = (guildId: string): void => {
-  // GuildPass SDK: Verify constraint requirements before proceeding.
-  if (!guildId || typeof guildId !== 'string' || guildId.trim().length === 0) {
-    // GuildPass SDK: Raise exceptional condition and throw error.
-    throw new GuildPassError('Invalid Guild ID', GuildPassErrorCode.INVALID_INPUT);
-    // GuildPass SDK: End of logic containment structure block.
+  if (guildId === undefined || guildId === null) {
+    throwValidationError('Guild ID is required', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'guildId',
+      reason: 'REQUIRED',
+      valueType: 'undefined',
+    });
   }
-  // GuildPass SDK: End of logic containment structure block.
+
+  if (typeof guildId !== 'string') {
+    throwValidationError('Guild ID must be a string', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'guildId',
+      reason: 'INVALID_TYPE',
+      valueType: typeof guildId,
+    });
+  }
+
+  if (guildId.trim().length === 0) {
+    throwValidationError('Invalid Guild ID: cannot be empty', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'guildId',
+      reason: 'INVALID_FORMAT',
+      value: guildId,
+      valueType: 'string',
+    });
+  }
 };
 
 /**
@@ -66,15 +107,31 @@ export const validateGuildId = (guildId: string): void => {
  * @param resourceId The resource ID to validate
  * @throws GuildPassError if the resource ID is invalid
  */
-// GuildPass SDK: Core operational type definition.
 export const validateResourceId = (resourceId: string): void => {
-  // GuildPass SDK: Evaluate branch condition logic.
-  if (!resourceId || typeof resourceId !== 'string' || resourceId.trim().length === 0) {
-    // GuildPass SDK: Propagate error state with specific code description.
-    throw new GuildPassError('Invalid Resource ID', GuildPassErrorCode.INVALID_INPUT);
-    // GuildPass SDK: End of logic containment structure block.
+  if (resourceId === undefined || resourceId === null) {
+    throwValidationError('Resource ID is required', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'resourceId',
+      reason: 'REQUIRED',
+      valueType: 'undefined',
+    });
   }
-  // GuildPass SDK: End of logic containment structure block.
+
+  if (typeof resourceId !== 'string') {
+    throwValidationError('Resource ID must be a string', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'resourceId',
+      reason: 'INVALID_TYPE',
+      valueType: typeof resourceId,
+    });
+  }
+
+  if (resourceId.trim().length === 0) {
+    throwValidationError('Invalid Resource ID: cannot be empty', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'resourceId',
+      reason: 'INVALID_FORMAT',
+      value: resourceId,
+      valueType: 'string',
+    });
+  }
 };
 
 /**
@@ -83,13 +140,55 @@ export const validateResourceId = (resourceId: string): void => {
  * @param roleId The role ID to validate
  * @throws GuildPassError if the role ID is invalid
  */
-// GuildPass SDK: Exported function execution unit.
 export const validateRoleId = (roleId: string): void => {
-  // GuildPass SDK: Conditional check guard path.
-  if (!roleId || typeof roleId !== 'string' || roleId.trim().length === 0) {
-    // GuildPass SDK: Raise exceptional condition and throw error.
-    throw new GuildPassError('Invalid Role ID', GuildPassErrorCode.INVALID_INPUT);
-    // GuildPass SDK: End of logic containment structure block.
+  if (roleId === undefined || roleId === null) {
+    throwValidationError('Role ID is required', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'roleId',
+      reason: 'REQUIRED',
+      valueType: 'undefined',
+    });
   }
-  // GuildPass SDK: End of logic containment structure block.
+
+  if (typeof roleId !== 'string') {
+    throwValidationError('Role ID must be a string', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'roleId',
+      reason: 'INVALID_TYPE',
+      valueType: typeof roleId,
+    });
+  }
+
+  if (roleId.trim().length === 0) {
+    throwValidationError('Invalid Role ID: cannot be empty', GuildPassErrorCode.INVALID_INPUT, {
+      field: 'roleId',
+      reason: 'INVALID_FORMAT',
+      value: roleId,
+      valueType: 'string',
+    });
+  }
+};
+
+/**
+ * Validates generic configuration inputs, filtering out sensitive properties.
+ */
+export const validateConfigField = (
+  field: string,
+  value: any,
+  rules: { required?: boolean; expectedType?: string },
+): void => {
+  if (rules.required && (value === undefined || value === null || (typeof value === 'string' && value.trim().length === 0))) {
+    throwValidationError(`Configuration field "${field}" is required`, GuildPassErrorCode.INVALID_INPUT, {
+      field,
+      reason: 'REQUIRED',
+      valueType: typeof value,
+    });
+  }
+
+  if (rules.expectedType && value !== undefined && value !== null && typeof value !== rules.expectedType) {
+    throwValidationError(`Configuration field "${field}" expected type ${rules.expectedType}`, GuildPassErrorCode.INVALID_INPUT, {
+      field,
+      reason: 'INVALID_TYPE',
+      value: value,
+      valueType: typeof value,
+    });
+  }
 };

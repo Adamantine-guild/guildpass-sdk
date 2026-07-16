@@ -8,12 +8,8 @@ export type RequestOptions = {
   timeoutMs?: number;
   /** Override retry behavior for this service call. */
   retry?: RetryConfig;
-  /**
-   * When `true`, the service returns `{ data, meta }` instead of just `data`.
-   * The `meta` object contains safe diagnostic headers (request ID, correlation ID,
-   * trace ID), the HTTP status code, and round-trip duration.
-   */
-  includeMeta?: boolean;
+  /** External AbortSignal. Aborts the underlying fetch when fired; composes with the timeout. */
+  signal?: AbortSignal;
 };
 
 // GuildPass SDK: Core operational type definition.

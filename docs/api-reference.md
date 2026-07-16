@@ -149,6 +149,8 @@ await client.contracts.getMembershipTokenBalancesBatch({
   ],
   chainId: 8453, // optional chain override
   contractAddress: '0x0000000000000000000000000000000000000000', // optional contract override
+  maxBatchSize: 100, // optional limit to avoid provider payload limits (default 100)
+  chunk: true, // optional automatic splitting
 });
 ```
 
@@ -170,6 +172,8 @@ await client.contracts.getGuildOwnersBatch({
   guildIds: ['guild_1', 'guild_2', '42'],
   chainId: 8453, // optional chain override
   contractAddress: '0x0000000000000000000000000000000000000000', // optional contract override
+  maxBatchSize: 100, // optional limit (default 100)
+  chunk: true, // automatically split if guildIds exceeds maxBatchSize
 });
 ```
 
@@ -181,10 +185,10 @@ await client.contracts.getGuildOwnersBatch({
 - **Partial failures**: a failed guild is reported individually; other guilds are unaffected
 - **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_INPUT` if any guild ID is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
 
-### `batchEthCall(calls: BatchEthCallItem[], rpcUrl: string)`
+### `batchEthCall(calls: BatchEthCallItem[], rpcUrl: string, options?: RequestOptions & { maxBatchSize?: number, chunk?: boolean })`
 
 Low-level helper for sending multiple arbitrary `eth_call` requests in one
-JSON-RPC batch. Returns ordered per-item results.
+JSON-RPC batch. Returns ordered per-item results. By default, it limits batches to 100 calls and throws an error if exceeded, unless `chunk: true` is passed.
 
 ```typescript
 const results = await client.contracts.batchEthCall(
@@ -193,6 +197,7 @@ const results = await client.contracts.batchEthCall(
     { to: '0xContractB', data: '0xab4511dc...' },
   ],
   'https://rpc.example.com',
+  { maxBatchSize: 50, chunk: true }
 );
 ```
 

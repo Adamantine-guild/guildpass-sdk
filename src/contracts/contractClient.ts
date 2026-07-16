@@ -8,6 +8,7 @@ import { validateAddress, validateGuildId } from '../utils/validation';
 import {
   BatchEthCallItem,
   BatchItemResult,
+  FormattedTokenBalance,
   GuildOwnerParams,
   GuildOwnersBatchParams,
   RoleRequirementParams,
@@ -15,12 +16,54 @@ import {
   TokenBalancesBatchParams,
 } from './contract.types';
 // GuildPass SDK: Pull in package or module bindings.
-import { validateRoleRequirementStub } from './contractHelpers';
+import {
+  BALANCE_OF_SELECTOR,
+  GET_GUILD_OWNER_SELECTOR,
+  DECIMALS_SELECTOR, // <-- ADD THIS IMPORT
+  HEX_32_BYTES_LENGTH,
+  decodeAddressResult,
+  decodeUint256Result,
+  encodeAddressArgument,
+  encodeGuildId,
+  validateAccessRequirement,
+} from './contractHelpers';
 import { GuildPassClientConfig, resolveChainConfig } from '../config/sdkConfig';
+import { HttpClient } from '../http/httpClient';
+import { RequestOptions } from '../types/common';
 
-export const GET_GUILD_OWNER_SELECTOR = '0xab4511dc';
-export const BALANCE_OF_SELECTOR = '0x70a08231';
-export const HEX_32_BYTES_LENGTH = 64;
+// Local pure helper function for exact decimal string shift math
+export const formatUnits = (value: string, decimals: number): string => {
+  // Guard against negative decimal counts or non-integers
+  if (decimals < 0 || !Number.isInteger(decimals)) {
+    throw new Error('Decimals must be a non-negative integer');
+  }
+
+  // Guard against invalid base unit numeric strings (letters or pre-existing decimals)
+  if (!/^\d+$/.test(value)) {
+    throw new Error('Value must be a valid big integer string containing only digits');
+  }
+
+  if (value === '0' || !value) return '0';
+
+  const padded = value.padStart(decimals + 1, '0');
+  const loc = padded.length - decimals;
+  const whole = padded.slice(0, loc);
+  let fraction = padded.slice(loc).replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole;
+};
+
+export {
+  BALANCE_OF_SELECTOR,
+  GET_GUILD_OWNER_SELECTOR,
+  DECIMALS_SELECTOR, // <-- ADD THIS EXPORT
+  HEX_32_BYTES_LENGTH,
+  decodeAddressResult,
+  decodeUint256Result,
+  encodeAddressArgument,
+  encodeGuildId,
+};
+
+
 
 type JsonRpcSuccess = {
   result?: unknown;
@@ -33,74 +76,22 @@ type JsonRpcError = {
   };
 };
 
-export const encodeGuildId = (guildId: string): string => {
-  const trimmed = guildId.trim();
-
-  if (/^0x[a-fA-F0-9]{64}$/.test(trimmed)) {
-    return trimmed.slice(2).toLowerCase();
-  }
-
-  if (/^\d+$/.test(trimmed)) {
-    const encoded = BigInt(trimmed).toString(16);
-    if (encoded.length > HEX_32_BYTES_LENGTH) {
-      throw new GuildPassError(
-        'guildId is too large for bytes32 encoding',
-        GuildPassErrorCode.INVALID_INPUT,
-      );
-    }
-    return encoded.padStart(HEX_32_BYTES_LENGTH, '0');
-  }
-
-  const bytes = new TextEncoder().encode(trimmed);
-  if (bytes.length > 32) {
-    throw new GuildPassError(
-      'guildId must fit within 32 UTF-8 bytes',
-      GuildPassErrorCode.INVALID_INPUT,
-    );
-  }
-
-  return Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
-    .padEnd(HEX_32_BYTES_LENGTH, '0');
-};
-
-export const decodeAddressResult = (result: unknown): string => {
-  if (typeof result !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(result)) {
-    throw new GuildPassError(
-      'Invalid getGuildOwner RPC response',
-      GuildPassErrorCode.INVALID_RESPONSE,
-    );
-  }
-
-  const address = `0x${result.slice(-40)}`;
-  validateAddress(address);
-  return address;
-};
-
-export const encodeAddressArgument = (address: string): string => {
-  return address.slice(2).toLowerCase().padStart(64, '0');
-};
-
-export const decodeUint256Result = (result: unknown): string => {
-  if (typeof result !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(result)) {
-    throw new GuildPassError(
-      'Invalid getMembershipTokenBalance RPC response',
-      GuildPassErrorCode.INVALID_RESPONSE,
-    );
-  }
-
-  return BigInt(result).toString(10);
-};
-
 // GuildPass SDK: Exported function execution unit.
 export class ContractClient {
   // GuildPass SDK: Class member structure property or constructor.
   private readonly config: GuildPassClientConfig;
+  private readonly http: HttpClient;
 
   // GuildPass SDK: Class member structure property or constructor.
-  constructor(config: GuildPassClientConfig) {
+  constructor(config: GuildPassClientConfig, http?: HttpClient) {
     this.config = config;
+    this.http =
+      http ??
+      new HttpClient(config.apiUrl, config.apiKey, config.timeoutMs, {
+        retry: config.retry,
+        hooks: config.hooks,
+        fetch: config.fetch,
+      });
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -117,10 +108,53 @@ export class ContractClient {
   }
 
   /**
+   * Sends a single read-only `eth_call` and returns its raw (undecoded)
+   * result. Shared by all single-call contract reads so the JSON-RPC
+   * envelope and error handling live in exactly one place.
+   */
+  private async performEthCall(
+    to: string,
+    data: string,
+    rpcUrl: string,
+    options?: RequestOptions,
+  ): Promise<unknown> {
+    const payload = await this.http.post<(JsonRpcSuccess & JsonRpcError) | undefined>(
+      rpcUrl,
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_call',
+        params: [{ to, data }, 'latest'],
+      },
+      {
+        ...options,
+        retry: {
+          allowMutatingRetry: true,
+          ...options?.retry,
+        },
+      },
+    );
+
+    if (payload?.error) {
+      throw new GuildPassError(
+        payload.error.message ?? 'RPC provider returned an error',
+        GuildPassErrorCode.HTTP_ERROR,
+        undefined,
+        payload.error,
+      );
+    }
+
+    return payload?.result;
+  }
+
+  /**
    * Fetches the membership token balance for a wallet.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getMembershipTokenBalance(params: TokenBalanceParams): Promise<string> {
+  public async getMembershipTokenBalance(
+    params: TokenBalanceParams,
+    options?: RequestOptions,
+  ): Promise<string> {
     // GuildPass SDK: Variable binding initialization.
     const { walletAddress, chainId } = params;
     const chainConfig = this.getChainConfig(chainId);
@@ -144,40 +178,54 @@ export class ContractClient {
 
     validateAddress(contractAddress);
 
-    let response: Response;
-    try {
-      response = await fetch(chainConfig.rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_call',
-          params: [
-            {
-              to: contractAddress,
-              data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`,
-            },
-            'latest',
-          ],
-        }),
-      });
-    } catch (error) {
+    const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
+    const result = await this.performEthCall(contractAddress, data, chainConfig.rpcUrl, options);
+    return decodeUint256Result(result);
+    // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Reads the ERC-20 `decimals()` of the membership/token contract. Needed to
+   * turn the raw balance from {@link getMembershipTokenBalance} into a
+   * human-readable amount.
+   */
+  public async getTokenDecimals(
+    params: TokenBalanceParams,
+    options?: RequestOptions,
+  ): Promise<number> {
+    const chainConfig = this.getChainConfig(params.chainId);
+    const contractAddress = params.contractAddress ?? chainConfig.contractAddress;
+
+    if (!chainConfig.rpcUrl) {
       throw new GuildPassError(
-        'Unable to reach configured RPC provider',
-        GuildPassErrorCode.HTTP_ERROR,
-        undefined,
-        error,
+        'rpcUrl is required for contract calls',
+        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
-
-    const payload = (await response.json().catch(() => undefined)) as
-      | (JsonRpcSuccess & JsonRpcError)
-      | undefined;
-
-    if (!response.ok) {
-      throw GuildPassError.fromHttpError(response.status, payload);
+    if (!contractAddress) {
+      throw new GuildPassError(
+        'contractAddress is required for token decimals lookup',
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
     }
+    validateAddress(contractAddress);
+
+    const payload = await this.http.post<(JsonRpcSuccess & JsonRpcError) | undefined>(
+      chainConfig.rpcUrl,
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_call',
+        params: [{ to: contractAddress, data: DECIMALS_SELECTOR }, 'latest'],
+      },
+      {
+        ...options,
+        retry: {
+          allowMutatingRetry: true,
+          ...options?.retry,
+        },
+      },
+    );
 
     if (payload?.error) {
       throw new GuildPassError(
@@ -188,15 +236,37 @@ export class ContractClient {
       );
     }
 
-    return decodeUint256Result(payload?.result);
-    // GuildPass SDK: End of logic containment structure block.
+    const decimals = Number(decodeUint256Result(payload?.result));
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+      throw new GuildPassError(
+        'Token contract returned an invalid decimals value',
+        GuildPassErrorCode.INVALID_RESPONSE,
+      );
+    }
+    return decimals;
+  }
+
+  /**
+   * Convenience: fetch the membership token balance together with the token's
+   * `decimals` and a human-readable `formatted` string. Useful for displaying a
+   * balance directly in a UI without manual decimal handling.
+   */
+  public async getMembershipTokenBalanceFormatted(
+    params: TokenBalanceParams,
+    options?: RequestOptions,
+  ): Promise<FormattedTokenBalance> {
+    const [raw, decimals] = await Promise.all([
+      this.getMembershipTokenBalance(params, options),
+      this.getTokenDecimals(params, options),
+    ]);
+    return { raw, decimals, formatted: formatUnits(raw, decimals) };
   }
 
   /**
    * Fetches the owner of a guild from the contract.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getGuildOwner(params: GuildOwnerParams): Promise<string> {
+  public async getGuildOwner(params: GuildOwnerParams, options?: RequestOptions): Promise<string> {
     const chainConfig = this.getChainConfig(params.chainId);
     const { guildId, contractAddress = chainConfig.contractAddress } = params;
     const rpcUrl = chainConfig.rpcUrl;
@@ -220,65 +290,34 @@ export class ContractClient {
     validateAddress(contractAddress);
     const data = `${GET_GUILD_OWNER_SELECTOR}${encodeGuildId(guildId)}`;
 
-    let response: Response;
-    try {
-      response = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_call',
-          params: [
-            {
-              to: contractAddress,
-              data,
-            },
-            'latest',
-          ],
-        }),
-      });
-    } catch (error) {
-      throw new GuildPassError(
-        'Unable to reach configured RPC provider',
-        GuildPassErrorCode.HTTP_ERROR,
-        undefined,
-        error,
-      );
-    }
-
-    const payload = (await response.json().catch(() => undefined)) as
-      | (JsonRpcSuccess & JsonRpcError)
-      | undefined;
-
-    if (!response.ok) {
-      throw GuildPassError.fromHttpError(response.status, payload);
-    }
-
-    if (payload?.error) {
-      throw new GuildPassError(
-        payload.error.message ?? 'RPC provider returned an error',
-        GuildPassErrorCode.HTTP_ERROR,
-        undefined,
-        payload.error,
-      );
-    }
-
-    return decodeAddressResult(payload?.result);
+    const result = await this.performEthCall(contractAddress, data, rpcUrl, options);
+    return decodeAddressResult(result);
     // GuildPass SDK: End of logic containment structure block.
   }
 
   /**
-   * Validates a role requirement for a wallet address.
-   * Stub for future on-chain support.
+   * Validates whether a wallet satisfies an access requirement (TOKEN, NFT,
+   * or on-chain ROLE checks resolve via a single `eth_call`; WHITELIST and
+   * unrecognised requirement types fail fast with a descriptive error).
    */
-  // GuildPass SDK: Class member structure property or constructor.
-  public async validateRoleRequirement(params: RoleRequirementParams): Promise<boolean> {
-    // GuildPass SDK: Local block-scoped constant reference.
-    const { walletAddress, requirement } = params;
-    // GuildPass SDK: Return evaluated output value.
-    return validateRoleRequirementStub(walletAddress, requirement);
-    // GuildPass SDK: End of logic containment structure block.
+  public async validateRoleRequirement(
+    params: RoleRequirementParams,
+    options?: RequestOptions,
+  ): Promise<boolean> {
+    const { walletAddress, requirement, chainId } = params;
+    const chainConfig = this.getChainConfig(chainId);
+
+    if (!chainConfig.rpcUrl) {
+      throw new GuildPassError(
+        'rpcUrl is required for contract calls',
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+
+    const rpcUrl = chainConfig.rpcUrl;
+    return validateAccessRequirement(walletAddress, requirement, (to, data) =>
+      this.performEthCall(to, data, rpcUrl, options),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -300,7 +339,11 @@ export class ContractClient {
    * @param rpcUrl   - The JSON-RPC endpoint URL.
    * @returns        - Ordered results, one per input call.
    */
-  public async batchEthCall(calls: BatchEthCallItem[], rpcUrl: string): Promise<BatchItemResult[]> {
+  public async batchEthCall(
+    calls: BatchEthCallItem[],
+    rpcUrl: string,
+    options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean },
+  ): Promise<BatchItemResult[]> {
     if (!Array.isArray(calls) || calls.length === 0) {
       throw new GuildPassError(
         'At least one call is required for batchEthCall',
@@ -313,6 +356,24 @@ export class ContractClient {
         'rpcUrl is required for batch contract calls',
         GuildPassErrorCode.INVALID_CONFIG,
       );
+    }
+
+    const limit = options?.maxBatchSize ?? 100;
+    if (calls.length > limit) {
+      if (!options?.chunk) {
+        throw new GuildPassError(
+          `Batch size ${calls.length} exceeds maxBatchSize ${limit}. Use chunk: true to split requests.`,
+          GuildPassErrorCode.INVALID_INPUT,
+        );
+      }
+
+      const results: BatchItemResult[] = [];
+      for (let i = 0; i < calls.length; i += limit) {
+        const chunkCalls = calls.slice(i, i + limit);
+        const chunkResults = await this.batchEthCall(chunkCalls, rpcUrl, { ...options, chunk: false });
+        results.push(...chunkResults);
+      }
+      return results;
     }
 
     // Validate each call descriptor up front
@@ -347,29 +408,26 @@ export class ContractClient {
       ],
     }));
 
-    let response: Response;
-    try {
-      response = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(batchPayload),
-      });
-    } catch (error) {
-      throw new GuildPassError(
-        'Unable to reach configured RPC provider for batch call',
-        GuildPassErrorCode.HTTP_ERROR,
-        undefined,
-        error,
-      );
-    }
+    type JsonRpcBatchResponseItem = {
+      id?: number;
+      result?: unknown;
+      error?: {
+        code?: number;
+        message?: string;
+      };
+    };
 
-    const payloads = (await response.json().catch(() => undefined)) as
-      | Array<{ id?: number; result?: unknown; error?: { code?: number; message?: string } }>
-      | undefined;
-
-    if (!response.ok) {
-      throw GuildPassError.fromHttpError(response.status, payloads);
-    }
+    const payloads = await this.http.post<JsonRpcBatchResponseItem[]>(
+      rpcUrl,
+      batchPayload,
+      {
+        ...options,
+        retry: {
+          allowMutatingRetry: true,
+          ...options?.retry,
+        },
+      },
+    );
 
     if (!Array.isArray(payloads)) {
       throw new GuildPassError(
@@ -379,7 +437,7 @@ export class ContractClient {
     }
 
     // Map responses back by their JSON-RPC id to preserve input order
-    const responseMap = new Map<number, (typeof payloads)[number]>();
+    const responseMap = new Map<number, JsonRpcBatchResponseItem>();
     for (const p of payloads) {
       if (p && typeof p.id === 'number') {
         responseMap.set(p.id, p);
@@ -415,7 +473,7 @@ export class ContractClient {
       } else {
         results.push({
           status: 'success',
-          result: payload.result as string,
+          result: payload.result,
         });
       }
     }
@@ -436,6 +494,7 @@ export class ContractClient {
    */
   public async getMembershipTokenBalancesBatch(
     params: TokenBalancesBatchParams,
+    options?: RequestOptions,
   ): Promise<BatchItemResult[]> {
     const { walletAddresses, chainId, contractAddress: perCallContract } = params;
 
@@ -476,7 +535,11 @@ export class ContractClient {
       data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(addr)}`,
     }));
 
-    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl);
+    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl, {
+      ...options,
+      maxBatchSize: params.maxBatchSize,
+      chunk: params.chunk,
+    });
 
     // Decode uint256 results where successful
     return rawResults.map((item) => {
@@ -509,6 +572,7 @@ export class ContractClient {
    */
   public async getGuildOwnersBatch(
     params: GuildOwnersBatchParams,
+    options?: RequestOptions,
   ): Promise<BatchItemResult[]> {
     const { guildIds, chainId, contractAddress: perCallContract } = params;
 
@@ -549,7 +613,11 @@ export class ContractClient {
       data: `${GET_GUILD_OWNER_SELECTOR}${encodeGuildId(gid)}`,
     }));
 
-    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl);
+    const rawResults = await this.batchEthCall(calls, chainConfig.rpcUrl, {
+      ...options,
+      maxBatchSize: params.maxBatchSize,
+      chunk: params.chunk,
+    });
 
     // Decode address results where successful
     return rawResults.map((item) => {

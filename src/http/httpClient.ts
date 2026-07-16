@@ -4,6 +4,7 @@ import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 // GuildPass SDK: Pull in package or module bindings.
 import {
+  ClientMetadata,
   FetchLike,
   HttpClientConfig,
   HttpHooks,
@@ -20,6 +21,8 @@ const SENSITIVE_HEADERS = new Set(['authorization', 'x-api-key', 'cookie', 'set-
 
 export function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};
+
+  if (!headers) return redacted;
 
   if (headers instanceof Headers) {
     headers.forEach((value, key) => {
@@ -95,6 +98,7 @@ function resolveRetry(
 }
 
 function getRetryAfterMs(headers: Headers): number | null {
+  if (!headers || typeof headers.get !== 'function') return null;
   const header = headers.get('Retry-After');
   if (!header) return null;
   const seconds = Number(header);
@@ -132,7 +136,7 @@ function buildInvalidResponseError(
   response: Response,
   reason: 'unexpected_content_type' | 'malformed_json',
 ): GuildPassError {
-  const contentType = response.headers.get('Content-Type');
+  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
   const message = reason === 'unexpected_content_type'
     ? `Invalid response: expected JSON but received ${contentType || 'unknown content type'}`
     : 'Invalid response: received malformed JSON';
@@ -160,11 +164,13 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 async function parseSuccessResponse<T>(response: Response): Promise<T> {
-  if (response.status === 204 || response.status === 205 || response.headers.get('Content-Length') === '0') {
+  const contentLength = response.headers?.get ? response.headers.get('Content-Length') : null;
+  if (response.status === 204 || response.status === 205 || contentLength === '0') {
     return undefined as T;
   }
 
-  if (!isJsonContentType(response.headers.get('Content-Type'))) {
+  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
+  if (!isJsonContentType(contentType)) {
     throw buildInvalidResponseError(response, 'unexpected_content_type');
   }
 
@@ -172,16 +178,18 @@ async function parseSuccessResponse<T>(response: Response): Promise<T> {
 }
 
 async function parseErrorResponse(response: Response): Promise<unknown> {
-  if (response.status === 204 || response.status === 205 || response.headers.get('Content-Length') === '0') {
+  const contentLength = response.headers?.get ? response.headers.get('Content-Length') : null;
+  if (response.status === 204 || response.status === 205 || contentLength === '0') {
     return null;
   }
 
-  if (!isJsonContentType(response.headers.get('Content-Type'))) {
+  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
+  if (!isJsonContentType(contentType)) {
     return {
       code: GuildPassErrorCode.INVALID_RESPONSE,
       message: 'Endpoint returned a non-JSON error response',
       meta: {
-        contentType: response.headers.get('Content-Type'),
+        contentType,
       },
     };
   }
@@ -193,7 +201,7 @@ async function parseErrorResponse(response: Response): Promise<unknown> {
       code: GuildPassErrorCode.INVALID_RESPONSE,
       message: 'Endpoint returned malformed JSON in an error response',
       meta: {
-        contentType: response.headers.get('Content-Type'),
+        contentType,
       },
     };
   }
@@ -229,6 +237,7 @@ export class HttpClient {
   // GuildPass SDK: Class member structure property or constructor.
   private readonly hooks?: HttpHooks;
   private readonly fetchTransport?: FetchLike;
+  private readonly metadata?: ClientMetadata;
 
   // GuildPass SDK: Class member structure property or constructor.
   constructor(
@@ -247,6 +256,7 @@ export class HttpClient {
         this.globalRetry = configOrHooks.retry;
         this.hooks = configOrHooks.hooks;
         this.fetchTransport = configOrHooks.fetch;
+        this.metadata = configOrHooks.metadata;
       } else if (isRetryConfig(configOrHooks)) {
         this.globalRetry = configOrHooks;
       } else if (isHooksConfig(configOrHooks)) {
@@ -292,13 +302,43 @@ export class HttpClient {
     path: string,
     options: HttpRequestOptions = {},
   ): Promise<HttpResponse<T>> {
-    const { method = 'GET', headers = {}, body, params, timeoutMs = this.timeoutMs, retry, signal } = options;
+    const {
+      method = 'GET',
+      headers = {},
+      body,
+      params,
+      timeoutMs = this.timeoutMs,
+      retry,
+      signal,
+    } = options;
+
+    const isAbsolute = path.startsWith('http://') || path.startsWith('https://');
 
     const requestHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(this.apiKey ? { 'X-API-Key': this.apiKey } : {}),
+      ...(this.apiKey && !isAbsolute ? { 'X-API-Key': this.apiKey } : {}),
       ...headers,
     };
+
+    // Attach client metadata headers only for GuildPass API-relative requests.
+    // Absolute external URLs never receive metadata headers.
+    if (!isAbsolute && this.metadata?.sendClientMetadata !== false) {
+      const sdkVersion = this.metadata?.sdkVersion;
+      if (sdkVersion && sdkVersion.length > 0) {
+        requestHeaders['X-GuildPass-SDK-Version'] = sdkVersion;
+      }
+
+      const clientParts: string[] = [];
+      if (this.metadata?.clientName && this.metadata.clientName.length > 0) {
+        clientParts.push(this.metadata.clientName);
+      }
+      if (this.metadata?.clientVersion && this.metadata.clientVersion.length > 0) {
+        clientParts.push(this.metadata.clientVersion);
+      }
+      if (clientParts.length > 0) {
+        requestHeaders['X-GuildPass-Client'] = clientParts.join('/');
+      }
+    }
 
     const retryConfig = resolveRetry(this.globalRetry, retry);
     const canRetry =
@@ -328,7 +368,10 @@ export class HttpClient {
       throw new GuildPassError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
     }
 
-    const url = new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
+    const url = isAbsolute
+      ? new URL(path)
+      : new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
+
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         url.searchParams.append(key, String(value));
@@ -339,11 +382,15 @@ export class HttpClient {
 
     while (true) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeoutMs);
 
       let onAbort: (() => void) | undefined;
       if (signal) {
-        onAbort = () => controller.abort();
+        onAbort = () => {
+          controller.abort();
+        };
         signal.addEventListener('abort', onAbort);
       }
 
