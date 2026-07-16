@@ -19,6 +19,7 @@ import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, Acces
 import type { MembershipParams, Membership } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, GuildRole } from '../roles/roles.types';
 import type { GetGuildParams, Guild, GuildConfig } from '../guilds/guilds.types';
+import type { RequestOptions } from '../types/common';
 
 /**
  * The main GuildPass SDK this.
@@ -257,9 +258,12 @@ export class GuildPassClient {
   private buildCachedAccessService(raw: AccessService): AccessService {
     return Object.create(raw, {
       checkAccess: {
-        value: async (params: AccessCheckParams): Promise<AccessCheckResult> => {
+        value: async (params: AccessCheckParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.checkAccess(params, options);
+          }
           const key = `access:checkAccess:${params.guildId}:${params.resourceId}:${params.walletAddress}`;
-          return this.withCache(key, () => raw.checkAccess(params));
+          return this.withCache(key, () => raw.checkAccess(params, options));
         },
       },
       checkAccessBatch: {
@@ -269,9 +273,12 @@ export class GuildPassClient {
         ): Promise<AccessCheckBatchResult[]> => raw.checkAccessBatch(items, options),
       },
       checkRoleAccess: {
-        value: async (params: RoleAccessCheckParams): Promise<boolean> => {
+        value: async (params: RoleAccessCheckParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.checkRoleAccess(params, options);
+          }
           const key = `access:checkRoleAccess:${params.guildId}:${params.roleId}:${params.walletAddress}`;
-          return this.withCache(key, () => raw.checkRoleAccess(params));
+          return this.withCache(key, () => raw.checkRoleAccess(params, options));
         },
       },
     });
@@ -280,14 +287,20 @@ export class GuildPassClient {
   private buildCachedMembershipService(raw: MembershipService): MembershipService {
     return Object.create(raw, {
       getMembership: {
-        value: async (params: MembershipParams): Promise<Membership> => {
+        value: async (params: MembershipParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getMembership(params, options);
+          }
           const key = `membership:getMembership:${params.guildId}:${params.walletAddress}`;
-          return this.withCache(key, () => raw.getMembership(params));
+          return this.withCache(key, () => raw.getMembership(params, options));
         },
       },
       isMember: {
-        value: async (params: MembershipParams): Promise<boolean> => {
-          const membership = await this.membership.getMembership(params);
+        value: async (params: MembershipParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.isMember(params, options);
+          }
+          const membership: any = await this.membership.getMembership(params, options);
           return membership.isActive;
         },
       },
@@ -297,15 +310,21 @@ export class GuildPassClient {
   private buildCachedRolesService(raw: RolesService): RolesService {
     return Object.create(raw, {
       getRoles: {
-        value: async (params: GetRolesParams): Promise<GuildRole[]> => {
+        value: async (params: GetRolesParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getRoles(params, options);
+          }
           const key = `roles:getRoles:${params.guildId}`;
-          return this.withCache(key, () => raw.getRoles(params));
+          return this.withCache(key, () => raw.getRoles(params, options));
         },
       },
       getUserRoles: {
-        value: async (params: GetUserRolesParams): Promise<GuildRole[]> => {
+        value: async (params: GetUserRolesParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getUserRoles(params, options);
+          }
           const key = `roles:getUserRoles:${params.guildId}:${params.walletAddress}`;
-          return this.withCache(key, () => raw.getUserRoles(params));
+          return this.withCache(key, () => raw.getUserRoles(params, options));
         },
       },
     });
@@ -314,15 +333,21 @@ export class GuildPassClient {
   private buildCachedGuildsService(raw: GuildsService): GuildsService {
     return Object.create(raw, {
       getGuild: {
-        value: async (params: GetGuildParams): Promise<Guild> => {
+        value: async (params: GetGuildParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getGuild(params, options);
+          }
           const key = `guilds:getGuild:${params.guildId}`;
-          return this.withCache(key, () => raw.getGuild(params));
+          return this.withCache(key, () => raw.getGuild(params, options));
         },
       },
       getGuildConfig: {
-        value: async (params: GetGuildParams): Promise<GuildConfig> => {
+        value: async (params: GetGuildParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getGuildConfig(params, options);
+          }
           const key = `guilds:getGuildConfig:${params.guildId}`;
-          return this.withCache(key, () => raw.getGuildConfig(params));
+          return this.withCache(key, () => raw.getGuildConfig(params, options));
         },
       },
     });

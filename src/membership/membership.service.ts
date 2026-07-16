@@ -5,7 +5,7 @@ import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isMembership } from '../validation/responseGuards';
-import type { RequestOptions } from '../types/common';
+import type { RequestOptions, ResponseMeta } from '../types/common';
 // GuildPass SDK: Import external module dependencies.
 import { Membership, MembershipParams } from './membership.types';
 
@@ -21,10 +21,10 @@ export class MembershipService {
    * Fetches wallet membership status for a specific guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getMembership(
+  public async getMembership<T extends RequestOptions | undefined = undefined>(
     params: MembershipParams,
-    options?: RequestOptions,
-  ): Promise<Membership> {
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: Membership; meta: ResponseMeta } : Membership> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId } = params;
 
@@ -41,12 +41,13 @@ export class MembershipService {
       },
       timeoutMs: options?.timeoutMs,
       retry: options?.retry,
+      includeMeta: (options as any)?.includeMeta,
       // GuildPass SDK: End of logic containment structure block.
     });
 
     return this.validateResponses
       ? assertValidResponse(result, isMembership, 'Membership')
-      : result;
+      : result as any;
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -54,11 +55,19 @@ export class MembershipService {
    * Checks if a wallet is an active member of a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async isMember(params: MembershipParams, options?: RequestOptions): Promise<boolean> {
+  public async isMember<T extends RequestOptions | undefined = undefined>(
+    params: MembershipParams,
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: boolean; meta: ResponseMeta } : boolean> {
     // GuildPass SDK: Define internal reference identifier.
-    const membership = await this.getMembership(params, options);
+    const result = await this.getMembership(params, options as any);
+    const hasMeta = (options as any)?.includeMeta && typeof result === 'object' && 'meta' in result;
+    if (hasMeta) {
+      const withMeta = result as { data: Membership; meta: ResponseMeta };
+      return { data: withMeta.data.isActive, meta: withMeta.meta } as any;
+    }
     // GuildPass SDK: Send back computed results to the caller.
-    return membership.isActive;
+    return (result as Membership).isActive as any;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.

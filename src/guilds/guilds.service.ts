@@ -5,7 +5,7 @@ import { validateGuildId } from '../utils/validation';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isGuild, isGuildConfig } from '../validation/responseGuards';
-import type { RequestOptions } from '../types/common';
+import type { RequestOptions, ResponseMeta } from '../types/common';
 // GuildPass SDK: Import external module dependencies.
 import { GetGuildParams, Guild, GuildConfig } from './guilds.types';
 
@@ -21,17 +21,20 @@ export class GuildsService {
    * Fetches basic guild information.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getGuild(params: GetGuildParams, options?: RequestOptions): Promise<Guild> {
+  public async getGuild<T extends RequestOptions | undefined = undefined>(
+    params: GetGuildParams,
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: Guild; meta: ResponseMeta } : Guild> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { guildId } = params;
     validateGuildId(guildId);
 
     // GuildPass SDK: Send back computed results to the caller.
     const path = `/guilds/${encodePathSegment(guildId)}`;
-    const result = options
-      ? await this.http.get<Guild>(path, options)
+    const result = options != null
+      ? await this.http.get<Guild>(path, { ...options, includeMeta: (options as any).includeMeta } as any)
       : await this.http.get<Guild>(path);
-    return this.validateResponses ? assertValidResponse(result, isGuild, 'Guild') : result;
+    return this.validateResponses ? assertValidResponse(result, isGuild, 'Guild') : result as any;
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -39,22 +42,22 @@ export class GuildsService {
    * Fetches full guild configuration including theme and social links.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getGuildConfig(
+  public async getGuildConfig<T extends RequestOptions | undefined = undefined>(
     params: GetGuildParams,
-    options?: RequestOptions,
-  ): Promise<GuildConfig> {
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: GuildConfig; meta: ResponseMeta } : GuildConfig> {
     // GuildPass SDK: Define internal reference identifier.
     const { guildId } = params;
     validateGuildId(guildId);
 
     // GuildPass SDK: Return evaluated output value.
     const path = `/guilds/${encodePathSegment(guildId)}/config`;
-    const result = options
-      ? await this.http.get<GuildConfig>(path, options)
+    const result = options != null
+      ? await this.http.get<GuildConfig>(path, { ...options, includeMeta: (options as any).includeMeta } as any)
       : await this.http.get<GuildConfig>(path);
     return this.validateResponses
       ? assertValidResponse(result, isGuildConfig, 'GuildConfig')
-      : result;
+      : result as any;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.

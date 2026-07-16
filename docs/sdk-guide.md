@@ -341,3 +341,95 @@ Non-idempotent methods (POST, PATCH) are never retried unless you explicitly set
 Hook payloads expose safe request metadata only. Sensitive values like the API key, `Authorization` and `Cookie` headers, and full request body are not included in hook payloads. Headers are redacted consistently before reaching your callbacks, and hook failures are logged without changing the normal SDK response behavior.
 
 ⚠️ **Warning:** Be careful not to log sensitive application data. Although the SDK automatically redacts known sensitive headers (`authorization`, `x-api-key`, `cookie`, `set-cookie`), any proprietary query parameters or custom headers containing sensitive info should be handled securely.
+
+## Response Metadata (includeMeta)
+
+When you need to correlate SDK calls with server-side logs or support tickets,
+pass `includeMeta: true` in the request options. The service method returns a
+`{ data, meta }` object instead of the raw data value.
+
+```typescript
+const result = await client.access.checkAccess(
+  { walletAddress: '0x...', guildId: 'guild_1', resourceId: 'res_1' },
+  { includeMeta: true },
+);
+
+// result.data → AccessCheckResult (same shape as the default return)
+// result.meta → ResponseMeta (diagnostic info)
+
+console.log(result.meta.requestId);      // 'req-abc-123' — from X-Request-ID header
+console.log(result.meta.correlationId);  // 'corr-xyz-789' — from X-Correlation-ID header
+console.log(result.meta.traceparent);    // W3C trace context, if present
+console.log(result.meta.traceId);        // X-Trace-ID header, if present
+console.log(result.meta.status);         // 200
+console.log(result.meta.durationMs);     // 87 (total request time in milliseconds)
+```
+
+### Metadata Fields
+
+| Field | Type | Source Header | Description |
+| :--- | :--- | :--- | :--- |
+| `status` | `number` | — | HTTP status code of the response. |
+| `durationMs` | `number` | — | Total request duration in milliseconds. |
+| `requestId` | `string?` | `X-Request-ID` / `X-Request-Id` | Server-assigned request identifier. |
+| `correlationId` | `string?` | `X-Correlation-ID` | Cross-service correlation identifier. |
+| `traceparent` | `string?` | `Traceparent` | W3C trace context for distributed tracing. |
+| `traceId` | `string?` | `X-Trace-ID` | Alternative trace identifier. |
+
+### Backwards Compatibility
+
+The default behaviour remains unchanged. Omitting `includeMeta` (or passing
+`includeMeta: false`) returns the plain data object exactly as before:
+
+```typescript
+// Default — returns AccessCheckResult directly (backwards-compatible)
+const access = await client.access.checkAccess(params);
+
+// Opt-in — returns { data: AccessCheckResult; meta: ResponseMeta }
+const result = await client.access.checkAccess(params, { includeMeta: true });
+```
+
+### Security
+
+Response metadata only contains safe, non-sensitive headers. The `Authorization`,
+`X-API-Key`, `Cookie`, and `Set-Cookie` headers are **never** included in the
+`meta` object, regardless of what the server returns.
+
+### Supported Methods
+
+`includeMeta` is supported on all service read methods:
+
+- `client.access.checkAccess()`
+- `client.access.checkRoleAccess()`
+- `client.membership.getMembership()`
+- `client.membership.isMember()`
+- `client.roles.getRoles()`
+- `client.roles.getUserRoles()`
+- `client.guilds.getGuild()`
+- `client.guilds.getGuildConfig()`
+
+> **Note:** Metadata requests bypass the cache layer to ensure fresh diagnostic
+> values. If you need both caching and metadata, make two separate calls — one
+> cached call for the data, and a second call with `includeMeta: true` for
+> diagnostics.
+
+### Using Metadata for Support
+
+When filing a support ticket, include the `requestId` and `correlationId` from
+the metadata to help the backend team locate your request in the logs:
+
+```typescript
+try {
+  const result = await client.guilds.getGuild(
+    { guildId: 'my-guild' },
+    { includeMeta: true },
+  );
+  // ... use result.data
+} catch (error) {
+  // On failure, you can still access metadata if captured via hooks
+  console.error('Support info:', {
+    requestId: error.meta?.requestId,
+    correlationId: error.meta?.correlationId,
+  });
+}
+```

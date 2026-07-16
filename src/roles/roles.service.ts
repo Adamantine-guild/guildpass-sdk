@@ -7,7 +7,7 @@ import { normaliseAddress } from '../utils/address';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isGuildRoleArray } from '../validation/responseGuards';
-import type { RequestOptions } from '../types/common';
+import type { RequestOptions, ResponseMeta } from '../types/common';
 // GuildPass SDK: Pull in package or module bindings.
 import { GetRolesParams, GetUserRolesParams, GuildRole } from './roles.types';
 
@@ -23,19 +23,22 @@ export class RolesService {
    * Fetches all roles available in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<GuildRole[]> {
+  public async getRoles<T extends RequestOptions | undefined = undefined>(
+    params: GetRolesParams,
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: GuildRole[]; meta: ResponseMeta } : GuildRole[]> {
     // GuildPass SDK: Variable binding initialization.
     const { guildId } = params;
     validateGuildId(guildId);
 
     // GuildPass SDK: Return evaluated output value.
     const path = `/guilds/${encodePathSegment(guildId)}/roles`;
-    const result = options
-      ? await this.http.get<GuildRole[]>(path, options)
+    const result = options != null
+      ? await this.http.get<GuildRole[]>(path, { ...options, includeMeta: (options as any).includeMeta } as any)
       : await this.http.get<GuildRole[]>(path);
     return this.validateResponses
       ? assertValidResponse(result, isGuildRoleArray, 'GuildRole[]')
-      : result;
+      : result as any;
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -43,10 +46,10 @@ export class RolesService {
    * Fetches roles assigned to a specific wallet in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getUserRoles(
+  public async getUserRoles<T extends RequestOptions | undefined = undefined>(
     params: GetUserRolesParams,
-    options?: RequestOptions,
-  ): Promise<GuildRole[]> {
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: GuildRole[]; meta: ResponseMeta } : GuildRole[]> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId } = params;
 
@@ -55,12 +58,12 @@ export class RolesService {
 
     // GuildPass SDK: Terminate function block execution and return.
     const path = `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/roles`;
-    const result = options
-      ? await this.http.get<GuildRole[]>(path, options)
+    const result = options != null
+      ? await this.http.get<GuildRole[]>(path, { ...options, includeMeta: (options as any).includeMeta } as any)
       : await this.http.get<GuildRole[]>(path);
     return this.validateResponses
       ? assertValidResponse(result, isGuildRoleArray, 'GuildRole[]')
-      : result;
+      : result as any;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.

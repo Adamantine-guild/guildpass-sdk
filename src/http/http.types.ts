@@ -39,17 +39,32 @@ export type HttpRequestOptions = {
   retry?: RetryConfig;
   /** External AbortSignal. Aborts the underlying fetch when fired; composes with the timeout. */
   signal?: AbortSignal;
+  /**
+   * When `true`, the HTTP method returns `{ data, meta }` instead of the raw
+   * `data` value. The `meta` object contains safe diagnostic headers
+   * (request ID, correlation ID, trace context) plus status and duration.
+   */
+  includeMeta?: boolean;
   // GuildPass SDK: End of logic containment structure block.
 };
 
 // GuildPass SDK: Simplified options for service methods.
 export type RequestOptions = Pick<HttpRequestOptions, 'timeoutMs' | 'signal'>;
 
+import type { ResponseMeta } from '../types/common';
+
 // GuildPass SDK: Exported component definition.
 export type HttpResponse<T = any> = {
   data: T;
   status: number;
   headers: Headers;
+  /**
+   * Safe response metadata captured when `includeMeta: true` is set on the
+   * request. Contains diagnostic headers (request ID, correlation ID, trace
+   * context) plus status and duration. `undefined` when metadata was not
+   * requested.
+   */
+  meta?: ResponseMeta;
   // GuildPass SDK: End of logic containment structure block.
 };
 

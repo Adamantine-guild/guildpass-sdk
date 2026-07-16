@@ -10,7 +10,7 @@ import {
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isAccessCheckResult } from '../validation/responseGuards';
-import type { RequestOptions } from '../types/common';
+import type { RequestOptions, ResponseMeta } from '../types/common';
 // GuildPass SDK: Import external module dependencies.
 import { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult } from './access.types';
 
@@ -26,7 +26,10 @@ export class AccessService {
    * Checks whether a wallet has access to a gated resource.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult> {
+  public async checkAccess<T extends RequestOptions | undefined = undefined>(
+    params: AccessCheckParams,
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: AccessCheckResult; meta: ResponseMeta } : AccessCheckResult> {
     // GuildPass SDK: Variable binding initialization.
     const { walletAddress, guildId, resourceId } = params;
 
@@ -45,12 +48,13 @@ export class AccessService {
       },
       timeoutMs: options?.timeoutMs,
       retry: options?.retry,
+      includeMeta: (options as any)?.includeMeta,
       // GuildPass SDK: End of logic containment structure block.
     });
 
     return this.validateResponses
       ? assertValidResponse(result, isAccessCheckResult, 'AccessCheckResult')
-      : result;
+      : result as any;
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -102,10 +106,10 @@ export class AccessService {
    * Checks whether a wallet has a specific role in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async checkRoleAccess(
+  public async checkRoleAccess<T extends RequestOptions | undefined = undefined>(
     params: RoleAccessCheckParams,
-    options?: RequestOptions,
-  ): Promise<boolean> {
+    options?: T,
+  ): Promise<T extends { includeMeta: true } ? { data: boolean; meta: ResponseMeta } : boolean> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId, roleId } = params;
 
@@ -115,7 +119,6 @@ export class AccessService {
 
     // GuildPass SDK: Define internal reference identifier.
     const result = await this.http.get<{ hasRole: boolean }>(`/access/role-check`, {
-      ...options,
       // GuildPass SDK: Execution block boundary initialization.
       params: {
         address: normaliseAddress(walletAddress),
@@ -125,11 +128,15 @@ export class AccessService {
       },
       timeoutMs: options?.timeoutMs,
       retry: options?.retry,
+      includeMeta: (options as any)?.includeMeta,
       // GuildPass SDK: End of logic containment structure block.
     });
 
     // GuildPass SDK: Terminate function block execution and return.
-    return result.hasRole;
+    if ((options as any)?.includeMeta && typeof result === 'object' && 'meta' in result) {
+      return { data: (result as any).data.hasRole, meta: (result as any).meta } as any;
+    }
+    return (result as { hasRole: boolean }).hasRole as any;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.

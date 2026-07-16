@@ -2,6 +2,7 @@
 import { GuildPassError } from '../errors/GuildPassError';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import type { ResponseMeta } from '../types/common';
 // GuildPass SDK: Pull in package or module bindings.
 import {
   FetchLike,
@@ -16,6 +17,34 @@ import {
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
 const SENSITIVE_HEADERS = new Set(['authorization', 'x-api-key', 'cookie', 'set-cookie']);
+
+/** Safe diagnostic headers to expose in response metadata. */
+const META_HEADERS: Array<{ headerName: string; metaKey: keyof ResponseMeta }> = [
+  { headerName: 'x-request-id', metaKey: 'requestId' },
+  { headerName: 'x-correlation-id', metaKey: 'correlationId' },
+  { headerName: 'traceparent', metaKey: 'traceparent' },
+  { headerName: 'x-trace-id', metaKey: 'traceId' },
+];
+
+/**
+ * Extracts safe response metadata from a fetch Response object.
+ * Only includes non-sensitive headers and timing/status info.
+ */
+function extractResponseMeta(response: Response, durationMs: number): ResponseMeta {
+  const meta: ResponseMeta = {
+    status: response.status,
+    durationMs,
+  };
+
+  for (const { headerName, metaKey } of META_HEADERS) {
+    const value = response.headers.get(headerName);
+    if (value) {
+      (meta as unknown as Record<string, unknown>)[metaKey] = value;
+    }
+  }
+
+  return meta;
+}
 
 export function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};
@@ -240,20 +269,38 @@ export class HttpClient {
   // GuildPass SDK: Class member structure property or constructor.
   public async get<T>(
     path: string,
+    options?: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta?: false | undefined },
+  ): Promise<T>;
+  public async get<T>(
+    path: string,
+    options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true },
+  ): Promise<{ data: T; meta: ResponseMeta }>;
+  public async get<T>(
+    path: string,
     options?: Omit<HttpRequestOptions, 'method' | 'body'>,
-  ): Promise<T> {
-    const response = await this.request<T>(path, { ...options, method: 'GET' });
-    return response.data;
+  ): Promise<T | { data: T; meta: ResponseMeta }> {
+    const result = await this.request<T>(path, { ...options, method: 'GET' });
+    return options?.includeMeta ? { data: result.data, meta: result.meta! } : result.data;
   }
 
   // GuildPass SDK: Class member structure property or constructor.
   public async post<T>(
     path: string,
     body?: any,
+    options?: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta?: false | undefined },
+  ): Promise<T>;
+  public async post<T>(
+    path: string,
+    body: any,
+    options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true },
+  ): Promise<{ data: T; meta: ResponseMeta }>;
+  public async post<T>(
+    path: string,
+    body?: any,
     options?: Omit<HttpRequestOptions, 'method' | 'body'>,
-  ): Promise<T> {
-    const response = await this.request<T>(path, { ...options, method: 'POST', body });
-    return response.data;
+  ): Promise<T | { data: T; meta: ResponseMeta }> {
+    const result = await this.request<T>(path, { ...options, method: 'POST', body });
+    return options?.includeMeta ? { data: result.data, meta: result.meta! } : result.data;
   }
 
   // GuildPass SDK: Class member structure property or constructor.
@@ -365,10 +412,15 @@ export class HttpClient {
           }
         }
 
+        const meta = options.includeMeta
+          ? extractResponseMeta(response, durationMs)
+          : undefined;
+
         return {
           data,
           status: response.status,
           headers: response.headers,
+          meta,
         };
 
       } catch (error: any) {
