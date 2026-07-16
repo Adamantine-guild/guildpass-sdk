@@ -234,6 +234,61 @@ describe('ContractClient (Stubs)', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('getGuildOwnersBatch maps multiple guild IDs to decoded owners in order', async () => {
+    const OWNER_A = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const OWNER_B = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: `0x000000000000000000000000${OWNER_A.slice(2)}` },
+          { jsonrpc: '2.0', id: 2, result: `0x000000000000000000000000${OWNER_B.slice(2)}` },
+        ]),
+    });
+
+    const results = await client.contracts.getGuildOwnersBatch({
+      guildIds: ['guild_1', 'guild_2'],
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe('success');
+    if (results[0].status === 'success') expect(results[0].result).toBe(OWNER_A);
+    if (results[1].status === 'success') expect(results[1].result).toBe(OWNER_B);
+
+    const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(2);
+    expect(body[0].method).toBe('eth_call');
+    expect(body[1].method).toBe('eth_call');
+  });
+
+  it('getGuildOwnersBatch marks failed batch items as errors without throwing', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: `0x000000000000000000000000${OWNER.slice(2)}` },
+          { jsonrpc: '2.0', id: 2, error: { code: -32000, message: 'execution reverted' } },
+        ]),
+    });
+
+    const results = await client.contracts.getGuildOwnersBatch({
+      guildIds: ['guild_1', 'guild_2'],
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe('success');
+    expect(results[1].status).toBe('error');
+    if (results[1].status === 'error') {
+      expect(results[1].error).toContain('execution reverted');
+    }
+  });
+
   it('should surface guild owner RPC errors', async () => {
     mockFetch().mockResolvedValue({
       ok: true,
