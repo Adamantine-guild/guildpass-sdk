@@ -11,6 +11,7 @@ export * from './roles/roles.service';
 export * from './guilds/guilds.service';
 export * from './contracts/contractClient';
 export * from './contracts/contract.types';
+export * from './contracts/providers';
 
 // Types
 export * from './types';

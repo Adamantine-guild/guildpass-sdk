@@ -35,7 +35,47 @@ Designed for future on-chain support. Currently provides stubs and validation pa
 - On-chain role requirement validation
 - Guild ownership lookup
 
-### 5. Caching Layer
+All on-chain reads flow through a pluggable **ContractProvider** abstraction (see below).
+
+### 5. ContractProvider (pluggable RPC layer)
+
+`ContractClient` never talks to a chain directly. Instead, every read goes through the
+`ContractProvider` interface (`src/contracts/providers/provider.types.ts`):
+
+```ts
+interface ContractProvider {
+  ethCall(request: { to: string; data: string }, options?: RequestOptions): Promise<unknown>;
+  batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+}
+```
+
+**Provider resolution** (per call):
+
+1. If `GuildPassClientConfig.contractProvider` is set, it is used for every contract read
+   and takes precedence over `rpcUrl` (including per-chain `chains[].rpcUrl`).
+2. Otherwise the default `JsonRpcContractProvider` is constructed from the resolved
+   `rpcUrl` — the original raw JSON-RPC-over-fetch behavior, unchanged.
+3. If neither is available, the call fails fast with `INVALID_CONFIG`
+   (`"rpcUrl is required for contract calls"`), exactly as before.
+
+**Responsibility split**: `ContractClient` owns input validation, chain/contract-address
+resolution, batch size limits/chunking, and result decoding. Providers own only transport —
+"make an eth_call reach a chain". This keeps error semantics uniform: provider-level
+failures are always `HTTP_ERROR`, undecodable results are always `INVALID_RESPONSE`,
+regardless of which provider is in use.
+
+**Adapters** for viem and ethers live in dedicated subpath exports so they are only ever
+bundled when explicitly imported:
+
+- `@guildpass/sdk/adapters/viem` → `viemContractProvider(publicClient)`
+- `@guildpass/sdk/adapters/ethers` → `ethersContractProvider(provider)`
+
+The adapters are *structurally typed* — they accept anything with a compatible `call()`
+method and never `import` viem or ethers. Both libraries are optional peer dependencies
+only; the core package stays zero-runtime-dependency, and consumers who don't import the
+adapter subpaths see no bundle-size increase.
+
+### 6. Caching Layer
 
 The SDK includes a resilient caching layer that wraps service methods.
 

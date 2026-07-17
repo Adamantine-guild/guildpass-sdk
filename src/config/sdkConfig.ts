@@ -4,12 +4,20 @@ import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { CacheAdapter } from '../cache/cache.types';
 import { ChainConfig } from '../contracts/contract.types';
+import { ContractProvider } from '../contracts/providers/provider.types';
 import { validateAddress } from '../utils/validation';
 
 export type GuildPassClientConfig = {
   apiUrl: string;
   chainId?: number;
   rpcUrl?: string;
+  /**
+   * Custom provider used for all contract reads. Takes precedence over
+   * `rpcUrl` (including per-chain `chains[].rpcUrl`). Use the adapters in
+   * `@guildpass/sdk/adapters/viem` or `@guildpass/sdk/adapters/ethers` to
+   * wrap an existing viem PublicClient or ethers Provider.
+   */
+  contractProvider?: ContractProvider;
   contractAddress?: string;
   /** Per-chain RPC URL and contract address overrides, keyed by chain ID. */
   chains?: Record<number, ChainConfig>;
@@ -68,6 +76,16 @@ export function validateConfig(config: GuildPassClientConfig): void {
     for (const method of required) {
       if (typeof adapter[method] !== 'function') {
         throwConfigError(`cache adapter must implement ${method}(): function`, 'cache', 'INVALID_TYPE', config.cache);
+      }
+    }
+  }
+
+  if (config.contractProvider !== undefined) {
+    const provider = config.contractProvider;
+    const required = ['ethCall', 'batchEthCall'] as const;
+    for (const method of required) {
+      if (typeof provider[method] !== 'function') {
+        throwConfigError(`contractProvider must implement ${method}(): function`, 'contractProvider', 'INVALID_TYPE', config.contractProvider);
       }
     }
   }
