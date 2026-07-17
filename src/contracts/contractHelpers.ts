@@ -29,34 +29,57 @@ export const encodeAddressArgument = (address: string): string => {
   return address.slice(2).toLowerCase().padStart(HEX_32_BYTES_LENGTH, '0');
 };
 
+/** Maximum value encodable as uint256 / bytes32 (2^256 − 1). */
+export const UINT256_MAX = BigInt('0x' + 'f'.repeat(64));
+
 /**
- * Encodes a string as a 32-byte (bytes32) ABI argument. Accepts a pre-encoded
- * 0x-prefixed 32-byte hex value, a decimal integer, or an arbitrary UTF-8
- * string (right-padded), mirroring how guild IDs and on-chain role IDs are
- * typically represented.
+ * Encodes a string as a 32-byte (bytes32) ABI argument.
+ *
+ * Classification rules (applied in strict order, no overlap):
+ *
+ * 1. **Hex mode** — input matches `/^0x[a-fA-F0-9]{64}$/` exactly (case-insensitive).
+ *    The `0x` prefix is stripped and the hex digits are lowercased.
+ *    Inputs that start with `0x` but do NOT match this exact pattern (e.g.
+ *    `"0x1234"`, `"0x" + "g".repeat(64)`) are **not** treated as hex — they
+ *    fall through to UTF-8 mode.
+ *
+ * 2. **Integer mode** — input matches `/^\d+$/` (only ASCII decimal digits,
+ *    no leading whitespace after trim).  The value is converted via `BigInt`
+ *    and left-zero-padded to 32 bytes.  Throws `INVALID_INPUT` if the value
+ *    exceeds `2^256 − 1` (uint256 max).
+ *
+ * 3. **UTF-8 mode** — everything else.  The string is UTF-8 encoded and
+ *    right-zero-padded to 32 bytes.  Throws `INVALID_INPUT` if the encoded
+ *    byte length exceeds 32.
+ *
+ * The three modes are mutually exclusive: a string that matches mode 1 or 2
+ * is never processed by a later mode, eliminating all ambiguous cases.
  */
 export const encodeBytes32 = (value: string, label: string): string => {
   const trimmed = value.trim();
 
+  // ── Mode 1: exact 0x-prefixed 64-hex-char string ──────────────────────────
   if (/^0x[a-fA-F0-9]{64}$/.test(trimmed)) {
     return trimmed.slice(2).toLowerCase();
   }
 
+  // ── Mode 2: pure decimal integer string within uint256 range ──────────────
   if (/^\d+$/.test(trimmed)) {
-    const encoded = BigInt(trimmed).toString(16);
-    if (encoded.length > HEX_32_BYTES_LENGTH) {
+    const n = BigInt(trimmed);
+    if (n > UINT256_MAX) {
       throw new GuildPassError(
-        `${label} is too large for bytes32 encoding`,
+        `${label} exceeds uint256 maximum and cannot be encoded as bytes32`,
         GuildPassErrorCode.INVALID_INPUT,
       );
     }
-    return encoded.padStart(HEX_32_BYTES_LENGTH, '0');
+    return n.toString(16).padStart(HEX_32_BYTES_LENGTH, '0');
   }
 
+  // ── Mode 3: UTF-8 right-zero-padded to 32 bytes ───────────────────────────
   const bytes = new TextEncoder().encode(trimmed);
   if (bytes.length > 32) {
     throw new GuildPassError(
-      `${label} must fit within 32 UTF-8 bytes`,
+      `${label} must fit within 32 UTF-8 bytes (got ${bytes.length})`,
       GuildPassErrorCode.INVALID_INPUT,
     );
   }

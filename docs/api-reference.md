@@ -114,8 +114,20 @@ await client.contracts.getGuildOwner({
 - **Returns**: `Promise<string>`
 - **Requires**: an `rpcUrl` and a contract address from the resolved chain config or per-call `contractAddress`
 - **Contract call**: `eth_call` to `getGuildOwner(bytes32)`
-- **Guild ID encoding**: accepts a 32-byte hex value, unsigned integer string, or UTF-8 string up to 32 bytes
-- **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config, `INVALID_INPUT` for invalid guild IDs, `INVALID_ADDRESS` for invalid contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
+- **Guild ID encoding**: guild IDs are encoded to a 32-byte (bytes32) ABI value using the following strict, mutually exclusive rules applied in order:
+
+  | Priority | Rule | Input example | Encoding |
+  |----------|------|---------------|----------|
+  | 1 | **Hex mode** — input matches `/^0x[a-fA-F0-9]{64}$/` exactly (case-insensitive, `0x` prefix + exactly 64 hex digits). | `"0xabcd…0001"` | Strip `0x`, lowercase. |
+  | 2 | **Integer mode** — input matches `/^\d+$/` (only ASCII decimal digits, no leading spaces after trim) AND the value is ≤ `2^256 − 1`. Throws `INVALID_INPUT` if the value exceeds uint256 max. | `"42"`, `"0"` | `BigInt` → left-zero-padded 32-byte hex. |
+  | 3 | **UTF-8 mode** — everything else. The raw string is UTF-8 encoded and right-zero-padded to 32 bytes. Throws `INVALID_INPUT` if the UTF-8 encoding exceeds 32 bytes. | `"prime-guild"`, `"guild_1"` | UTF-8 bytes → right-zero-padded 32-byte hex. |
+
+  > **Disambiguation rules:**
+  > - A string that starts with `0x` but is shorter than 66 characters or contains non-hex characters is **not** treated as a hex value — it falls through to UTF-8 mode (e.g. `"0xdeadbeef"` → UTF-8 bytes of that literal string).
+  > - A string of only ASCII decimal digits (e.g. `"42"`) is **always** integer mode; it is never encoded as UTF-8, even though `"42"` and the integer 42 produce different byte sequences.
+  > - These rules are mutually exclusive: an input is classified by exactly one mode, eliminating all ambiguity.
+
+- **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config, `INVALID_INPUT` for invalid guild IDs (uint256 overflow or UTF-8 length > 32 bytes), `INVALID_ADDRESS` for invalid contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
 
 ### `getMembershipTokenBalance(params: TokenBalanceParams)`
 
@@ -181,6 +193,7 @@ await client.contracts.getGuildOwnersBatch({
   `{ status: 'error', error: '<reason>' }`.
 - **Requires**: same config as `getGuildOwner`
 - **Contract call**: single JSON-RPC batch of `eth_call` to `getGuildOwner(bytes32)`
+- **Guild ID encoding**: each guild ID in the array is encoded using the same strict three-mode rules as `getGuildOwner` (see above)
 - **Partial failures**: a failed guild is reported individually; other guilds are unaffected
 - **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_INPUT` if any guild ID is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
 
