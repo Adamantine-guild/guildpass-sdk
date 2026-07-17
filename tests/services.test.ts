@@ -357,6 +357,136 @@ describe('Service Modules', () => {
 
       expect(fetch).not.toHaveBeenCalled();
     });
+
+    describe('hasRole', () => {
+      it('returns true when the API reports the wallet holds the role', async () => {
+        mockFetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ hasRole: true }),
+          headers: new Headers(),
+        });
+
+        const result = await client.roles.hasRole({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        });
+
+        expect(result).toBe(true);
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining('/access/role-check'),
+          expect.objectContaining({ method: 'GET' }),
+        );
+      });
+
+      it('returns false when the API reports the wallet does not hold the role', async () => {
+        mockFetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ hasRole: false }),
+          headers: new Headers(),
+        });
+
+        const result = await client.roles.hasRole({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        });
+
+        expect(result).toBe(false);
+      });
+
+      it('rejects invalid wallet addresses before calling the API', async () => {
+        await expect(
+          client.roles.hasRole({
+            walletAddress: 'not-an-address',
+            guildId: 'guild_1',
+            roleId: 'role_1',
+          }),
+        ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects invalid guild IDs before calling the API', async () => {
+        await expect(
+          client.roles.hasRole({
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: ' ',
+            roleId: 'role_1',
+          }),
+        ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects invalid role IDs before calling the API', async () => {
+        await expect(
+          client.roles.hasRole({
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: 'guild_1',
+            roleId: '',
+          }),
+        ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      it('normalises wallet address in the query parameters', async () => {
+        mockFetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ hasRole: true }),
+          headers: new Headers(),
+        });
+
+        const mixedCase = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+        await client.roles.hasRole({
+          walletAddress: mixedCase,
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+          expect.stringContaining(`address=${mixedCase.toLowerCase()}`),
+          expect.any(Object),
+        );
+      });
+
+      it('returns a cached result on repeated calls with the same params', async () => {
+        const cachedClient = new GuildPassClient({
+          apiUrl: 'https://api.test.com',
+          fetch: mockFetch,
+          cache: {
+            get: vi.fn().mockResolvedValueOnce(null).mockResolvedValue(true),
+            set: vi.fn().mockResolvedValue(undefined),
+            delete: vi.fn().mockResolvedValue(undefined),
+            clear: vi.fn().mockResolvedValue(undefined),
+          },
+        });
+
+        mockFetch.mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ hasRole: true }),
+          headers: new Headers(),
+        });
+
+        const params = {
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        };
+
+        await cachedClient.roles.hasRole(params);
+        const second = await cachedClient.roles.hasRole(params);
+
+        expect(second).toBe(true);
+        // Second call should have been served from cache (fetch called only once)
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe('GuildsService', () => {
@@ -567,6 +697,23 @@ describe('Service Modules', () => {
       });
 
       expect(result).toBeDefined();
+    });
+
+    it('should match hasRole contract via roles module', async () => {
+      const fixture = apiContract?.access?.roleCheck || { response: { success: { hasRole: true } } };
+      mockJsonResponse(fixture.response.success);
+
+      const result = await client.roles.hasRole({
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        roleId: 'role_1',
+      });
+
+      expect(typeof result).toBe('boolean');
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/access/role-check'),
+        expect.any(Object),
+      );
     });
 
     it('should match membership get contract', async () => {

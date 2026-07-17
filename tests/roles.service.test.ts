@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { RolesService } from '../src/roles/roles.service';
 import type { HttpClient } from '../src/http/httpClient';
+import type { AccessService } from '../src/access/access.service';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
@@ -9,6 +10,14 @@ function createService(response: unknown) {
   const get = vi.fn().mockResolvedValue(response);
   const http = { get } as unknown as HttpClient;
   return { get, service: new RolesService(http) };
+}
+
+function createServiceWithAccess(accessReturnValue: boolean) {
+  const get = vi.fn();
+  const http = { get } as unknown as HttpClient;
+  const checkRoleAccess = vi.fn().mockResolvedValue(accessReturnValue);
+  const access = { checkRoleAccess } as unknown as AccessService;
+  return { get, checkRoleAccess, service: new RolesService(http, false, access) };
 }
 
 describe('RolesService request options forwarding', () => {
@@ -94,5 +103,72 @@ describe('RolesService request options forwarding', () => {
         retry: { maxRetries: 3 },
       },
     );
+  });
+});
+
+describe('RolesService.hasRole', () => {
+  it('returns true when the wallet holds the role', async () => {
+    const { checkRoleAccess, service } = createServiceWithAccess(true);
+
+    const result = await service.hasRole({
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      roleId: 'role_1',
+    });
+
+    expect(result).toBe(true);
+    expect(checkRoleAccess).toHaveBeenCalledOnce();
+    expect(checkRoleAccess).toHaveBeenCalledWith(
+      { walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' },
+      undefined,
+    );
+  });
+
+  it('returns false when the wallet does not hold the role', async () => {
+    const { checkRoleAccess, service } = createServiceWithAccess(false);
+
+    const result = await service.hasRole({
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      roleId: 'role_1',
+    });
+
+    expect(result).toBe(false);
+    expect(checkRoleAccess).toHaveBeenCalledOnce();
+  });
+
+  it('forwards RequestOptions to AccessService.checkRoleAccess', async () => {
+    const { checkRoleAccess, service } = createServiceWithAccess(true);
+    const controller = new AbortController();
+
+    await service.hasRole(
+      { walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' },
+      { timeoutMs: 500, signal: controller.signal, retry: { maxRetries: 2 } },
+    );
+
+    expect(checkRoleAccess).toHaveBeenCalledWith(
+      { walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' },
+      { timeoutMs: 500, signal: controller.signal, retry: { maxRetries: 2 } },
+    );
+  });
+
+  it('throws if no AccessService was injected', async () => {
+    const { service } = createService([]);
+
+    await expect(
+      service.hasRole({ walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' }),
+    ).rejects.toThrow('hasRole() requires an AccessService instance');
+  });
+
+  it('propagates errors thrown by AccessService.checkRoleAccess', async () => {
+    const get = vi.fn();
+    const http = { get } as unknown as HttpClient;
+    const checkRoleAccess = vi.fn().mockRejectedValue(new Error('network error'));
+    const access = { checkRoleAccess } as unknown as AccessService;
+    const service = new RolesService(http, false, access);
+
+    await expect(
+      service.hasRole({ walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' }),
+    ).rejects.toThrow('network error');
   });
 });

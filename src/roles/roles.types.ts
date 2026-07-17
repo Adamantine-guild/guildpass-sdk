@@ -14,6 +14,13 @@ export type GetUserRolesParams = {
   // GuildPass SDK: End of logic containment structure block.
 };
 
+/** Parameters for the {@link RolesService.hasRole} convenience method. */
+export type HasRoleParams = {
+  walletAddress: string;
+  guildId: string;
+  roleId: string;
+};
+
 // GuildPass SDK: Exported component definition.
 export type GuildRole = {
   id: string;

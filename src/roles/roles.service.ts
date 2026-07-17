@@ -1,6 +1,5 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { HttpClient } from '../http/httpClient';
-// GuildPass SDK: Pull in package or module bindings.
 // GuildPass SDK: Import external module dependencies.
 import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
@@ -9,7 +8,8 @@ import { assertValidResponse } from '../validation/assertResponse';
 import { isGuildRoleArray } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
 // GuildPass SDK: Pull in package or module bindings.
-import { GetRolesParams, GetUserRolesParams, GuildRole } from './roles.types';
+import { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from './roles.types';
+import type { AccessService } from '../access/access.service';
 
 // GuildPass SDK: Exposed interface structure.
 export class RolesService {
@@ -17,6 +17,7 @@ export class RolesService {
   constructor(
     private readonly http: HttpClient,
     private readonly validateResponses = false,
+    private readonly access?: AccessService,
   ) {}
 
   /**
@@ -58,6 +59,32 @@ export class RolesService {
       ? assertValidResponse(result, isGuildRoleArray, 'GuildRole[]')
       : result;
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Convenience method that checks whether a wallet holds a specific role in a
+   * guild. Delegates to {@link AccessService.checkRoleAccess} without
+   * duplicating any HTTP logic.
+   *
+   * @example
+   * ```typescript
+   * const isMod = await client.roles.hasRole({
+   *   walletAddress: '0x1234...5678',
+   *   guildId: 'prime-guild',
+   *   roleId: 'moderator',
+   * });
+   * ```
+   *
+   * @returns `true` when the wallet holds the role, `false` otherwise.
+   */
+  public async hasRole(params: HasRoleParams, options?: RequestOptions): Promise<boolean> {
+    if (!this.access) {
+      throw new Error(
+        'GuildPass SDK: hasRole() requires an AccessService instance. ' +
+          'Use GuildPassClient to obtain a properly configured RolesService.',
+      );
+    }
+    return this.access.checkRoleAccess(params, options);
   }
   // GuildPass SDK: End of logic containment structure block.
 }
