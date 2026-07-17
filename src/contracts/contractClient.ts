@@ -30,6 +30,8 @@ import {
 import { GuildPassClientConfig, resolveChainConfig } from '../config/sdkConfig';
 import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
+import { ContractProvider } from './providers/provider.types';
+import { JsonRpcContractProvider } from './providers/jsonRpcProvider';
 
 // Local pure helper function for exact decimal string shift math
 export const formatUnits = (value: string, decimals: number): string => {
@@ -65,17 +67,6 @@ export {
 
 
 
-type JsonRpcSuccess = {
-  result?: unknown;
-};
-
-type JsonRpcError = {
-  error?: {
-    code?: number;
-    message?: string;
-  };
-};
-
 // GuildPass SDK: Exported function execution unit.
 export class ContractClient {
   // GuildPass SDK: Class member structure property or constructor.
@@ -108,43 +99,19 @@ export class ContractClient {
   }
 
   /**
-   * Sends a single read-only `eth_call` and returns its raw (undecoded)
-   * result. Shared by all single-call contract reads so the JSON-RPC
-   * envelope and error handling live in exactly one place.
+   * Resolves the {@link ContractProvider} used for contract reads. A
+   * configured `contractProvider` takes precedence; otherwise the default
+   * raw JSON-RPC provider is constructed from `rpcUrl`. Throws
+   * `INVALID_CONFIG` with `requiredMessage` when neither is available.
    */
-  private async performEthCall(
-    to: string,
-    data: string,
-    rpcUrl: string,
-    options?: RequestOptions,
-  ): Promise<unknown> {
-    const payload = await this.http.post<(JsonRpcSuccess & JsonRpcError) | undefined>(
-      rpcUrl,
-      {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_call',
-        params: [{ to, data }, 'latest'],
-      },
-      {
-        ...options,
-        retry: {
-          allowMutatingRetry: true,
-          ...options?.retry,
-        },
-      },
-    );
-
-    if (payload?.error) {
-      throw new GuildPassError(
-        payload.error.message ?? 'RPC provider returned an error',
-        GuildPassErrorCode.HTTP_ERROR,
-        undefined,
-        payload.error,
-      );
+  private resolveProvider(rpcUrl: string | undefined, requiredMessage: string): ContractProvider {
+    if (this.config.contractProvider) {
+      return this.config.contractProvider;
     }
-
-    return payload?.result;
+    if (!rpcUrl) {
+      throw new GuildPassError(requiredMessage, GuildPassErrorCode.INVALID_CONFIG);
+    }
+    return new JsonRpcContractProvider(this.http, rpcUrl);
   }
 
   /**
@@ -162,12 +129,7 @@ export class ContractClient {
 
     validateAddress(walletAddress);
 
-    if (!chainConfig.rpcUrl) {
-      throw new GuildPassError(
-        'rpcUrl is required for contract calls',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
-    }
+    const provider = this.resolveProvider(chainConfig.rpcUrl, 'rpcUrl is required for contract calls');
 
     if (!contractAddress) {
       throw new GuildPassError(
@@ -179,7 +141,7 @@ export class ContractClient {
     validateAddress(contractAddress);
 
     const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
-    const result = await this.performEthCall(contractAddress, data, chainConfig.rpcUrl, options);
+    const result = await provider.ethCall({ to: contractAddress, data }, options);
     return decodeUint256Result(result);
     // GuildPass SDK: End of logic containment structure block.
   }
@@ -196,12 +158,8 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(params.chainId);
     const contractAddress = params.contractAddress ?? chainConfig.contractAddress;
 
-    if (!chainConfig.rpcUrl) {
-      throw new GuildPassError(
-        'rpcUrl is required for contract calls',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
-    }
+    const provider = this.resolveProvider(chainConfig.rpcUrl, 'rpcUrl is required for contract calls');
+
     if (!contractAddress) {
       throw new GuildPassError(
         'contractAddress is required for token decimals lookup',
@@ -210,33 +168,9 @@ export class ContractClient {
     }
     validateAddress(contractAddress);
 
-    const payload = await this.http.post<(JsonRpcSuccess & JsonRpcError) | undefined>(
-      chainConfig.rpcUrl,
-      {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'eth_call',
-        params: [{ to: contractAddress, data: DECIMALS_SELECTOR }, 'latest'],
-      },
-      {
-        ...options,
-        retry: {
-          allowMutatingRetry: true,
-          ...options?.retry,
-        },
-      },
-    );
+    const result = await provider.ethCall({ to: contractAddress, data: DECIMALS_SELECTOR }, options);
 
-    if (payload?.error) {
-      throw new GuildPassError(
-        payload.error.message ?? 'RPC provider returned an error',
-        GuildPassErrorCode.HTTP_ERROR,
-        undefined,
-        payload.error,
-      );
-    }
-
-    const decimals = Number(decodeUint256Result(payload?.result));
+    const decimals = Number(decodeUint256Result(result));
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
       throw new GuildPassError(
         'Token contract returned an invalid decimals value',
@@ -273,12 +207,7 @@ export class ContractClient {
 
     validateGuildId(guildId);
 
-    if (!rpcUrl) {
-      throw new GuildPassError(
-        'rpcUrl is required for contract calls',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
-    }
+    const provider = this.resolveProvider(rpcUrl, 'rpcUrl is required for contract calls');
 
     if (!contractAddress) {
       throw new GuildPassError(
@@ -290,7 +219,7 @@ export class ContractClient {
     validateAddress(contractAddress);
     const data = `${GET_GUILD_OWNER_SELECTOR}${encodeGuildId(guildId)}`;
 
-    const result = await this.performEthCall(contractAddress, data, rpcUrl, options);
+    const result = await provider.ethCall({ to: contractAddress, data }, options);
     return decodeAddressResult(result);
     // GuildPass SDK: End of logic containment structure block.
   }
@@ -307,16 +236,10 @@ export class ContractClient {
     const { walletAddress, requirement, chainId } = params;
     const chainConfig = this.getChainConfig(chainId);
 
-    if (!chainConfig.rpcUrl) {
-      throw new GuildPassError(
-        'rpcUrl is required for contract calls',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
-    }
+    const provider = this.resolveProvider(chainConfig.rpcUrl, 'rpcUrl is required for contract calls');
 
-    const rpcUrl = chainConfig.rpcUrl;
     return validateAccessRequirement(walletAddress, requirement, (to, data) =>
-      this.performEthCall(to, data, rpcUrl, options),
+      provider.ethCall({ to, data }, options),
     );
   }
 
@@ -336,12 +259,13 @@ export class ContractClient {
    * supported in batch mode.
    *
    * @param calls    - Array of call descriptors (to + data) to batch.
-   * @param rpcUrl   - The JSON-RPC endpoint URL.
+   * @param rpcUrl   - The JSON-RPC endpoint URL (ignored when a
+   *                   `contractProvider` is configured, which takes precedence).
    * @returns        - Ordered results, one per input call.
    */
   public async batchEthCall(
     calls: BatchEthCallItem[],
-    rpcUrl: string,
+    rpcUrl?: string,
     options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean },
   ): Promise<BatchItemResult[]> {
     if (!Array.isArray(calls) || calls.length === 0) {
@@ -351,12 +275,7 @@ export class ContractClient {
       );
     }
 
-    if (!rpcUrl) {
-      throw new GuildPassError(
-        'rpcUrl is required for batch contract calls',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
-    }
+    const provider = this.resolveProvider(rpcUrl, 'rpcUrl is required for batch contract calls');
 
     const limit = options?.maxBatchSize ?? 100;
     if (calls.length > limit) {
@@ -394,91 +313,10 @@ export class ContractClient {
       validateAddress(call.to);
     }
 
-    // Build the JSON-RPC batch payload
-    const batchPayload = calls.map((call, idx) => ({
-      jsonrpc: '2.0' as const,
-      id: idx + 1,
-      method: 'eth_call' as const,
-      params: [
-        {
-          to: call.to,
-          data: call.data,
-        },
-        'latest',
-      ],
-    }));
-
-    type JsonRpcBatchResponseItem = {
-      id?: number;
-      result?: unknown;
-      error?: {
-        code?: number;
-        message?: string;
-      };
-    };
-
-    const payloads = await this.http.post<JsonRpcBatchResponseItem[]>(
-      rpcUrl,
-      batchPayload,
-      {
-        ...options,
-        retry: {
-          allowMutatingRetry: true,
-          ...options?.retry,
-        },
-      },
+    return provider.batchEthCall(
+      calls.map((call) => ({ to: call.to, data: call.data })),
+      options,
     );
-
-    if (!Array.isArray(payloads)) {
-      throw new GuildPassError(
-        'Batch RPC response is not an array',
-        GuildPassErrorCode.INVALID_RESPONSE,
-      );
-    }
-
-    // Map responses back by their JSON-RPC id to preserve input order
-    const responseMap = new Map<number, JsonRpcBatchResponseItem>();
-    for (const p of payloads) {
-      if (p && typeof p.id === 'number') {
-        responseMap.set(p.id, p);
-      }
-    }
-
-    const results: BatchItemResult[] = [];
-
-    for (let i = 0; i < calls.length; i++) {
-      const expectedId = i + 1;
-      const payload = responseMap.get(expectedId);
-
-      if (!payload) {
-        results.push({
-          status: 'error',
-          error: `No response for batch item ${i} (id: ${expectedId})`,
-        });
-      } else if (payload.error) {
-        results.push({
-          status: 'error',
-          error: payload.error.message ?? `RPC error (code: ${payload.error.code})`,
-        });
-      } else if (payload.result === undefined || payload.result === null) {
-        results.push({
-          status: 'error',
-          error: `Empty result for batch item ${i}`,
-        });
-      } else if (typeof payload.result !== 'string') {
-        results.push({
-          status: 'error',
-          error: `Unexpected result type for batch item ${i}`,
-        });
-      } else {
-        results.push({
-          status: 'success',
-          result: payload.result,
-        });
-      }
-    }
-
-    return results;
   }
 
   /**
@@ -513,7 +351,7 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(chainId);
     const contractAddress = perCallContract ?? chainConfig.contractAddress;
 
-    if (!chainConfig.rpcUrl) {
+    if (!this.config.contractProvider && !chainConfig.rpcUrl) {
       throw new GuildPassError(
         'rpcUrl is required for batch contract calls',
         GuildPassErrorCode.INVALID_CONFIG,
@@ -591,7 +429,7 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(chainId);
     const contractAddress = perCallContract ?? chainConfig.contractAddress;
 
-    if (!chainConfig.rpcUrl) {
+    if (!this.config.contractProvider && !chainConfig.rpcUrl) {
       throw new GuildPassError(
         'rpcUrl is required for batch contract calls',
         GuildPassErrorCode.INVALID_CONFIG,

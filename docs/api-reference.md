@@ -8,8 +8,10 @@ The SDK supports tree-shakeable subpath imports. You can import focused modules 
 - `@guildpass/sdk/errors`: Error classes and codes (`GuildPassError`, `GuildPassErrorCode`).
 - `@guildpass/sdk/utils`: Utility functions (`normaliseAddress`, `validateAddress`, `formatIsoDate`, etc.).
 - `@guildpass/sdk/types`: TypeScript definitions.
+- `@guildpass/sdk/adapters/viem`: `viemContractProvider` — wrap a viem `PublicClient` as the SDK's contract provider.
+- `@guildpass/sdk/adapters/ethers`: `ethersContractProvider` — wrap an ethers `Provider` as the SDK's contract provider.
 
-You can also import everything from the root `@guildpass/sdk`.
+You can also import everything from the root `@guildpass/sdk` (the adapter subpaths are intentionally excluded from the root export so they never affect your bundle unless imported).
 
 ## GuildPassClient
 
@@ -184,7 +186,51 @@ await client.contracts.getGuildOwnersBatch({
 - **Partial failures**: a failed guild is reported individually; other guilds are unaffected
 - **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_INPUT` if any guild ID is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
 
-### `batchEthCall(calls: BatchEthCallItem[], rpcUrl: string, options?: RequestOptions & { maxBatchSize?: number, chunk?: boolean })`
+### Pluggable RPC providers (`contractProvider`)
+
+All contract reads go through the `ContractProvider` interface. By default the SDK builds a
+raw JSON-RPC provider from `rpcUrl`, but you can supply your own via
+`GuildPassClientConfig.contractProvider`, which **takes precedence over `rpcUrl`** (including
+per-chain `chains[].rpcUrl`):
+
+```typescript
+interface ContractProvider {
+  ethCall(request: { to: string; data: string }, options?: RequestOptions): Promise<unknown>;
+  batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+}
+```
+
+Reuse an existing viem or ethers provider via the tree-shakeable adapter subpaths
+(viem/ethers are optional peer dependencies — never bundled unless you import an adapter):
+
+```typescript
+// viem
+import { createPublicClient, http } from 'viem';
+import { viemContractProvider } from '@guildpass/sdk/adapters/viem';
+
+const client = new GuildPassClient({
+  apiUrl: 'https://api.example.com',
+  contractAddress: '0x...',
+  contractProvider: viemContractProvider(createPublicClient({ transport: http(rpcUrl) })),
+});
+
+// ethers
+import { JsonRpcProvider } from 'ethers';
+import { ethersContractProvider } from '@guildpass/sdk/adapters/ethers';
+
+const client = new GuildPassClient({
+  apiUrl: 'https://api.example.com',
+  contractAddress: '0x...',
+  contractProvider: ethersContractProvider(new JsonRpcProvider(rpcUrl)),
+});
+```
+
+All contract methods behave identically regardless of provider, including error codes:
+provider-level failures throw `HTTP_ERROR`, undecodable results throw `INVALID_RESPONSE`,
+and missing configuration throws `INVALID_CONFIG`. The default `JsonRpcContractProvider`
+is also exported from the root for advanced use.
+
+### `batchEthCall(calls: BatchEthCallItem[], rpcUrl?: string, options?: RequestOptions & { maxBatchSize?: number, chunk?: boolean })`
 
 Low-level helper for sending multiple arbitrary `eth_call` requests in one
 JSON-RPC batch. Returns ordered per-item results. By default, it limits batches to 100 calls and throws an error if exceeded, unless `chunk: true` is passed.
@@ -205,6 +251,7 @@ const results = await client.contracts.batchEthCall(
 - **Input validation**: each `to` address is validated as an Ethereum address before the RPC request is built
 - **Errors**: throws `INVALID_INPUT` for empty/ invalid call descriptors, `INVALID_CONFIG` for missing `rpcUrl`, `INVALID_ADDRESS` for malformed `to` addresses, `HTTP_ERROR` for HTTP or RPC-level failures, `INVALID_RESPONSE` for non-array or structurally malformed batch responses
 - **Provider compatibility**: works with any JSON-RPC provider that supports [batch requests](https://www.jsonrpc.org/specification#batch)
+- **Custom providers**: when a `contractProvider` is configured it takes precedence and `rpcUrl` may be omitted; `INVALID_CONFIG` is only thrown when neither is available
 
 ---
 

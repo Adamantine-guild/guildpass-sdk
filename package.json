@@ -30,6 +30,16 @@
       "types": "./dist/types.d.ts",
       "require": "./dist/types.js",
       "import": "./dist/types.mjs"
+    },
+    "./adapters/viem": {
+      "types": "./dist/adapters/viem.d.ts",
+      "require": "./dist/adapters/viem.js",
+      "import": "./dist/adapters/viem.mjs"
+    },
+    "./adapters/ethers": {
+      "types": "./dist/adapters/ethers.d.ts",
+      "require": "./dist/adapters/ethers.js",
+      "import": "./dist/adapters/ethers.mjs"
     }
   },
   "files": [
@@ -78,6 +88,18 @@
   "sideEffects": false,
   "dependencies": {
     "js-sha3": "^0.9.3"
+  },
+  "peerDependencies": {
+    "ethers": ">=6",
+    "viem": ">=1"
+  },
+  "peerDependenciesMeta": {
+    "ethers": {
+      "optional": true
+    },
+    "viem": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.58.9",
