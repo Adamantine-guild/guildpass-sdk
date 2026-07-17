@@ -6,6 +6,7 @@ import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isMembership } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
+import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
 import { Membership, MembershipParams } from './membership.types';
 
@@ -23,8 +24,15 @@ export class MembershipService {
   // GuildPass SDK: Class member structure property or constructor.
   public async getMembership(
     params: MembershipParams,
+  ): Promise<Membership>;
+  public async getMembership(
+    params: MembershipParams,
+    options: RequestOptions & { includeMeta: true },
+  ): Promise<{ data: Membership; meta: ResponseMetadata }>;
+  public async getMembership(
+    params: MembershipParams,
     options?: RequestOptions,
-  ): Promise<Membership> {
+  ): Promise<Membership | { data: Membership; meta: ResponseMetadata }> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId } = params;
 
@@ -43,9 +51,13 @@ export class MembershipService {
       // GuildPass SDK: End of logic containment structure block.
     });
 
+    if (options?.includeMeta) {
+      return result as { data: Membership; meta: ResponseMetadata };
+    }
+
     return this.validateResponses
-      ? assertValidResponse(result, isMembership, 'Membership')
-      : result;
+      ? assertValidResponse(result as Membership, isMembership, 'Membership')
+      : (result as Membership);
     // GuildPass SDK: End of logic containment structure block.
   }
 

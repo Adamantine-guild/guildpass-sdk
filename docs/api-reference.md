@@ -32,7 +32,8 @@ new GuildPassClient(config: GuildPassClientConfig)
 
 Checks if a wallet can access a resource.
 
-- **Returns**: `Promise<AccessCheckResult>`
+- **Returns**: `Promise<AccessCheckResult>` (or `Promise<{ data: AccessCheckResult; meta: ResponseMetadata }>` when `options.includeMeta` is `true`)
+- **Options**: Supports `timeoutMs`, `retry`, `includeMeta`
 
 ### `checkAccessBatch(items: AccessCheckParams[], options?: AccessCheckBatchOptions & RequestOptions)`
 
@@ -241,6 +242,33 @@ const results = await client.contracts.batchEthCall(
 - **Input validation**: each `to` address is validated as an Ethereum address before the RPC request is built
 - **Errors**: throws `INVALID_INPUT` for empty/ invalid call descriptors, `INVALID_CONFIG` for missing `rpcUrl`, `INVALID_ADDRESS` for malformed `to` addresses, `HTTP_ERROR` for HTTP or RPC-level failures, `INVALID_RESPONSE` for non-array or structurally malformed batch responses
 - **Provider compatibility**: works with any JSON-RPC provider that supports [batch requests](https://www.jsonrpc.org/specification#batch)
+
+---
+
+## Response Metadata
+
+Pass `includeMeta: true` in the `RequestOptions` of any service method to receive an object `{ data, meta }` instead of just `data`.
+
+```typescript
+const result = await client.guilds.getGuild(
+  { guildId: 'prime-guild' },
+  { includeMeta: true },
+);
+// result.data   → Guild
+// result.meta   → ResponseMetadata
+```
+
+### `ResponseMetadata`
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `requestId` | `string \| undefined` | `X-Request-ID` response header. |
+| `correlationId` | `string \| undefined` | `X-Correlation-ID` response header. |
+| `traceId` | `string \| undefined` | `Traceparent` (W3C) response header. |
+| `status` | `number` | HTTP status code. |
+| `durationMs` | `number` | Round-trip duration in milliseconds. |
+
+On HTTP errors, `GuildPassError.requestMeta` carries the same metadata for correlation with backend logs.
 
 ---
 

@@ -66,6 +66,13 @@ export type HttpRequestOptions = {
   retry?: RetryConfig;
   /** External AbortSignal. Aborts the underlying fetch when fired; composes with the timeout. */
   signal?: AbortSignal;
+  /**
+   * When `true`, the HTTP client returns `{ data, meta }` instead of just `data`.
+   * The `meta` object contains safe diagnostic headers (request ID, correlation ID,
+   * trace ID), the HTTP status code, and round-trip duration.
+   * Defaults to `false` to preserve the existing ergonomic API.
+   */
+  includeMeta?: boolean;
   // GuildPass SDK: End of logic containment structure block.
 };
 
@@ -80,6 +87,24 @@ export type HttpResponse<T = any> = {
   status: number;
   headers: Headers;
   // GuildPass SDK: End of logic containment structure block.
+};
+
+/**
+ * Safe response metadata captured from response headers.
+ * Contains only non-sensitive diagnostic values suitable for logging,
+ * support tickets, and correlating client-side errors with backend traces.
+ */
+export type ResponseMetadata = {
+  /** Value of the `X-Request-ID` response header, if present. */
+  requestId?: string;
+  /** Value of the `X-Correlation-ID` response header, if present. */
+  correlationId?: string;
+  /** Value of the `Traceparent` (W3C) response header, if present. */
+  traceId?: string;
+  /** HTTP status code of the response. */
+  status: number;
+  /** Round-trip duration in milliseconds. */
+  durationMs: number;
 };
 
 // GuildPass SDK: Hook payloads for observability integration.

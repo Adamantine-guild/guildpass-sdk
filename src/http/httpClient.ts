@@ -11,6 +11,7 @@ import {
   HttpRequestOptions,
   HttpResponse,
   RequestHookPayload,
+  ResponseMetadata,
   RetryConfig,
 } from './http.types';
 
@@ -206,6 +207,23 @@ async function parseErrorResponse(response: Response): Promise<unknown> {
   }
 }
 
+/** Diagnostic headers that are safe to expose to SDK consumers. */
+const META_HEADERS = ['x-request-id', 'x-correlation-id', 'traceparent'] as const;
+
+/**
+ * Extracts safe diagnostic metadata from an HTTP response.
+ * Only non-sensitive headers are captured; API keys and auth tokens are never included.
+ */
+function extractMeta(response: HttpResponse, durationMs: number): ResponseMetadata {
+  return {
+    requestId: response.headers.get('x-request-id') ?? undefined,
+    correlationId: response.headers.get('x-correlation-id') ?? undefined,
+    traceId: response.headers.get('traceparent') ?? undefined,
+    status: response.status,
+    durationMs,
+  };
+}
+
 // GuildPass SDK: Exposed interface structure.
 export class HttpClient {
   // GuildPass SDK: Class member structure property or constructor.
@@ -248,21 +266,34 @@ export class HttpClient {
   }
 
   // GuildPass SDK: Class member structure property or constructor.
-  public async get<T>(
-    path: string,
-    options?: Omit<HttpRequestOptions, 'method' | 'body'>,
-  ): Promise<T> {
+  /**
+   * Sends a GET request. Returns plain `data` by default.
+   * Pass `includeMeta: true` to receive `{ data, meta }` with diagnostic headers.
+   */
+  public async get<T>(path: string): Promise<T>;
+  public async get<T>(path: string, options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true }): Promise<{ data: T; meta: ResponseMetadata }>;
+  public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<T | { data: T; meta: ResponseMetadata }> {
+    const startTime = Date.now();
     const response = await this.request<T>(path, { ...options, method: 'GET' });
+    if (options?.includeMeta) {
+      return { data: response.data, meta: extractMeta(response, Date.now() - startTime) };
+    }
     return response.data;
   }
 
   // GuildPass SDK: Class member structure property or constructor.
-  public async post<T>(
-    path: string,
-    body?: any,
-    options?: Omit<HttpRequestOptions, 'method' | 'body'>,
-  ): Promise<T> {
+  /**
+   * Sends a POST request. Returns plain `data` by default.
+   * Pass `includeMeta: true` to receive `{ data, meta }` with diagnostic headers.
+   */
+  public async post<T>(path: string, body?: any): Promise<T>;
+  public async post<T>(path: string, body: any, options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true }): Promise<{ data: T; meta: ResponseMetadata }>;
+  public async post<T>(path: string, body?: any, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<T | { data: T; meta: ResponseMetadata }> {
+    const startTime = Date.now();
     const response = await this.request<T>(path, { ...options, method: 'POST', body });
+    if (options?.includeMeta) {
+      return { data: response.data, meta: extractMeta(response, Date.now() - startTime) };
+    }
     return response.data;
   }
 
@@ -393,7 +424,13 @@ export class HttpClient {
           }
 
           const errorData = await parseErrorResponse(response);
-          throw GuildPassError.fromHttpError(response.status, errorData);
+          const errorMeta = extractMeta(
+            { data: undefined, status: response.status, headers: response.headers },
+            Date.now() - startTime,
+          );
+          const httpError = GuildPassError.fromHttpError(response.status, errorData);
+          httpError.requestMeta = errorMeta;
+          throw httpError;
         }
 
         const data = await parseSuccessResponse<T>(response);
