@@ -39,7 +39,7 @@ export type GuildPassClientConfig = {
  * Local helper to enforce structured configuration exceptions uniformly.
  */
 const throwConfigError = (message: string, field: string, reason: string, value: any): never => {
-  const isSensitive = ['apikey', 'secret', 'privatekey', 'password'].includes(field.toLowerCase());
+  const isSensitive = ['apikey', 'secret', 'privatekey', 'password', 'apiurl'].includes(field.toLowerCase());
   throw new GuildPassError(message, GuildPassErrorCode.INVALID_CONFIG, undefined, {
     field,
     reason,
@@ -50,7 +50,7 @@ const throwConfigError = (message: string, field: string, reason: string, value:
 
 export function validateConfig(config: GuildPassClientConfig): void {
   if (!config.apiUrl) {
-    throwConfigError('apiUrl is required', 'apiUrl', 'REQUIRED', config.apiUrl);
+    throwConfigError('apiUrl is required', 'apiUrl', 'required', config.apiUrl);
   }
 
   try {
@@ -59,15 +59,15 @@ export function validateConfig(config: GuildPassClientConfig): void {
       throw new Error();
     }
   } catch {
-    throwConfigError(`Invalid apiUrl: "${config.apiUrl}"`, 'apiUrl', 'INVALID_FORMAT', config.apiUrl);
+    throwConfigError(`Invalid apiUrl: "${config.apiUrl}"`, 'apiUrl', 'format', config.apiUrl);
   }
 
   if (config.timeoutMs !== undefined && (typeof config.timeoutMs !== 'number' || config.timeoutMs <= 0)) {
-    throwConfigError('timeoutMs must be a positive number', 'timeoutMs', 'INVALID_FORMAT', config.timeoutMs);
+    throwConfigError('timeoutMs must be a positive number', 'timeoutMs', 'invalid_type', config.timeoutMs);
   }
 
   if (config.cacheTtl !== undefined && (typeof config.cacheTtl !== 'number' || config.cacheTtl < 0 || !Number.isFinite(config.cacheTtl))) {
-    throwConfigError('cacheTtl must be a non-negative finite number (milliseconds)', 'cacheTtl', 'INVALID_FORMAT', config.cacheTtl);
+    throwConfigError('cacheTtl must be a non-negative finite number (milliseconds)', 'cacheTtl', 'invalid_range', config.cacheTtl);
   }
 
   if (config.cache !== undefined) {
@@ -75,7 +75,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
     const required = ['get', 'set', 'delete', 'clear'] as const;
     for (const method of required) {
       if (typeof adapter[method] !== 'function') {
-        throwConfigError(`cache adapter must implement ${method}(): function`, 'cache', 'INVALID_TYPE', config.cache);
+        throwConfigError(`cache adapter must implement ${method}(): function`, 'cache', 'invalid_type', config.cache);
       }
     }
   }
@@ -85,56 +85,56 @@ export function validateConfig(config: GuildPassClientConfig): void {
     const required = ['ethCall', 'batchEthCall'] as const;
     for (const method of required) {
       if (typeof provider[method] !== 'function') {
-        throwConfigError(`contractProvider must implement ${method}(): function`, 'contractProvider', 'INVALID_TYPE', config.contractProvider);
+        throwConfigError(`contractProvider must implement ${method}(): function`, 'contractProvider', 'invalid_type', config.contractProvider);
       }
     }
   }
 
   if (config.sendClientMetadata !== undefined && typeof config.sendClientMetadata !== 'boolean') {
-    throwConfigError('sendClientMetadata must be a boolean', 'sendClientMetadata', 'INVALID_TYPE', config.sendClientMetadata);
+    throwConfigError('sendClientMetadata must be a boolean', 'sendClientMetadata', 'invalid_type', config.sendClientMetadata);
   }
 
   if (config.clientName !== undefined && typeof config.clientName !== 'string') {
-    throwConfigError('clientName must be a string', 'clientName', 'INVALID_TYPE', config.clientName);
+    throwConfigError('clientName must be a string', 'clientName', 'invalid_type', config.clientName);
   }
 
   if (config.clientVersion !== undefined && typeof config.clientVersion !== 'string') {
-    throwConfigError('clientVersion must be a string', 'clientVersion', 'INVALID_TYPE', config.clientVersion);
+    throwConfigError('clientVersion must be a string', 'clientVersion', 'invalid_type', config.clientVersion);
   }
 
   if (config.retry) {
     const r = config.retry;
 
     if (r.maxRetries !== undefined && (typeof r.maxRetries !== 'number' || !Number.isFinite(r.maxRetries) || r.maxRetries < 0)) {
-      throwConfigError('retry.maxRetries must be a non-negative finite number', 'retry.maxRetries', 'INVALID_FORMAT', r.maxRetries);
+      throwConfigError('retry.maxRetries must be a non-negative finite number', 'retry.maxRetries', 'invalid_range', r.maxRetries);
     }
 
     if (r.baseDelayMs !== undefined && (typeof r.baseDelayMs !== 'number' || !Number.isFinite(r.baseDelayMs) || r.baseDelayMs < 0)) {
-      throwConfigError('retry.baseDelayMs must be a non-negative finite number', 'retry.baseDelayMs', 'INVALID_FORMAT', r.baseDelayMs);
+      throwConfigError('retry.baseDelayMs must be a non-negative finite number', 'retry.baseDelayMs', 'invalid_range', r.baseDelayMs);
     }
 
     if (r.maxDelayMs !== undefined && (typeof r.maxDelayMs !== 'number' || !Number.isFinite(r.maxDelayMs) || r.maxDelayMs < 0)) {
-      throwConfigError('retry.maxDelayMs must be a non-negative finite number', 'retry.maxDelayMs', 'INVALID_FORMAT', r.maxDelayMs);
+      throwConfigError('retry.maxDelayMs must be a non-negative finite number', 'retry.maxDelayMs', 'invalid_range', r.maxDelayMs);
     }
 
     if (r.baseDelayMs !== undefined && r.maxDelayMs !== undefined && r.maxDelayMs < r.baseDelayMs) {
-      throwConfigError('retry.maxDelayMs cannot be less than baseDelayMs', 'retry.maxDelayMs', 'INVALID_FORMAT', r.maxDelayMs);
+      throwConfigError('retry.maxDelayMs cannot be less than baseDelayMs', 'retry.maxDelayMs', 'invalid_range', r.maxDelayMs);
     }
 
     if (r.retryableStatuses !== undefined && (!Array.isArray(r.retryableStatuses) || r.retryableStatuses.length === 0 || r.retryableStatuses.some((s) => typeof s !== 'number' || !Number.isFinite(s)))) {
-      throwConfigError('retryableStatuses must be a non-empty array of valid HTTP status numbers', 'retry.retryableStatuses', 'INVALID_FORMAT', r.retryableStatuses);
+      throwConfigError('retryableStatuses must be a non-empty array of valid HTTP status numbers', 'retry.retryableStatuses', 'invalid_type', r.retryableStatuses);
     }
   }
 
   if (config.apiKey !== undefined && typeof config.apiKey !== 'string') {
-    throwConfigError('apiKey must be a string', 'apiKey', 'INVALID_TYPE', config.apiKey);
+    throwConfigError('apiKey must be a string', 'apiKey', 'invalid_type', config.apiKey);
   }
 
   validateChainsConfig(config.chains);
 
   const transport = config.fetch ?? globalThis.fetch;
   if (typeof transport !== 'function') {
-    throwConfigError('A fetch-compatible transport is required.', 'fetch', 'REQUIRED', null);
+    throwConfigError('A fetch-compatible transport is required.', 'fetch', 'required', null);
   }
 }
 
@@ -145,7 +145,7 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
     const chainId = Number(chainIdKey);
 
     if (!Number.isSafeInteger(chainId) || chainId <= 0 || String(chainId) !== chainIdKey) {
-      throwConfigError(`Invalid chains[${chainIdKey}]: chain ID must be a positive safe integer`, `chains.${chainIdKey}`, 'INVALID_FORMAT', chainIdKey);
+      throwConfigError(`Invalid chains[${chainIdKey}]: chain ID must be a positive safe integer`, `chains.${chainIdKey}`, 'format', chainIdKey);
     }
 
     if (chainConfig.rpcUrl !== undefined) {
@@ -153,7 +153,7 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
         const url = new URL(chainConfig.rpcUrl);
         if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
       } catch {
-        throwConfigError(`Invalid chains[${chainIdKey}].rpcUrl: expected an http or https URL`, `chains.${chainIdKey}.rpcUrl`, 'INVALID_FORMAT', chainConfig.rpcUrl);
+        throwConfigError(`Invalid chains[${chainIdKey}].rpcUrl: expected an http or https URL`, `chains.${chainIdKey}.rpcUrl`, 'format', chainConfig.rpcUrl);
       }
     }
 
@@ -167,7 +167,7 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
           undefined,
           {
             field: `chains.${chainIdKey}.contractAddress`,
-            reason: 'INVALID_FORMAT',
+            reason: 'format',
             value: chainConfig.contractAddress,
             valueType: 'string',
           }
