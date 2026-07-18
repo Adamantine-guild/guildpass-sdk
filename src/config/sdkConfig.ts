@@ -12,8 +12,18 @@ export type GuildPassClientConfig = {
   chainId?: number;
   rpcUrl?: string;
   /**
+   * Ordered list of fallback RPC endpoint URLs for the default chain.
+   * When a call to the first URL fails with a transient error (network
+   * issue, 429, 5xx, timeout) the next URL is tried automatically.
+   *
+   * `rpcUrl` (singular) is still supported for single-provider setups and
+   * is automatically prepended to this list when both are provided.
+   */
+  rpcUrls?: string[];
+  /**
    * Custom provider used for all contract reads. Takes precedence over
-   * `rpcUrl` (including per-chain `chains[].rpcUrl`). Use the adapters in
+   * `rpcUrl` / `rpcUrls` (including per-chain `chains[].rpcUrl` /
+   * `chains[].rpcUrls`). Use the adapters in
    * `@guildpass/sdk/adapters/viem` or `@guildpass/sdk/adapters/ethers` to
    * wrap an existing viem PublicClient or ethers Provider.
    */
@@ -130,6 +140,30 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throwConfigError('apiKey must be a string', 'apiKey', 'INVALID_TYPE', config.apiKey);
   }
 
+  if (config.rpcUrls !== undefined) {
+    if (!Array.isArray(config.rpcUrls) || config.rpcUrls.length === 0) {
+      throwConfigError(
+        'rpcUrls must be a non-empty array of http/https URLs',
+        'rpcUrls',
+        'INVALID_FORMAT',
+        config.rpcUrls,
+      );
+    }
+    for (const [idx, url] of config.rpcUrls.entries()) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error();
+      } catch {
+        throwConfigError(
+          `Invalid rpcUrls[${idx}]: expected an http or https URL`,
+          `rpcUrls[${idx}]`,
+          'INVALID_FORMAT',
+          url,
+        );
+      }
+    }
+  }
+
   validateChainsConfig(config.chains);
 
   const transport = config.fetch ?? globalThis.fetch;
@@ -157,6 +191,30 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
       }
     }
 
+    if (chainConfig.rpcUrls !== undefined) {
+      if (!Array.isArray(chainConfig.rpcUrls) || chainConfig.rpcUrls.length === 0) {
+        throwConfigError(
+          `chains[${chainIdKey}].rpcUrls must be a non-empty array of http/https URLs`,
+          `chains.${chainIdKey}.rpcUrls`,
+          'INVALID_FORMAT',
+          chainConfig.rpcUrls,
+        );
+      }
+      for (const [idx, url] of chainConfig.rpcUrls.entries()) {
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error();
+        } catch {
+          throwConfigError(
+            `Invalid chains[${chainIdKey}].rpcUrls[${idx}]: expected an http or https URL`,
+            `chains.${chainIdKey}.rpcUrls[${idx}]`,
+            'INVALID_FORMAT',
+            url,
+          );
+        }
+      }
+    }
+
     if (chainConfig.contractAddress !== undefined) {
       try {
         validateAddress(chainConfig.contractAddress);
@@ -177,6 +235,25 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
   }
 }
 
+/**
+ * Merges `rpcUrl` (singular) and `rpcUrls` (array) into a single deduplicated
+ * ordered list. `rpcUrl` is always prepended (if provided and not already
+ * present) so it remains the highest-priority endpoint.
+ *
+ * @internal
+ */
+export function mergeRpcUrls(rpcUrl?: string, rpcUrls?: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const url of [rpcUrl, ...(rpcUrls ?? [])]) {
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      result.push(url);
+    }
+  }
+  return result;
+}
+
 export function resolveChainConfig(config: GuildPassClientConfig, chainId: number): ChainConfig {
   if (config.chains) {
     if (Object.prototype.hasOwnProperty.call(config.chains, chainId)) {
@@ -189,5 +266,5 @@ export function resolveChainConfig(config: GuildPassClientConfig, chainId: numbe
       { field: 'chainId', reason: 'NOT_FOUND', value: chainId, valueType: 'number' }
     );
   }
-  return { rpcUrl: config.rpcUrl, contractAddress: config.contractAddress };
+  return { rpcUrl: config.rpcUrl, rpcUrls: config.rpcUrls, contractAddress: config.contractAddress };
 }
