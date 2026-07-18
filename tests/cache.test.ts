@@ -93,6 +93,131 @@ describe('InMemoryCacheAdapter', () => {
     expect(await adapter.get('a')).toBe(1);
     expect(await adapter.get('b')).toBe(2);
   });
+
+  // ---------------------------------------------------------------------------
+  // TTL edge cases (issue #152)
+  // ---------------------------------------------------------------------------
+
+  it('TTL=0: entry expires immediately — get returns null at the same tick', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('k', 'instant', 0);
+    // Date.now() >= expiresAt (both equal) triggers expiry
+    expect(await adapter.get('k')).toBeNull();
+  });
+
+  it('TTL=1: entry is still alive 0 ms after set', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('k', 'alive', 1);
+    // No time has advanced yet
+    expect(await adapter.get('k')).toBe('alive');
+  });
+
+  it('TTL=1: entry expires after advancing exactly 1 ms', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('k', 'short', 1);
+    vi.advanceTimersByTime(1);
+    expect(await adapter.get('k')).toBeNull();
+  });
+
+  it('overwriting a key with a new TTL resets the expiry clock', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('k', 'first', 1_000);
+
+    // Advance past the first TTL
+    vi.advanceTimersByTime(500);
+    // Overwrite with a new 2 000 ms TTL
+    await adapter.set('k', 'second', 2_000);
+
+    // Advance another 1 500 ms — original TTL would have expired but new one hasn't
+    vi.advanceTimersByTime(1_500);
+    expect(await adapter.get('k')).toBe('second');
+
+    // Advance remaining 500 ms to pass the new TTL too
+    vi.advanceTimersByTime(500);
+    expect(await adapter.get('k')).toBeNull();
+  });
+
+  it('overwriting a key with no TTL removes expiry (entry lives forever)', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('k', 'expiring', 500);
+
+    // Replace with a permanent entry before the TTL fires
+    vi.advanceTimersByTime(100);
+    await adapter.set('k', 'permanent');
+
+    // Advance well past the original TTL
+    vi.advanceTimersByTime(1_000_000);
+    expect(await adapter.get('k')).toBe('permanent');
+  });
+
+  it('setting the same key twice keeps only the latest value', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('k', 'v1', 5_000);
+    await adapter.set('k', 'v2', 5_000);
+    expect(await adapter.get('k')).toBe('v2');
+  });
+
+  it('independent keys have independent TTLs', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('short', 'a', 500);
+    await adapter.set('long', 'b', 2_000);
+
+    vi.advanceTimersByTime(600);
+
+    // short should have expired, long should still be alive
+    expect(await adapter.get('short')).toBeNull();
+    expect(await adapter.get('long')).toBe('b');
+  });
+
+  it('expired entry is evicted from internal store on get (lazy eviction)', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('k', 'value', 100);
+
+    vi.advanceTimersByTime(101);
+
+    // First get evicts the entry; second confirms it is gone
+    expect(await adapter.get('k')).toBeNull();
+    expect(await adapter.get('k')).toBeNull();
+  });
+
+  it('large TTL value keeps entry alive well into the future', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1_000;
+    await adapter.set('k', 'future', ONE_YEAR_MS);
+
+    vi.advanceTimersByTime(ONE_YEAR_MS - 1);
+    expect(await adapter.get('k')).toBe('future');
+
+    vi.advanceTimersByTime(1);
+    expect(await adapter.get('k')).toBeNull();
+  });
+
+  it('concurrent sets for different keys do not interfere', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await Promise.all([
+      adapter.set('a', 1, 1_000),
+      adapter.set('b', 2, 2_000),
+      adapter.set('c', 3, 500),
+    ]);
+
+    vi.advanceTimersByTime(600);
+    expect(await adapter.get('a')).toBe(1);
+    expect(await adapter.get('b')).toBe(2);
+    expect(await adapter.get('c')).toBeNull();
+  });
+
+  it('clear removes entries regardless of TTL state', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('alive', 'yes', 10_000);
+    await adapter.set('dead', 'no', 1);
+
+    vi.advanceTimersByTime(500); // 'dead' has expired, 'alive' has not
+
+    await adapter.clear();
+
+    expect(await adapter.get('alive')).toBeNull();
+    expect(await adapter.get('dead')).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

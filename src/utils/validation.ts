@@ -10,7 +10,7 @@ import { isChecksumAddress } from './address';
  */
 export interface ValidationErrorDetails {
   field: string;
-  reason: 'REQUIRED' | 'INVALID_FORMAT' | 'CHECKSUM_FAILED' | 'INVALID_TYPE';
+  reason: 'required' | 'format' | 'checksum_failed' | 'invalid_type';
   value?: any;
   valueType: string;
 }
@@ -43,7 +43,7 @@ export const validateAddress = (address: string, options: { strict?: boolean } =
   if (!address) {
     throwValidationError('Address is required', GuildPassErrorCode.INVALID_INPUT, {
       field: 'address',
-      reason: 'REQUIRED',
+      reason: 'required',
       valueType: 'string',
     });
   }
@@ -52,18 +52,16 @@ export const validateAddress = (address: string, options: { strict?: boolean } =
   if (!ethAddressRegex.test(address)) {
     throwValidationError(`Invalid Ethereum address: ${address}`, GuildPassErrorCode.INVALID_ADDRESS, {
       field: 'address',
-      reason: 'INVALID_FORMAT',
-      value: address,
-      valueType: typeof address,
+      reason: 'format',
+      valueType: 'address',
     });
   }
 
   if (options.strict && !isChecksumAddress(address)) {
     throwValidationError(`Address fails EIP-55 checksum: ${address}`, GuildPassErrorCode.INVALID_ADDRESS, {
       field: 'address',
-      reason: 'CHECKSUM_FAILED',
-      value: address,
-      valueType: typeof address,
+      reason: 'checksum_failed',
+      valueType: 'address',
     });
   }
 };
@@ -78,7 +76,7 @@ export const validateGuildId = (guildId: string): void => {
   if (guildId === undefined || guildId === null) {
     throwValidationError('Guild ID is required', GuildPassErrorCode.INVALID_INPUT, {
       field: 'guildId',
-      reason: 'REQUIRED',
+      reason: 'required',
       valueType: 'undefined',
     });
   }
@@ -86,7 +84,7 @@ export const validateGuildId = (guildId: string): void => {
   if (typeof guildId !== 'string') {
     throwValidationError('Guild ID must be a string', GuildPassErrorCode.INVALID_INPUT, {
       field: 'guildId',
-      reason: 'INVALID_TYPE',
+      reason: 'invalid_type',
       valueType: typeof guildId,
     });
   }
@@ -94,9 +92,8 @@ export const validateGuildId = (guildId: string): void => {
   if (guildId.trim().length === 0) {
     throwValidationError('Invalid Guild ID: cannot be empty', GuildPassErrorCode.INVALID_INPUT, {
       field: 'guildId',
-      reason: 'INVALID_FORMAT',
-      value: guildId,
-      valueType: 'string',
+      reason: 'required',
+      valueType: 'guildId',
     });
   }
 };
@@ -111,7 +108,7 @@ export const validateResourceId = (resourceId: string): void => {
   if (resourceId === undefined || resourceId === null) {
     throwValidationError('Resource ID is required', GuildPassErrorCode.INVALID_INPUT, {
       field: 'resourceId',
-      reason: 'REQUIRED',
+      reason: 'required',
       valueType: 'undefined',
     });
   }
@@ -119,7 +116,7 @@ export const validateResourceId = (resourceId: string): void => {
   if (typeof resourceId !== 'string') {
     throwValidationError('Resource ID must be a string', GuildPassErrorCode.INVALID_INPUT, {
       field: 'resourceId',
-      reason: 'INVALID_TYPE',
+      reason: 'invalid_type',
       valueType: typeof resourceId,
     });
   }
@@ -127,9 +124,8 @@ export const validateResourceId = (resourceId: string): void => {
   if (resourceId.trim().length === 0) {
     throwValidationError('Invalid Resource ID: cannot be empty', GuildPassErrorCode.INVALID_INPUT, {
       field: 'resourceId',
-      reason: 'INVALID_FORMAT',
-      value: resourceId,
-      valueType: 'string',
+      reason: 'required',
+      valueType: 'resourceId',
     });
   }
 };
@@ -144,7 +140,7 @@ export const validateRoleId = (roleId: string): void => {
   if (roleId === undefined || roleId === null) {
     throwValidationError('Role ID is required', GuildPassErrorCode.INVALID_INPUT, {
       field: 'roleId',
-      reason: 'REQUIRED',
+      reason: 'required',
       valueType: 'undefined',
     });
   }
@@ -152,7 +148,7 @@ export const validateRoleId = (roleId: string): void => {
   if (typeof roleId !== 'string') {
     throwValidationError('Role ID must be a string', GuildPassErrorCode.INVALID_INPUT, {
       field: 'roleId',
-      reason: 'INVALID_TYPE',
+      reason: 'invalid_type',
       valueType: typeof roleId,
     });
   }
@@ -160,9 +156,8 @@ export const validateRoleId = (roleId: string): void => {
   if (roleId.trim().length === 0) {
     throwValidationError('Invalid Role ID: cannot be empty', GuildPassErrorCode.INVALID_INPUT, {
       field: 'roleId',
-      reason: 'INVALID_FORMAT',
-      value: roleId,
-      valueType: 'string',
+      reason: 'required',
+      valueType: 'roleId',
     });
   }
 };

@@ -215,10 +215,11 @@ const META_HEADERS = ['x-request-id', 'x-correlation-id', 'traceparent'] as cons
  * Only non-sensitive headers are captured; API keys and auth tokens are never included.
  */
 function extractMeta(response: HttpResponse, durationMs: number): ResponseMetadata {
+  const safeGet = (key: string) => response.headers?.get?.(key) ?? undefined;
   return {
-    requestId: response.headers.get('x-request-id') ?? undefined,
-    correlationId: response.headers.get('x-correlation-id') ?? undefined,
-    traceId: response.headers.get('traceparent') ?? undefined,
+    requestId: safeGet('x-request-id'),
+    correlationId: safeGet('x-correlation-id'),
+    traceId: safeGet('traceparent'),
     status: response.status,
     durationMs,
   };
