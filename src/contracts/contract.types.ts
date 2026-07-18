@@ -3,7 +3,21 @@ import { AccessRequirement } from '../types/common';
 
 /** Per-chain RPC and contract address configuration. */
 export type ChainConfig = {
+  /**
+   * Primary RPC endpoint URL. When `rpcUrls` is also supplied, this acts as
+   * an alias for the first entry (the two are merged in priority order so
+   * callers can use either or both).
+   */
   rpcUrl?: string;
+  /**
+   * Ordered list of RPC endpoint URLs to try in sequence. The first URL is
+   * attempted first; on a transient error the next URL is tried, and so on
+   * until one succeeds or all are exhausted.
+   *
+   * `rpcUrl` (singular) is still accepted for single-provider configurations
+   * and is automatically prepended to this list when both are provided.
+   */
+  rpcUrls?: string[];
   contractAddress?: string;
 };
 
