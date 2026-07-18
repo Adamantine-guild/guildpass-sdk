@@ -35,3 +35,6 @@ export * from './config/sdkConfig';
 export * from './validation/responseGuards';
 export * from './validation/assertResponse';
 export * from './wallet/helpers';
+
+// SIWE (Sign-In With Ethereum)
+export * from './siwe';
