@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { hasInjectedWallet, connectWallet, getChainId, switchChain } from '../src/wallet/helpers';
+import { GuildPassError } from '../src/errors/GuildPassError';
+import { GuildPassErrorCode } from '../src/errors/errorCodes';
 
 describe('EIP-1193 Wallet Helpers', () => {
   beforeEach(() => {
@@ -30,6 +32,35 @@ describe('EIP-1193 Wallet Helpers', () => {
       const result = await connectWallet(mockProvider);
       expect(mockProvider.request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
       expect(result).toEqual(['0x1234567890123456789012345678901234567890']);
+    });
+
+    it('should wrap user-rejected wallet prompts with a typed SDK error', async () => {
+      const providerError = { code: 4001, message: 'User rejected the request.' };
+      const mockProvider = {
+        request: vi.fn().mockRejectedValue(providerError),
+      };
+
+      await expect(connectWallet(mockProvider)).rejects.toMatchObject({
+        name: 'GuildPassError',
+        code: GuildPassErrorCode.WALLET_CONNECTION_REJECTED,
+        message: 'Wallet connection was rejected by the user',
+        details: providerError,
+      });
+      await expect(connectWallet(mockProvider)).rejects.toBeInstanceOf(GuildPassError);
+    });
+
+    it('should wrap non-rejection wallet failures with a generic wallet error code', async () => {
+      const providerError = { code: -32603, message: 'Internal wallet error' };
+      const mockProvider = {
+        request: vi.fn().mockRejectedValue(providerError),
+      };
+
+      await expect(connectWallet(mockProvider)).rejects.toMatchObject({
+        name: 'GuildPassError',
+        code: GuildPassErrorCode.WALLET_ERROR,
+        message: 'Wallet connection failed',
+        details: providerError,
+      });
     });
   });
 
