@@ -37,5 +37,47 @@ describe('GuildPassError', () => {
     expect(error500.code).toBe(GuildPassErrorCode.SERVER_ERROR);
     // GuildPass SDK: End of logic containment structure block.
   });
+
+  it('serializes to useful redacted JSON', () => {
+    const error = new GuildPassError('Request failed', GuildPassErrorCode.HTTP_ERROR, 500, {
+      apiKey: 'gp_live_secret',
+      Authorization: 'Bearer secret-token',
+      field: 'guildId',
+      nested: {
+        token: 'nested-secret-token',
+        safe: 'keep-me',
+      },
+    });
+    error.requestMeta = {
+      status: 500,
+      durationMs: 42,
+      requestId: 'req_1',
+    };
+
+    const serialized = JSON.parse(JSON.stringify(error));
+
+    expect(serialized).toEqual({
+      name: 'GuildPassError',
+      message: 'Request failed',
+      code: GuildPassErrorCode.HTTP_ERROR,
+      status: 500,
+      requestMeta: {
+        status: 500,
+        durationMs: 42,
+        requestId: 'req_1',
+      },
+      details: {
+        apiKey: '[REDACTED]',
+        Authorization: '[REDACTED]',
+        field: 'guildId',
+        nested: {
+          token: '[REDACTED]',
+          safe: 'keep-me',
+        },
+      },
+    });
+    expect(JSON.stringify(error)).not.toContain('gp_live_secret');
+    expect(JSON.stringify(error)).not.toContain('secret-token');
+  });
   // GuildPass SDK: End of logic containment structure block.
 });

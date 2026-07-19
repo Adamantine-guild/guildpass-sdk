@@ -2,6 +2,38 @@
 import { GuildPassErrorCode } from './errorCodes';
 import type { ResponseMetadata } from '../http/http.types';
 
+const SENSITIVE_DETAIL_KEYS = new Set([
+  'apikey',
+  'api-key',
+  'x-api-key',
+  'authorization',
+  'auth',
+  'cookie',
+  'password',
+  'secret',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'privatekey',
+]);
+
+function redactDetails(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map(redactDetails);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [
+        key,
+        SENSITIVE_DETAIL_KEYS.has(key.toLowerCase()) ? '[REDACTED]' : redactDetails(nestedValue),
+      ]),
+    );
+  }
+
+  return value;
+}
+
 // GuildPass SDK: Exposed interface structure.
 export class GuildPassError extends Error {
   // GuildPass SDK: Class member structure property or constructor.
@@ -29,6 +61,30 @@ export class GuildPassError extends Error {
     // Fix for inheritance in TypeScript when targeting ES5 or lower
     Object.setPrototypeOf(this, GuildPassError.prototype);
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Returns a structured, log-safe JSON representation of this error.
+   *
+   * Sensitive values in `details`, such as API keys, auth headers, tokens,
+   * passwords, secrets, and private keys, are redacted before serialization.
+   */
+  public toJSON(): {
+    name: string;
+    message: string;
+    code: GuildPassErrorCode;
+    status?: number;
+    requestMeta?: ResponseMetadata;
+    details?: any;
+  } {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      status: this.status,
+      requestMeta: this.requestMeta,
+      details: redactDetails(this.details),
+    };
   }
 
   // GuildPass SDK: Class member structure property or constructor.
