@@ -223,6 +223,64 @@ await client.contracts.getGuildOwnersBatch({
 - **Partial failures**: a failed guild is reported individually; other guilds are unaffected
 - **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_INPUT` if any guild ID is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
 
+### RPC Failover (`rpcUrls`)
+
+When multiple RPC endpoints are provided via `rpcUrls` (or `chains[chainId].rpcUrls`),
+the SDK automatically fails over across them on transient errors. No method signatures
+change — failover is transparent to existing code.
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  rpcUrls: [
+    'https://primary.rpc.example',
+    'https://fallback.rpc.example',
+    'https://emergency.rpc.example',
+  ],
+  contractAddress: '0x...',
+});
+
+// If primary.rpc.example returns a 503, the SDK silently retries
+// on fallback.rpc.example. All contract methods benefit automatically.
+const balance = await client.contracts.getMembershipTokenBalance({
+  walletAddress: '0x...',
+});
+```
+
+**What triggers failover**: Network errors (ECONNREFUSED, ETIMEDOUT), HTTP 429
+(rate-limited), and any 5xx server error. Contract-level errors (execution reverted,
+invalid parameters) are **not** retried on a different endpoint — they would fail on
+every node.
+
+**Interaction with retry**: Failover happens *inside* each retry attempt. When a URL
+gets a transient error, the SDK first retries the same URL (if `retry.maxRetries` is
+configured), then fails over to the next URL, where retry counters reset.
+
+Upper-bound latency with N URLs and retry enabled:
+
+```
+N × (1 + maxRetries) × (timeoutMs + maxDelayMs)
+```
+
+**Observability hook**: Use `hooks.onRpcFailover` to monitor endpoint health:
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  rpcUrls: ['https://rpc1.example', 'https://rpc2.example', 'https://rpc3.example'],
+  hooks: {
+    onRpcFailover: ({ chainId, failedUrl, nextUrl, error }) => {
+      // Emit metrics, log warnings, trigger alerts
+      logger.warn('RPC failover', { chainId, from: failedUrl, to: nextUrl });
+    },
+  },
+});
+```
+
+The hook fires each time the provider switches to a fallback URL. It does **not** fire
+when the last URL fails (no next URL to promote). Hook failures are silently caught —
+they never affect the failover flow.
+
 ### Pluggable RPC providers (`contractProvider`)
 
 All contract reads go through the `ContractProvider` interface. By default the SDK builds a

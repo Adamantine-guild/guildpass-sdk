@@ -617,6 +617,223 @@ describe('ContractClient.validateRoleRequirement rpcUrls failover', () => {
 });
 
 // ---------------------------------------------------------------------------
+// onRpcFailover hook — observability
+// ---------------------------------------------------------------------------
+
+describe('onRpcFailover hook', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('fires onRpcFailover when provider fails over from primary to fallback', async () => {
+    const onRpcFailover = vi.fn();
+
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(ethCallResult(BALANCE_RESULT));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    await client.contracts.getMembershipTokenBalance({ walletAddress: WALLET });
+
+    expect(onRpcFailover).toHaveBeenCalledTimes(1);
+    expect(onRpcFailover).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failedUrl: expect.stringContaining('rpc1'),
+        nextUrl: expect.stringContaining('rpc2'),
+        error: expect.any(Error),
+      }),
+    );
+  });
+
+  it('fires onRpcFailover for each hop when multiple URLs fail', async () => {
+    const onRpcFailover = vi.fn();
+
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(transientHttpError(502))
+      .mockResolvedValueOnce(ethCallResult(BALANCE_RESULT));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC, TERTIARY_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    await client.contracts.getMembershipTokenBalance({ walletAddress: WALLET });
+
+    // Two failovers: rpc1→rpc2 and rpc2→rpc3
+    expect(onRpcFailover).toHaveBeenCalledTimes(2);
+    expect(onRpcFailover).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        failedUrl: expect.stringContaining('rpc1'),
+        nextUrl: expect.stringContaining('rpc2'),
+      }),
+    );
+    expect(onRpcFailover).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        failedUrl: expect.stringContaining('rpc2'),
+        nextUrl: expect.stringContaining('rpc3'),
+      }),
+    );
+  });
+
+  it('does NOT fire onRpcFailover when all URLs are exhausted (last one fails)', async () => {
+    const onRpcFailover = vi.fn();
+
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(transientHttpError(503));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    await expect(
+      client.contracts.getMembershipTokenBalance({ walletAddress: WALLET }),
+    ).rejects.toMatchObject({ code: GuildPassErrorCode.SERVER_ERROR });
+
+    // Only one failover: rpc1→rpc2 (the hook fires before trying rpc2).
+    // When rpc2 also fails, there's no next URL, so no second hook call.
+    expect(onRpcFailover).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT fire onRpcFailover for contract-level errors (non-transient)', async () => {
+    const onRpcFailover = vi.fn();
+
+    mockFetch().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: () =>
+        Promise.resolve({ error: { code: -32000, message: 'execution reverted' } }),
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    await expect(
+      client.contracts.getMembershipTokenBalance({ walletAddress: WALLET }),
+    ).rejects.toMatchObject({ code: GuildPassErrorCode.HTTP_ERROR });
+
+    expect(onRpcFailover).not.toHaveBeenCalled();
+  });
+
+  it('includes chainId in the hook payload when available', async () => {
+    const onRpcFailover = vi.fn();
+
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(ethCallResult(BALANCE_RESULT));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    await client.contracts.getMembershipTokenBalance({
+      walletAddress: WALLET,
+      chainId: 8453,
+    });
+
+    expect(onRpcFailover).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: 8453 }),
+    );
+  });
+
+  it('survives a throwing hook without affecting the failover flow', async () => {
+    const onRpcFailover = vi.fn(() => {
+      throw new Error('hook explosion');
+    });
+
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(ethCallResult(BALANCE_RESULT));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    const balance = await client.contracts.getMembershipTokenBalance({ walletAddress: WALLET });
+    expect(balance).toBe('42');
+    expect(onRpcFailover).toHaveBeenCalledTimes(1);
+  });
+
+  it('survives an async hook that rejects without affecting failover', async () => {
+    const onRpcFailover = vi.fn(() => {
+      return Promise.reject(new Error('async hook explosion'));
+    });
+
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(ethCallResult(BALANCE_RESULT));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    const balance = await client.contracts.getMembershipTokenBalance({ walletAddress: WALLET });
+    expect(balance).toBe('42');
+    expect(onRpcFailover).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onRpcFailover for batchEthCall failovers', async () => {
+    const onRpcFailover = vi.fn();
+
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(
+        batchResult([{ id: 1, result: BALANCE_RESULT }]),
+      );
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+      hooks: { onRpcFailover },
+    });
+
+    await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: [WALLET],
+    });
+
+    expect(onRpcFailover).toHaveBeenCalledTimes(1);
+    expect(onRpcFailover).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextUrl: expect.stringContaining('rpc2'),
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GuildPassClient config — rpcUrls exposed on getChainConfig
 // ---------------------------------------------------------------------------
 
