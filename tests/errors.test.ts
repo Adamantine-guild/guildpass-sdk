@@ -37,5 +37,37 @@ describe('GuildPassError', () => {
     expect(error500.code).toBe(GuildPassErrorCode.SERVER_ERROR);
     // GuildPass SDK: End of logic containment structure block.
   });
+
+  it('uses JSON fallback text for unknown errors array entries', () => {
+    const error = GuildPassError.fromHttpError(400, {
+      errors: [{ field: 'guildId', issue: 'required' }],
+    });
+
+    expect(error.code).toBe(GuildPassErrorCode.INVALID_INPUT);
+    expect(error.message).toBe('{"field":"guildId","issue":"required"}');
+  });
+
+  it('preserves existing errors array message extraction behavior', () => {
+    const error = GuildPassError.fromHttpError(400, {
+      errors: [
+        'plain error',
+        { message: 'message error' },
+        { msg: 'msg error' },
+        { code: 'CODE_ERROR' },
+      ],
+    });
+
+    expect(error.message).toBe('plain error; message error; msg error; CODE_ERROR');
+  });
+
+  it('caps JSON fallback text for long unknown errors array entries', () => {
+    const error = GuildPassError.fromHttpError(400, {
+      errors: [{ field: 'description', issue: 'too_long', value: 'x'.repeat(500) }],
+    });
+
+    expect(error.message.length).toBeLessThanOrEqual(303);
+    expect(error.message).toContain('"field":"description"');
+    expect(error.message.endsWith('...')).toBe(true);
+  });
   // GuildPass SDK: End of logic containment structure block.
 });

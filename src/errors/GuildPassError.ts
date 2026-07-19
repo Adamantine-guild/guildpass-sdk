@@ -33,6 +33,21 @@ export class GuildPassError extends Error {
 
   // GuildPass SDK: Class member structure property or constructor.
   public static fromHttpError(status: number, details?: any): GuildPassError {
+    const stringifyErrorEntry = (entry: any): string | undefined => {
+      if (typeof entry === 'string') return entry;
+      if (!entry) return undefined;
+
+      const message = entry.message || entry.msg || entry.code;
+      if (message) return String(message);
+
+      try {
+        const fallback = JSON.stringify(entry);
+        return fallback.length > 300 ? `${fallback.slice(0, 300)}...` : fallback;
+      } catch {
+        return String(entry);
+      }
+    };
+
     const extractMessage = (d: any): string | undefined => {
       if (!d) return undefined;
       if (typeof d === 'string') return d;
@@ -41,9 +56,7 @@ export class GuildPassError extends Error {
       if (typeof d.message === 'string') return d.message;
       if (d.code && typeof d.message === 'string') return d.message;
       if (Array.isArray(d.errors)) {
-        const msgs = d.errors
-          .map((e: any) => (typeof e === 'string' ? e : e && (e.message || e.msg || e.code)))
-          .filter(Boolean);
+        const msgs = d.errors.map(stringifyErrorEntry).filter(Boolean);
         if (msgs.length === 1) return msgs[0];
         if (msgs.length > 1) return msgs.join('; ');
       }
