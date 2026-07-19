@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AccessService } from '../src/access/access.service';
+import { getAccessSummary } from '../src/access/accessHelpers';
 import type { AccessCheckResult } from '../src/access/access.types';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 import type { HttpClient } from '../src/http/httpClient';
@@ -320,5 +321,51 @@ describe('AccessService', () => {
         resourceId: 'resource_1',
       },
     });
+  });
+});
+
+describe('getAccessSummary', () => {
+  const baseResult: AccessCheckResult = {
+    hasAccess: true,
+    walletAddress: validAddress,
+    guildId: 'guild_1',
+    resourceId: 'resource_1',
+    requiredRoles: [],
+    matchedRoles: [],
+  };
+
+  it('summarizes allowed access', () => {
+    expect(getAccessSummary(baseResult)).toBe('Access granted.');
+  });
+
+  it('summarizes missing required roles', () => {
+    expect(
+      getAccessSummary({
+        ...baseResult,
+        hasAccess: false,
+        requiredRoles: ['moderator', 'vip'],
+        matchedRoles: ['member'],
+      }),
+    ).toBe('Missing required roles: moderator, vip.');
+  });
+
+  it('summarizes inactive or expired memberships', () => {
+    expect(
+      getAccessSummary({
+        ...baseResult,
+        hasAccess: false,
+        reason: 'Membership expired at 2026-01-01',
+      }),
+    ).toBe('Membership is inactive or expired.');
+  });
+
+  it('summarizes unknown denials with the supplied reason', () => {
+    expect(
+      getAccessSummary({
+        ...baseResult,
+        hasAccess: false,
+        reason: 'resource is private',
+      }),
+    ).toBe('Access denied: resource is private');
   });
 });

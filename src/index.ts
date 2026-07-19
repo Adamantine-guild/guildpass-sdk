@@ -6,6 +6,7 @@ export * from './cache/cache.types';
 
 // Services
 export * from './access/access.service';
+export * from './access/accessHelpers';
 export * from './membership/membership.service';
 export * from './roles/roles.service';
 export * from './guilds/guilds.service';

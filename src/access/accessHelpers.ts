@@ -1,10 +1,14 @@
 ﻿import { AccessCheckResult } from './access.types';
 
-export function isAccessAllowed(result: AccessCheckResult): boolean { return result.hasAccess; }
-export function isAccessDenied(result: AccessCheckResult): boolean { return !result.hasAccess; }
+export function isAccessAllowed(result: AccessCheckResult): boolean {
+  return result.hasAccess;
+}
+export function isAccessDenied(result: AccessCheckResult): boolean {
+  return !result.hasAccess;
+}
 
 export function getMissingRoles(result: AccessCheckResult): string[] {
-  return result.requiredRoles.filter(r => !result.matchedRoles.includes(r));
+  return result.requiredRoles.filter((r) => !result.matchedRoles.includes(r));
 }
 
 export function isMissingRole(result: AccessCheckResult): boolean {
@@ -30,4 +34,28 @@ export function getAccessDecision(result: AccessCheckResult): AccessDecision {
   if (missing.length > 0) return { kind: 'denied-missing-role', missingRoles: missing };
   if (result.reason && /inactive|expired/i.test(result.reason)) return { kind: 'denied-inactive' };
   return { kind: 'denied-unknown', reason: result.reason };
+}
+
+/**
+ * Converts an access check result into a concise, user-facing summary.
+ *
+ * @example
+ * ```ts
+ * const summary = getAccessSummary(accessResult);
+ * // "Access granted."
+ * ```
+ */
+export function getAccessSummary(result: AccessCheckResult): string {
+  const decision = getAccessDecision(result);
+
+  switch (decision.kind) {
+    case 'allowed':
+      return 'Access granted.';
+    case 'denied-missing-role':
+      return `Missing required roles: ${decision.missingRoles.join(', ')}.`;
+    case 'denied-inactive':
+      return 'Membership is inactive or expired.';
+    case 'denied-unknown':
+      return decision.reason ? `Access denied: ${decision.reason}` : 'Access denied.';
+  }
 }
