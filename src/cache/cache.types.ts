@@ -58,6 +58,15 @@ interface CacheEntry<T> {
   expiresAt: number | null;
 }
 
+export interface InMemoryCacheAdapterOptions {
+  /**
+   * Maximum number of entries to retain. When the limit is reached, the least
+   * recently used entry is evicted. Leave undefined for the historical
+   * unbounded behavior.
+   */
+  maxEntries?: number;
+}
+
 /**
  * A lightweight, zero-dependency in-memory cache adapter backed by a `Map`.
  *
@@ -74,6 +83,11 @@ interface CacheEntry<T> {
  */
 export class InMemoryCacheAdapter implements CacheAdapter {
   private readonly store = new Map<string, CacheEntry<unknown>>();
+  private readonly maxEntries: number | undefined;
+
+  constructor(options: InMemoryCacheAdapterOptions = {}) {
+    this.maxEntries = options.maxEntries;
+  }
 
   async get<T>(key: string): Promise<T | null> {
     const entry = this.store.get(key) as CacheEntry<T> | undefined;
@@ -82,14 +96,27 @@ export class InMemoryCacheAdapter implements CacheAdapter {
       this.store.delete(key);
       return null;
     }
+    this.store.delete(key);
+    this.store.set(key, entry);
     return entry.value;
   }
 
   async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    if (this.maxEntries !== undefined && this.maxEntries <= 0) {
+      this.store.delete(key);
+      return;
+    }
+
+    this.store.delete(key);
     this.store.set(key, {
       value,
       expiresAt: ttl !== undefined ? Date.now() + ttl : null,
     });
+
+    while (this.maxEntries !== undefined && this.store.size > this.maxEntries) {
+      const oldestKey = this.store.keys().next().value;
+      this.store.delete(oldestKey);
+    }
   }
 
   async delete(key: string): Promise<void> {
