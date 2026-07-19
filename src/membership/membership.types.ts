@@ -5,6 +5,11 @@ export type MembershipParams = {
   // GuildPass SDK: End of logic containment structure block.
 };
 
+export type MembershipHistoryParams = MembershipParams & {
+  limit?: number;
+  cursor?: string;
+};
+
 // GuildPass SDK: Exported component definition.
 export type Membership = {
   walletAddress: string;
@@ -14,4 +19,19 @@ export type Membership = {
   joinedAt?: string;
   expiresAt?: string;
   // GuildPass SDK: End of logic containment structure block.
+};
+
+export type MembershipHistoryEntry = {
+  id: string;
+  walletAddress: string;
+  guildId: string;
+  type: 'joined' | 'left' | 'role_added' | 'role_removed' | 'status_changed';
+  occurredAt: string;
+  roleId?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type MembershipHistoryResult = {
+  events: MembershipHistoryEntry[];
+  nextCursor?: string;
 };

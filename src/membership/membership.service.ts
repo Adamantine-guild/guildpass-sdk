@@ -8,7 +8,12 @@ import { isMembership } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
-import { Membership, MembershipParams } from './membership.types';
+import {
+  Membership,
+  MembershipHistoryParams,
+  MembershipHistoryResult,
+  MembershipParams,
+} from './membership.types';
 
 // GuildPass SDK: Core operational type definition.
 export class MembershipService {
@@ -22,9 +27,7 @@ export class MembershipService {
    * Fetches wallet membership status for a specific guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getMembership(
-    params: MembershipParams,
-  ): Promise<Membership>;
+  public async getMembership(params: MembershipParams): Promise<Membership>;
   public async getMembership(
     params: MembershipParams,
     options: RequestOptions & { includeMeta: true },
@@ -71,6 +74,40 @@ export class MembershipService {
     // GuildPass SDK: Send back computed results to the caller.
     return membership.isActive;
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Fetches chronologically ordered membership history events for a wallet in a guild.
+   */
+  public async getHistory(params: MembershipHistoryParams): Promise<MembershipHistoryResult>;
+  public async getHistory(
+    params: MembershipHistoryParams,
+    options: RequestOptions & { includeMeta: true },
+  ): Promise<{ data: MembershipHistoryResult; meta: ResponseMetadata }>;
+  public async getHistory(
+    params: MembershipHistoryParams,
+    options?: RequestOptions,
+  ): Promise<MembershipHistoryResult | { data: MembershipHistoryResult; meta: ResponseMetadata }> {
+    const { walletAddress, guildId, limit, cursor } = params;
+
+    validateAddress(walletAddress);
+    validateGuildId(guildId);
+
+    const result = await this.http.get<MembershipHistoryResult>(`/membership/history`, {
+      ...options,
+      params: {
+        address: normaliseAddress(walletAddress),
+        guildId,
+        ...(limit !== undefined ? { limit } : {}),
+        ...(cursor !== undefined ? { cursor } : {}),
+      },
+    });
+
+    if (options?.includeMeta) {
+      return result as { data: MembershipHistoryResult; meta: ResponseMetadata };
+    }
+
+    return result as MembershipHistoryResult;
   }
   // GuildPass SDK: End of logic containment structure block.
 }

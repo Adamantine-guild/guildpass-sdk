@@ -14,7 +14,10 @@ describe('MembershipService request options forwarding', () => {
   it('forwards timeoutMs option', async () => {
     const { get, service } = createService({ isActive: true, roles: [] });
 
-    await service.getMembership({ walletAddress: validAddress, guildId: 'guild_1' }, { timeoutMs: 500 });
+    await service.getMembership(
+      { walletAddress: validAddress, guildId: 'guild_1' },
+      { timeoutMs: 500 },
+    );
 
     expect(get).toHaveBeenCalledWith('/membership', {
       timeoutMs: 500,
@@ -26,7 +29,10 @@ describe('MembershipService request options forwarding', () => {
     const { get, service } = createService({ isActive: true, roles: [] });
     const controller = new AbortController();
 
-    await service.getMembership({ walletAddress: validAddress, guildId: 'guild_1' }, { signal: controller.signal });
+    await service.getMembership(
+      { walletAddress: validAddress, guildId: 'guild_1' },
+      { signal: controller.signal },
+    );
 
     expect(get).toHaveBeenCalledWith('/membership', {
       signal: controller.signal,
@@ -37,7 +43,10 @@ describe('MembershipService request options forwarding', () => {
   it('forwards retry option', async () => {
     const { get, service } = createService({ isActive: true, roles: [] });
 
-    await service.getMembership({ walletAddress: validAddress, guildId: 'guild_1' }, { retry: { maxRetries: 2 } });
+    await service.getMembership(
+      { walletAddress: validAddress, guildId: 'guild_1' },
+      { retry: { maxRetries: 2 } },
+    );
 
     expect(get).toHaveBeenCalledWith('/membership', {
       retry: { maxRetries: 2 },
@@ -59,6 +68,57 @@ describe('MembershipService request options forwarding', () => {
       signal: controller.signal,
       retry: { maxRetries: 3 },
       params: { address: validAddress, guildId: 'guild_1' },
+    });
+  });
+
+  it('fetches membership history with pagination params', async () => {
+    const history = {
+      events: [
+        {
+          id: 'event_1',
+          walletAddress: validAddress,
+          guildId: 'guild_1',
+          type: 'joined',
+          occurredAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      nextCursor: 'cursor_2',
+    };
+    const { get, service } = createService(history);
+
+    const result = await service.getHistory({
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      limit: 25,
+      cursor: 'cursor_1',
+    });
+
+    expect(result).toEqual(history);
+    expect(get).toHaveBeenCalledWith('/membership/history', {
+      params: {
+        address: validAddress,
+        guildId: 'guild_1',
+        limit: 25,
+        cursor: 'cursor_1',
+      },
+    });
+  });
+
+  it('returns an empty membership history result', async () => {
+    const history = { events: [] };
+    const { get, service } = createService(history);
+
+    const result = await service.getHistory({
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+    });
+
+    expect(result).toEqual(history);
+    expect(get).toHaveBeenCalledWith('/membership/history', {
+      params: {
+        address: validAddress,
+        guildId: 'guild_1',
+      },
     });
   });
 });
