@@ -109,7 +109,11 @@ export class ContractClient {
    * them in order: if the primary URL fails with a transient error (network
    * failure, rate-limit, 5xx), the next URL is attempted transparently.
    */
-  private resolveProvider(chainConfig: { rpcUrl?: string; rpcUrls?: string[] } | string | undefined, requiredMessage: string): ContractProvider {
+  private resolveProvider(
+    chainConfig: { rpcUrl?: string; rpcUrls?: string[] } | string | undefined,
+    requiredMessage: string,
+    chainId?: number,
+  ): ContractProvider {
     if (this.config.contractProvider) {
       return this.config.contractProvider;
     }
@@ -127,7 +131,7 @@ export class ContractClient {
       throw new GuildPassError(requiredMessage, GuildPassErrorCode.INVALID_CONFIG);
     }
 
-    return new JsonRpcContractProvider(this.http, urls);
+    return new JsonRpcContractProvider(this.http, urls, this.config.hooks, chainId);
   }
 
   /**
@@ -145,7 +149,7 @@ export class ContractClient {
 
     validateAddress(walletAddress);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls');
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
 
     if (!contractAddress) {
       throw new GuildPassError(
@@ -174,7 +178,7 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(params.chainId);
     const contractAddress = params.contractAddress ?? chainConfig.contractAddress;
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls');
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', params.chainId);
 
     if (!contractAddress) {
       throw new GuildPassError(
@@ -222,7 +226,7 @@ export class ContractClient {
 
     validateGuildId(guildId);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls');
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', params.chainId);
 
     if (!contractAddress) {
       throw new GuildPassError(
@@ -251,7 +255,7 @@ export class ContractClient {
     const { walletAddress, requirement, chainId } = params;
     const chainConfig = this.getChainConfig(chainId);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls');
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
 
     return validateAccessRequirement(walletAddress, requirement, (to, data) =>
       provider.ethCall({ to, data }, options),
@@ -272,8 +276,9 @@ export class ContractClient {
     calls: BatchEthCallItem[],
     chainConfig: { rpcUrl?: string; rpcUrls?: string[] },
     options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean },
+    chainId?: number,
   ): Promise<BatchItemResult[]> {
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for batch contract calls');
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for batch contract calls', chainId);
 
     const limit = options?.maxBatchSize ?? 100;
     if (calls.length > limit) {
@@ -287,7 +292,7 @@ export class ContractClient {
       const results: BatchItemResult[] = [];
       for (let i = 0; i < calls.length; i += limit) {
         const chunkCalls = calls.slice(i, i + limit);
-        const chunkResults = await this.batchEthCallInternal(chunkCalls, chainConfig, { ...options, chunk: false });
+        const chunkResults = await this.batchEthCallInternal(chunkCalls, chainConfig, { ...options, chunk: false }, chainId);
         results.push(...chunkResults);
       }
       return results;
@@ -429,7 +434,7 @@ export class ContractClient {
       ...options,
       maxBatchSize: params.maxBatchSize,
       chunk: params.chunk,
-    });
+    }, chainId);
 
     // Decode uint256 results where successful
     return rawResults.map((item) => {
@@ -507,7 +512,7 @@ export class ContractClient {
       ...options,
       maxBatchSize: params.maxBatchSize,
       chunk: params.chunk,
-    });
+    }, chainId);
 
     // Decode address results where successful
     return rawResults.map((item) => {

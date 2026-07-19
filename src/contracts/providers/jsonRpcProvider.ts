@@ -5,6 +5,7 @@ import { HttpClient } from '../../http/httpClient';
 import { RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
 import { ContractProvider, EthCallRequest } from './provider.types';
+import { HttpHooks, RpcFailoverHookPayload } from '../../http/http.types';
 
 type JsonRpcSuccess = {
   result?: unknown;
@@ -117,15 +118,23 @@ export class JsonRpcContractProvider implements ContractProvider {
   private readonly http: HttpClient;
   /** Ordered list of RPC endpoints; failover tries them in sequence. */
   private readonly rpcUrls: readonly string[];
+  private readonly hooks?: HttpHooks;
+  private readonly chainId?: number;
 
   /**
    * @param http     - The SDK HttpClient instance.
    * @param rpcUrls  - One or more RPC endpoint URLs. Failover is applied when
    *                   multiple URLs are provided.
+   * @param hooks    - Optional observability hooks. `onRpcFailover` is called
+   *                   when the provider switches to a fallback URL.
+   * @param chainId  - The chain ID for the current contract call, passed
+   *                   through to the `onRpcFailover` hook when known.
    */
-  constructor(http: HttpClient, rpcUrls: string | string[]) {
+  constructor(http: HttpClient, rpcUrls: string | string[], hooks?: HttpHooks, chainId?: number) {
     this.http = http;
     this.rpcUrls = Array.isArray(rpcUrls) ? rpcUrls : [rpcUrls];
+    this.hooks = hooks;
+    this.chainId = chainId;
 
     if (this.rpcUrls.length === 0) {
       throw new GuildPassError(
@@ -280,13 +289,17 @@ export class JsonRpcContractProvider implements ContractProvider {
   public async ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown> {
     let lastError: unknown;
 
-    for (const url of this.rpcUrls) {
+    for (let i = 0; i < this.rpcUrls.length; i++) {
+      const url = this.rpcUrls[i];
       try {
         return await this.attemptEthCall(url, request, options);
       } catch (err) {
         if (isTransientError(err)) {
           lastError = err;
-          // Try the next URL
+          // Notify observer before trying the next endpoint
+          if (i + 1 < this.rpcUrls.length) {
+            this.notifyFailover(url, this.rpcUrls[i + 1], err);
+          }
           continue;
         }
         // Non-transient error — propagate immediately
@@ -304,13 +317,17 @@ export class JsonRpcContractProvider implements ContractProvider {
   ): Promise<BatchItemResult[]> {
     let lastError: unknown;
 
-    for (const url of this.rpcUrls) {
+    for (let i = 0; i < this.rpcUrls.length; i++) {
+      const url = this.rpcUrls[i];
       try {
         return await this.attemptBatchEthCall(url, requests, options);
       } catch (err) {
         if (isTransientError(err)) {
           lastError = err;
-          // Try the next URL
+          // Notify observer before trying the next endpoint
+          if (i + 1 < this.rpcUrls.length) {
+            this.notifyFailover(url, this.rpcUrls[i + 1], err);
+          }
           continue;
         }
         // Non-transient error — propagate immediately
@@ -320,5 +337,31 @@ export class JsonRpcContractProvider implements ContractProvider {
 
     // All URLs failed with transient errors
     throw lastError;
+  }
+
+  /**
+   * Safely invokes the `onRpcFailover` hook if configured. Hook failures
+   * are silently caught so they never affect the failover flow.
+   */
+  private notifyFailover(failedUrl: string, nextUrl: string, error: unknown): void {
+    if (!this.hooks?.onRpcFailover) return;
+
+    const payload: RpcFailoverHookPayload = {
+      chainId: this.chainId,
+      failedUrl,
+      nextUrl,
+      error,
+    };
+
+    try {
+      const result = this.hooks.onRpcFailover(payload);
+      if (result instanceof Promise) {
+        result.catch((hookErr) => {
+          console.error('GuildPass SDK: onRpcFailover hook failed', hookErr);
+        });
+      }
+    } catch (hookErr) {
+      console.error('GuildPass SDK: onRpcFailover hook failed', hookErr);
+    }
   }
 }

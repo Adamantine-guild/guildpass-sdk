@@ -37,7 +37,57 @@ Designed for future on-chain support. Currently provides stubs and validation pa
 
 All on-chain reads flow through a pluggable **ContractProvider** abstraction (see below).
 
-### 5. ContractProvider (pluggable RPC layer)
+### 5. RPC Failover
+
+When `rpcUrls` (or `chains[chainId].rpcUrls`) is configured with multiple endpoints, the SDK
+automatically fails over across them on transient errors. This is implemented inside
+`JsonRpcContractProvider`, which tries each URL in sequence:
+
+1. The primary URL (`rpcUrl` or the first entry in `rpcUrls`) is attempted first.
+2. On a **transient error** (network failure, 429 rate-limit, 5xx server error, timeout) the
+   provider moves on to the next URL without surfacing the error to the caller.
+3. On a **non-transient error** (contract revert, invalid parameters, malformed response)
+   the error is propagated immediately — there is no point retrying a different node for a
+   contract-level failure.
+4. When all URLs are exhausted with transient errors, the last error is thrown.
+
+**Failover vs retry ordering**: Failover and retry are independent layers with failover
+running *inside* each retry attempt. Concretely:
+
+- If `retry.maxRetries` is configured, `HttpClient` retries the same URL with exponential
+  backoff first.
+- When HttpClient gives up (max retries hit or a non-retryable error), the error propagates
+  up to `JsonRpcContractProvider`, which then moves to the next RPC URL.
+- Retry counters reset for each new URL — the next URL gets its own full set of retry
+  attempts.
+
+This means the upper-bound latency is:
+
+```
+(N_rpc_urls) × (1 + maxRetries) × (timeoutMs + maxDelayMs)
+```
+
+For example, with 3 RPC URLs, `retry.maxRetries = 2`, `timeoutMs = 10_000`, and
+`retry.maxDelayMs = 5_000`, the upper bound is `3 × 3 × 15_000 = 135_000ms`.
+
+**Observability**: Configure the `onRpcFailover` hook to get notified each time the SDK
+switches endpoints:
+
+```ts
+const client = new GuildPassClient({
+  apiUrl: '...',
+  rpcUrls: ['https://rpc1.example', 'https://rpc2.example'],
+  hooks: {
+    onRpcFailover: ({ chainId, failedUrl, nextUrl, error }) => {
+      console.warn(`RPC failover on chain ${chainId}: ${failedUrl} → ${nextUrl}`);
+    },
+  },
+});
+```
+
+Hook failures are silently caught and never affect the failover flow.
+
+### 6. ContractProvider (pluggable RPC layer)
 
 `ContractClient` never talks to a chain directly. Instead, every read goes through the
 `ContractProvider` interface (`src/contracts/providers/provider.types.ts`):
@@ -75,7 +125,7 @@ method and never `import` viem or ethers. Both libraries are optional peer depen
 only; the core package stays zero-runtime-dependency, and consumers who don't import the
 adapter subpaths see no bundle-size increase.
 
-### 6. Caching Layer
+### 7. Caching Layer
 
 The SDK includes a resilient caching layer that wraps service methods.
 

@@ -136,6 +136,22 @@ export type CacheErrorHookPayload = {
   error: Error;
 };
 
+/**
+ * Payload delivered to `onRpcFailover` when the SDK attempts the next RPC
+ * endpoint in the failover list. Useful for logging, metrics, and alerting
+ * on degrading infrastructure providers.
+ */
+export type RpcFailoverHookPayload = {
+  /** The chain ID the contract call was targeting, if known. */
+  chainId?: number;
+  /** The URL that just failed with a transient error. */
+  failedUrl: string;
+  /** The next URL that will be attempted. */
+  nextUrl: string;
+  /** The error that triggered the failover (may be a GuildPassError or a raw TypeError). */
+  error: unknown;
+};
+
 // GuildPass SDK: Lifecycle hooks interface.
 export interface HttpHooks {
   onRequest?: (payload: RequestHookPayload) => void | Promise<void>;
@@ -143,4 +159,13 @@ export interface HttpHooks {
   onError?: (payload: ErrorHookPayload) => void | Promise<void>;
   /** Called when a cache adapter operation fails. Cache failures are non-fatal. */
   onCacheError?: (payload: CacheErrorHookPayload) => void | Promise<void>;
+  /**
+   * Called when the SDK fails over from one RPC endpoint to the next due to a
+   * transient error (network failure, rate-limit, 5xx). Not invoked for
+   * contract-level errors (execution reverted, bad parameters) or when all
+   * endpoints are exhausted.
+   *
+   * Hook failures are silently caught — they never affect the failover flow.
+   */
+  onRpcFailover?: (payload: RpcFailoverHookPayload) => void | Promise<void>;
 }
