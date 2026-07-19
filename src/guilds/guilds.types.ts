@@ -4,6 +4,12 @@ export type GetGuildParams = {
   // GuildPass SDK: End of logic containment structure block.
 };
 
+export type ListGuildsParams = {
+  limit?: number;
+  cursor?: string;
+  ownerAddress?: string;
+};
+
 // GuildPass SDK: Exported component definition.
 export type Guild = {
   id: string;
@@ -23,4 +29,9 @@ export type GuildConfig = {
   bannerUrl?: string;
   socialLinks?: Record<string, string>;
   // GuildPass SDK: End of logic containment structure block.
+};
+
+export type GuildListResult = {
+  guilds: Guild[];
+  nextCursor?: string;
 };

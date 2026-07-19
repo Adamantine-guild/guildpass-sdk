@@ -2,7 +2,7 @@
 import { AccessCheckResult } from '../access/access.types';
 import { Membership } from '../membership/membership.types';
 import { GuildRole } from '../roles/roles.types';
-import { Guild, GuildConfig } from '../guilds/guilds.types';
+import { Guild, GuildConfig, GuildListResult } from '../guilds/guilds.types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,7 +64,8 @@ export function isGuildRole(value: unknown): value is GuildRole {
     isString(value.id) &&
     isString(value.name) &&
     isOptionalString(value.description) &&
-    (value.requirements === undefined || (Array.isArray(value.requirements) && value.requirements.every(isAccessRequirement)))
+    (value.requirements === undefined ||
+      (Array.isArray(value.requirements) && value.requirements.every(isAccessRequirement)))
   );
 }
 
@@ -72,7 +73,7 @@ export function isGuildRoleArray(value: unknown): value is GuildRole[] {
   return Array.isArray(value) && value.every(isGuildRole);
 }
 
-const VALID_REQUIREMENT_TYPES = new Set(["TOKEN", "NFT", "ROLE", "WHITELIST"]);
+const VALID_REQUIREMENT_TYPES = new Set(['TOKEN', 'NFT', 'ROLE', 'WHITELIST']);
 
 function isAccessRequirement(value: unknown): value is AccessRequirement {
   if (!isRecord(value)) return false;
@@ -95,6 +96,15 @@ export function isGuild(value: unknown): value is Guild {
   );
 }
 
+export function isGuildListResult(value: unknown): value is GuildListResult {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.guilds) &&
+    value.guilds.every(isGuild) &&
+    isOptionalString(value.nextCursor)
+  );
+}
+
 export function isGuildConfig(value: unknown): value is GuildConfig {
   return (
     isRecord(value) &&
@@ -105,5 +115,3 @@ export function isGuildConfig(value: unknown): value is GuildConfig {
     (value.socialLinks === undefined || isRecord(value.socialLinks))
   );
 }
-
-

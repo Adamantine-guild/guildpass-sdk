@@ -1,14 +1,21 @@
 // GuildPass SDK: Import external module dependencies.
 import { HttpClient } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
-import { validateGuildId } from '../utils/validation';
+import { validateAddress, validateGuildId } from '../utils/validation';
+import { normaliseAddress } from '../utils/address';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
-import { isGuild, isGuildConfig } from '../validation/responseGuards';
+import { isGuild, isGuildConfig, isGuildListResult } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
-import { GetGuildParams, Guild, GuildConfig } from './guilds.types';
+import {
+  GetGuildParams,
+  Guild,
+  GuildConfig,
+  GuildListResult,
+  ListGuildsParams,
+} from './guilds.types';
 
 // GuildPass SDK: Core operational type definition.
 export class GuildsService {
@@ -19,12 +26,50 @@ export class GuildsService {
   ) {}
 
   /**
+   * Fetches a paginated list of guilds, optionally filtered by owner address.
+   */
+  public async listGuilds(params?: ListGuildsParams): Promise<GuildListResult>;
+  public async listGuilds(
+    params: ListGuildsParams | undefined,
+    options: RequestOptions & { includeMeta: true },
+  ): Promise<{ data: GuildListResult; meta: ResponseMetadata }>;
+  public async listGuilds(
+    params: ListGuildsParams = {},
+    options?: RequestOptions,
+  ): Promise<GuildListResult | { data: GuildListResult; meta: ResponseMetadata }> {
+    const { limit, cursor, ownerAddress } = params;
+
+    if (ownerAddress !== undefined) {
+      validateAddress(ownerAddress);
+    }
+
+    const result = await this.http.get<GuildListResult>('/guilds', {
+      ...options,
+      params: {
+        ...(limit !== undefined ? { limit } : {}),
+        ...(cursor !== undefined ? { cursor } : {}),
+        ...(ownerAddress !== undefined ? { ownerAddress: normaliseAddress(ownerAddress) } : {}),
+      },
+    } as any);
+
+    return this.validateResponses
+      ? assertValidResponse(result as unknown, isGuildListResult, 'GuildListResult')
+      : (result as unknown as GuildListResult);
+  }
+
+  /**
    * Fetches basic guild information.
    */
   // GuildPass SDK: Class member structure property or constructor.
   public async getGuild(params: GetGuildParams): Promise<Guild>;
-  public async getGuild(params: GetGuildParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: Guild; meta: ResponseMetadata }>;
-  public async getGuild(params: GetGuildParams, options?: RequestOptions): Promise<Guild | { data: Guild; meta: ResponseMetadata }> {
+  public async getGuild(
+    params: GetGuildParams,
+    options: RequestOptions & { includeMeta: true },
+  ): Promise<{ data: Guild; meta: ResponseMetadata }>;
+  public async getGuild(
+    params: GetGuildParams,
+    options?: RequestOptions,
+  ): Promise<Guild | { data: Guild; meta: ResponseMetadata }> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { guildId } = params;
     validateGuildId(guildId);
@@ -40,9 +85,7 @@ export class GuildsService {
    * Fetches full guild configuration including theme and social links.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getGuildConfig(
-    params: GetGuildParams,
-  ): Promise<GuildConfig>;
+  public async getGuildConfig(params: GetGuildParams): Promise<GuildConfig>;
   public async getGuildConfig(
     params: GetGuildParams,
     options: RequestOptions & { includeMeta: true },

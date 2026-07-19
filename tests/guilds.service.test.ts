@@ -9,6 +9,59 @@ function createService(response: unknown) {
 }
 
 describe('GuildsService request options forwarding', () => {
+  it('fetches a paginated guild list', async () => {
+    const result = {
+      guilds: [
+        {
+          id: 'guild_1',
+          name: 'Test Guild',
+          ownerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          chainId: 1,
+        },
+      ],
+      nextCursor: 'cursor_2',
+    };
+    const { get, service } = createService(result);
+
+    await expect(
+      service.listGuilds({
+        limit: 20,
+        cursor: 'cursor_1',
+        ownerAddress: '0xAaaaaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa',
+      }),
+    ).resolves.toEqual(result);
+
+    expect(get).toHaveBeenCalledWith('/guilds', {
+      params: {
+        limit: 20,
+        cursor: 'cursor_1',
+        ownerAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    });
+  });
+
+  it('returns an empty guild list result', async () => {
+    const result = { guilds: [] };
+    const { get, service } = createService(result);
+
+    await expect(service.listGuilds()).resolves.toEqual(result);
+
+    expect(get).toHaveBeenCalledWith('/guilds', {
+      params: {},
+    });
+  });
+
+  it('propagates listGuilds HTTP errors', async () => {
+    const error = new Error('network unavailable');
+    const get = vi.fn().mockRejectedValue(error);
+    const service = new GuildsService({ get } as unknown as HttpClient);
+
+    await expect(service.listGuilds({ limit: 10 })).rejects.toThrow(error);
+    expect(get).toHaveBeenCalledWith('/guilds', {
+      params: { limit: 10 },
+    });
+  });
+
   it('forwards timeoutMs option to getGuild', async () => {
     const { get, service } = createService({ id: 'guild_1', name: 'Test Guild' });
 
