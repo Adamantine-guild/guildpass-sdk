@@ -18,10 +18,73 @@ import { RolesService } from '../roles/roles.service';
 import { CacheAdapter } from '../cache/cache.types';
 import { normaliseAddress } from '../utils/address';
 import { validateAddress } from '../utils/validation';
-import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult } from '../access/access.types';
+import type {
+  AccessCheckParams,
+  AccessCheckResult,
+  RoleAccessCheckParams,
+  AccessCheckBatchOptions,
+  AccessCheckBatchResult,
+} from '../access/access.types';
 import type { MembershipParams, Membership } from '../membership/membership.types';
-import type { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from '../roles/roles.types';
+import type {
+  GetRolesParams,
+  GetUserRolesParams,
+  GuildRole,
+  HasRoleParams,
+} from '../roles/roles.types';
 import type { GetGuildParams, Guild, GuildConfig } from '../guilds/guilds.types';
+import type { ChainConfig } from '../contracts/contract.types';
+
+function redactRpcUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl) return rawUrl;
+
+  try {
+    const url = new URL(rawUrl);
+    let changed = false;
+    const sensitiveQueryKeys = new Set([
+      'apikey',
+      'api_key',
+      'key',
+      'token',
+      'access_token',
+      'auth',
+      'secret',
+    ]);
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (sensitiveQueryKeys.has(key.toLowerCase())) {
+        url.searchParams.set(key, '[REDACTED]');
+        changed = true;
+      }
+    }
+
+    const segments = url.pathname.split('/').map((segment) => {
+      if (/^[A-Za-z0-9_-]{24,}$/.test(segment) || /^(sk|pk|rk)_[A-Za-z0-9_-]{12,}$/.test(segment)) {
+        changed = true;
+        return '[REDACTED]';
+      }
+      return segment;
+    });
+    url.pathname = segments.join('/');
+    return changed ? url.toString() : rawUrl;
+  } catch {
+    return '[REDACTED]';
+  }
+}
+
+function redactChainConfig(chain?: ChainConfig): ChainConfig | undefined {
+  if (!chain) return undefined;
+
+  const safeChain: ChainConfig = { ...chain };
+  if (chain.rpcUrl !== undefined) {
+    safeChain.rpcUrl = redactRpcUrl(chain.rpcUrl);
+  }
+  if (chain.rpcUrls !== undefined) {
+    safeChain.rpcUrls = chain.rpcUrls
+      .map(redactRpcUrl)
+      .filter((url): url is string => typeof url === 'string');
+  }
+  return safeChain;
+}
 
 /**
  * The main GuildPass SDK this.
@@ -87,22 +150,17 @@ export class GuildPassClient {
     this.cache = this.config.cache;
     this.cacheTtl = this.config.cacheTtl;
 
-    this.http = new HttpClient(
-      this.config.apiUrl,
-      this.config.apiKey,
-      this.config.timeoutMs,
-      {
-        retry: this.config.retry,
-        hooks: this.config.hooks,
-        fetch: this.config.fetch,
-        metadata: {
-          sdkVersion: SDK_VERSION,
-          clientName: this.config.clientName,
-          clientVersion: this.config.clientVersion,
-          sendClientMetadata: this.config.sendClientMetadata,
-        },
+    this.http = new HttpClient(this.config.apiUrl, this.config.apiKey, this.config.timeoutMs, {
+      retry: this.config.retry,
+      hooks: this.config.hooks,
+      fetch: this.config.fetch,
+      metadata: {
+        sdkVersion: SDK_VERSION,
+        clientName: this.config.clientName,
+        clientVersion: this.config.clientVersion,
+        sendClientMetadata: this.config.sendClientMetadata,
       },
-    );
+    });
 
     const validateResponses = this.config.validateResponses ?? false;
 
@@ -191,12 +249,35 @@ export class GuildPassClient {
 
   /**
    * Returns the current SDK configuration without sensitive values.
-   * Sensitive fields such as `apiKey` are omitted from this public snapshot.
+   * Sensitive fields such as `apiKey`, function-valued hooks/transports, and
+   * credential-bearing RPC URLs are omitted or redacted from this public snapshot.
    * The SDK continues to use the real API key internally for authenticated requests.
    */
   public getConfig(): Omit<GuildPassClientConfig, 'apiKey'> {
-    const safeConfig: Partial<GuildPassClientConfig> = { ...this.config };
-    delete safeConfig.apiKey;
+    const safeConfig: Partial<GuildPassClientConfig> = {
+      apiUrl: this.config.apiUrl,
+      chainId: this.config.chainId,
+      rpcUrl: redactRpcUrl(this.config.rpcUrl),
+      rpcUrls: this.config.rpcUrls
+        ?.map(redactRpcUrl)
+        .filter((url): url is string => typeof url === 'string'),
+      contractAddress: this.config.contractAddress,
+      chains: this.config.chains
+        ? Object.fromEntries(
+            Object.entries(this.config.chains).map(([chainId, chainConfig]) => [
+              chainId,
+              redactChainConfig(chainConfig),
+            ]),
+          )
+        : undefined,
+      timeoutMs: this.config.timeoutMs,
+      retry: this.config.retry,
+      validateResponses: this.config.validateResponses,
+      cacheTtl: this.config.cacheTtl,
+      sendClientMetadata: this.config.sendClientMetadata,
+      clientName: this.config.clientName,
+      clientVersion: this.config.clientVersion,
+    };
     return safeConfig as Omit<GuildPassClientConfig, 'apiKey'>;
   }
 
