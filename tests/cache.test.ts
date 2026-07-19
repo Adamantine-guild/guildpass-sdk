@@ -299,9 +299,7 @@ describe('GuildPassClient – cache integration', () => {
     const adapter = new InMemoryCacheAdapter();
     const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter, cacheTtl: 1_000 });
 
-    const httpGet = vi
-      .spyOn(client['http'] as any, 'get')
-      .mockResolvedValue(mockGuild);
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
 
     await client.guilds.getGuild({ guildId: 'prime-guild' });
     expect(httpGet).toHaveBeenCalledTimes(1);
@@ -407,7 +405,9 @@ describe('GuildPassClient – cache integration', () => {
     expect(await adapter.get('access:checkAccess:prime-guild:basic-docs:0xdef')).toBeNull();
     expect(await adapter.get('membership:getMembership:prime-guild:0xabc')).toBeNull();
     // Other guild should NOT be removed
-    expect(await adapter.get('access:checkAccess:other-guild:premium-docs:0xabc')).toEqual({ hasAccess: true });
+    expect(await adapter.get('access:checkAccess:other-guild:premium-docs:0xabc')).toEqual({
+      hasAccess: true,
+    });
     // Unrelated key should NOT be removed
     expect(await adapter.get('unrelated:key')).toBe('keep');
   });
@@ -435,15 +435,45 @@ describe('GuildPassClient – cache integration', () => {
 
   it('invalidateGuildCache falls back to exact delete for adapters without deleteByPrefix', async () => {
     const adapter = buildMockAdapter();
+    const deleteSpy = vi.spyOn(adapter, 'delete');
+    const clearSpy = vi.spyOn(adapter, 'clear');
     // Only set exact-prefix keys (legacy behavior)
     await adapter.set('guilds:getGuild:prime-guild', mockGuild);
     await adapter.set('roles:getRoles:prime-guild', []);
+    await adapter.set('access:checkAccess:prime-guild:premium-docs:0xabc', { hasAccess: true });
 
     const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    // Verifies the GuildPassClient.ts fallback branch that uses exact-key
+    // delete calls when deleteByPrefix is absent.
     await client.invalidateGuildCache('prime-guild');
 
     expect(await adapter.get('guilds:getGuild:prime-guild')).toBeNull();
     expect(await adapter.get('roles:getRoles:prime-guild')).toBeNull();
+    expect(await adapter.get('access:checkAccess:prime-guild:premium-docs:0xabc')).toEqual({
+      hasAccess: true,
+    });
+    expect(deleteSpy).toHaveBeenCalledWith('guilds:getGuild:prime-guild');
+    expect(deleteSpy).toHaveBeenCalledWith('roles:getRoles:prime-guild');
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it('invalidateWalletCache falls back to clear for adapters without deleteByPrefix', async () => {
+    const adapter = buildMockAdapter();
+    const deleteSpy = vi.spyOn(adapter, 'delete');
+    const clearSpy = vi.spyOn(adapter, 'clear');
+    const wallet = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    await adapter.set(`wallet:${wallet}:balance`, 100);
+    await adapter.set('guilds:getGuild:prime-guild', mockGuild);
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    // Verifies the GuildPassClient.ts fallback branch that clears the adapter
+    // when wallet-scoped deleteByPrefix invalidation is unavailable.
+    await client.invalidateWalletCache(wallet);
+
+    expect(await adapter.get(`wallet:${wallet}:balance`)).toBeNull();
+    expect(await adapter.get('guilds:getGuild:prime-guild')).toBeNull();
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(deleteSpy).not.toHaveBeenCalled();
   });
 
   it('invalidateGuildCache is a no-op when no adapter is configured', async () => {
@@ -504,7 +534,7 @@ describe('GuildPassClient – cache integration', () => {
       const client = new GuildPassClient({
         ...BASE_CONFIG,
         cache: adapter,
-        hooks: { onCacheError }
+        hooks: { onCacheError },
       });
 
       const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
@@ -513,11 +543,13 @@ describe('GuildPassClient – cache integration', () => {
 
       expect(result).toEqual(mockGuild);
       expect(httpSpy).toHaveBeenCalledTimes(1);
-      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
-        operation: 'get',
-        key: 'guilds:getGuild:g1',
-        error: expect.any(Error)
-      }));
+      expect(onCacheError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'get',
+          key: 'guilds:getGuild:g1',
+          error: expect.any(Error),
+        }),
+      );
     });
 
     it('still returns response if cache.set() fails', async () => {
@@ -528,7 +560,7 @@ describe('GuildPassClient – cache integration', () => {
       const client = new GuildPassClient({
         ...BASE_CONFIG,
         cache: adapter,
-        hooks: { onCacheError }
+        hooks: { onCacheError },
       });
 
       vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
@@ -536,11 +568,13 @@ describe('GuildPassClient – cache integration', () => {
       const result = await client.guilds.getGuild({ guildId: 'g1' });
 
       expect(result).toEqual(mockGuild);
-      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
-        operation: 'set',
-        key: 'guilds:getGuild:g1',
-        error: expect.any(Error)
-      }));
+      expect(onCacheError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'set',
+          key: 'guilds:getGuild:g1',
+          error: expect.any(Error),
+        }),
+      );
     });
 
     it('isolates failures in invalidateGuildCache', async () => {
@@ -551,14 +585,16 @@ describe('GuildPassClient – cache integration', () => {
       const client = new GuildPassClient({
         ...BASE_CONFIG,
         cache: adapter,
-        hooks: { onCacheError }
+        hooks: { onCacheError },
       });
 
       await expect(client.invalidateGuildCache('g1')).resolves.toBeUndefined();
-      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
-        operation: 'delete',
-        error: expect.any(Error)
-      }));
+      expect(onCacheError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'delete',
+          error: expect.any(Error),
+        }),
+      );
     });
   });
 });
