@@ -4,15 +4,15 @@ import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 // GuildPass SDK: Pull in package or module bindings.
 import {
-  ClientMetadata,
-  FetchLike,
-  HttpClientConfig,
-  HttpHooks,
-  HttpRequestOptions,
-  HttpResponse,
-  RequestHookPayload,
-  ResponseMetadata,
-  RetryConfig,
+ClientMetadata,
+FetchLike,
+HttpClientConfig,
+HttpHooks,
+HttpRequestOptions,
+HttpResponse,
+RequestHookPayload,
+ResponseMetadata,
+RetryConfig,
 } from './http.types';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
@@ -48,7 +48,7 @@ function resolveRetry(
   const retryableStatuses = merged.retryableStatuses ?? DEFAULT_RETRYABLE_STATUSES;
   const allowMutatingRetry = merged.allowMutatingRetry ?? false;
 
-  // FAIL FAST VALIDATION 
+  // FAIL FAST VALIDATION
   if (!Number.isFinite(maxRetries) || maxRetries < 0) {
     throw new GuildPassError(
       'Invalid retry config: maxRetries must be a non-negative finite number',
@@ -227,20 +227,14 @@ function extractMeta(response: HttpResponse, durationMs: number): ResponseMetada
 
 // GuildPass SDK: Exposed interface structure.
 export class HttpClient {
-  // GuildPass SDK: Class member structure property or constructor.
   private readonly baseUrl: string;
-  // GuildPass SDK: Class member structure property or constructor.
   private readonly apiKey?: string;
-  // GuildPass SDK: Class member structure property or constructor.
   private readonly timeoutMs: number;
-  // GuildPass SDK: Class member structure property or constructor.
   private readonly globalRetry?: RetryConfig;
-  // GuildPass SDK: Class member structure property or constructor.
   private readonly hooks?: HttpHooks;
   private readonly fetchTransport?: FetchLike;
   private readonly metadata?: ClientMetadata;
 
-  // GuildPass SDK: Class member structure property or constructor.
   constructor(
     baseUrl: string,
     apiKey?: string,
@@ -251,7 +245,6 @@ export class HttpClient {
     this.apiKey = apiKey;
     this.timeoutMs = timeoutMs;
 
-    // Discriminate between RetryConfig and HttpHooks
     if (configOrHooks) {
       if ('fetch' in configOrHooks || 'retry' in configOrHooks || 'hooks' in configOrHooks) {
         this.globalRetry = configOrHooks.retry;
@@ -266,14 +259,12 @@ export class HttpClient {
     }
   }
 
-  // GuildPass SDK: Class member structure property or constructor.
   /**
-   * Sends a GET request. Returns plain `data` by default.
-   * Pass `includeMeta: true` to receive `{ data, meta }` with diagnostic headers.
+   * Sends a GET request.
+   * If `includeMeta` is true in options, returns `{ data, meta }`.
+   * Otherwise, returns `data`.
    */
-  public async get<T>(path: string): Promise<T>;
-  public async get<T>(path: string, options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true }): Promise<{ data: T; meta: ResponseMetadata }>;
-  public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<T | { data: T; meta: ResponseMetadata }> {
+  public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<any> {
     const startTime = Date.now();
     const response = await this.request<T>(path, { ...options, method: 'GET' });
     if (options?.includeMeta) {
@@ -282,27 +273,25 @@ export class HttpClient {
     return response.data;
   }
 
-  // GuildPass SDK: Class member structure property or constructor.
   /**
-   * Sends a POST request. Returns plain `data` by default.
-   * Pass `includeMeta: true` to receive `{ data, meta }` with diagnostic headers.
+   * Sends a POST request.
+   * If `includeMeta` is true in options, returns `{ data, meta }`.
+   * Otherwise, returns `data`.
    */
-  public async post<T>(path: string, body?: any): Promise<T>;
-  public async post<T>(path: string, body: any, options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true }): Promise<{ data: T; meta: ResponseMetadata }>;
-  public async post<T>(path: string, body?: any, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<T | { data: T; meta: ResponseMetadata }> {
+  public async post<T, TBody = unknown>(path: string, body?: TBody, options?: Omit<HttpRequestOptions<TBody>, 'method' | 'body'>): Promise<any> {
     const startTime = Date.now();
-    const response = await this.request<T>(path, { ...options, method: 'POST', body });
+    const response = await this.request<T, TBody>(path, { ...options, method: 'POST', body });
     if (options?.includeMeta) {
       return { data: response.data, meta: extractMeta(response, Date.now() - startTime) };
     }
     return response.data;
   }
 
-  // GuildPass SDK: Class member structure property or constructor.
-  private async request<T>(
+  private async request<T, TBody = unknown>(
     path: string,
-    options: HttpRequestOptions = {},
+    options: HttpRequestOptions<TBody> = {},
   ): Promise<HttpResponse<T>> {
+    // ... (rest of your existing implementation remains unchanged)
     const {
       method = 'GET',
       headers = {},
@@ -321,8 +310,6 @@ export class HttpClient {
       ...headers,
     };
 
-    // Attach client metadata headers only for GuildPass API-relative requests.
-    // Absolute external URLs never receive metadata headers.
     if (!isAbsolute && this.metadata?.sendClientMetadata !== false) {
       const sdkVersion = this.metadata?.sdkVersion;
       if (sdkVersion && sdkVersion.length > 0) {
