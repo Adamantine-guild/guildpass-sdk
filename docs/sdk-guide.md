@@ -448,14 +448,38 @@ const client = new GuildPassClient({
 });
 ```
 
-### Per-request override
+### Per-request retry overrides
 
-Pass `retry` inside any request options to override the global policy for that call:
+Pass `retry` in the request options to change the retry policy for one call.
+Each field is merged independently: local values win, fields omitted locally
+inherit the global retry configuration, and fields omitted from both use the
+library defaults listed below.
+
+For example, normal or background work can use the global policy while a
+latency-sensitive access check limits retries. This call uses one retry from
+the local override and inherits the global `baseDelayMs` of 300 ms:
 
 ```typescript
-const data = await client.access.checkAccess(params, {
-  retry: { maxRetries: 1 },
+import { GuildPassClient } from '@guildpass/sdk';
+
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  retry: {
+    maxRetries: 3,
+    baseDelayMs: 300,
+  },
 });
+
+const access = await client.access.checkAccess(
+  {
+    walletAddress: '0x1111111111111111111111111111111111111111',
+    guildId: 'prime-guild',
+    resourceId: 'members-area',
+  },
+  {
+    retry: { maxRetries: 1 },
+  },
+);
 ```
 
 ### Defaults and safe usage
