@@ -23,6 +23,7 @@ import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, Acces
 import type { MembershipParams, Membership } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from '../roles/roles.types';
 import type { GetGuildParams, Guild, GuildConfig } from '../guilds/guilds.types';
+import type { RequestOptions } from '../types/common';
 
 /**
  * The main GuildPass SDK this.
@@ -100,6 +101,7 @@ export class GuildPassClient {
         retry: this.config.retry,
         hooks: this.config.hooks,
         fetch: this.config.fetch,
+        rateLimit: this.config.rateLimit,
         metadata: {
           sdkVersion: SDK_VERSION,
           clientName: this.config.clientName,
@@ -298,8 +300,11 @@ export class GuildPassClient {
         },
       },
       isMember: {
-        value: async (params: MembershipParams): Promise<boolean> => {
-          const membership = await this.membership.getMembership(params);
+        value: async (params: MembershipParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.isMember(params, options);
+          }
+          const membership: any = await this.membership.getMembership(params, options);
           return membership.isActive;
         },
       },

@@ -40,7 +40,7 @@ export class GuildsService {
    * Fetches full guild configuration including theme and social links.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getGuildConfig(
+  public async getGuildConfig<T extends RequestOptions | undefined = undefined>(
     params: GetGuildParams,
   ): Promise<GuildConfig>;
   public async getGuildConfig(

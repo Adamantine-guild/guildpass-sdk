@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { GuildPassError } from '../src/errors/GuildPassError';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { isGuildPassError } from '../src/errors/guards';
 
 // GuildPass SDK: Validate unit assertion test case.
 describe('GuildPassError', () => {
@@ -38,4 +39,32 @@ describe('GuildPassError', () => {
     // GuildPass SDK: End of logic containment structure block.
   });
   // GuildPass SDK: End of logic containment structure block.
+});
+
+describe('isGuildPassError', () => {
+  it('should return true for real GuildPassError instances', () => {
+    const error = new GuildPassError('Test error', GuildPassErrorCode.NOT_FOUND, 404);
+    expect(isGuildPassError(error)).toBe(true);
+  });
+
+  it('should return true for structurally identical plain objects', () => {
+    const fakeError = {
+      name: 'GuildPassError',
+      code: GuildPassErrorCode.RATE_LIMITED,
+      message: 'Too many requests',
+    };
+    expect(isGuildPassError(fakeError)).toBe(true);
+  });
+
+  it('should return false for arbitrary errors and objects', () => {
+    expect(isGuildPassError(new Error('plain error'))).toBe(false);
+    expect(isGuildPassError({ name: 'GuildPassError', code: 'NOT_A_REAL_CODE' })).toBe(false);
+    expect(
+      isGuildPassError({ name: 'SomethingElse', code: GuildPassErrorCode.NOT_FOUND })
+    ).toBe(false);
+    expect(isGuildPassError(null)).toBe(false);
+    expect(isGuildPassError(undefined)).toBe(false);
+    expect(isGuildPassError('string error')).toBe(false);
+    expect(isGuildPassError(42)).toBe(false);
+  });
 });

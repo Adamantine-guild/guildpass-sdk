@@ -173,7 +173,7 @@ export const validateConfigField = (
   if (rules.required && (value === undefined || value === null || (typeof value === 'string' && value.trim().length === 0))) {
     throwValidationError(`Configuration field "${field}" is required`, GuildPassErrorCode.INVALID_INPUT, {
       field,
-      reason: 'REQUIRED',
+      reason: 'required', // CHANGED FROM 'REQUIRED'
       valueType: typeof value,
     });
   }
@@ -181,7 +181,7 @@ export const validateConfigField = (
   if (rules.expectedType && value !== undefined && value !== null && typeof value !== rules.expectedType) {
     throwValidationError(`Configuration field "${field}" expected type ${rules.expectedType}`, GuildPassErrorCode.INVALID_INPUT, {
       field,
-      reason: 'INVALID_TYPE',
+      reason: 'invalid_type', // CHANGED FROM 'INVALID_TYPE'
       value: value,
       valueType: typeof value,
     });

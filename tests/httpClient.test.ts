@@ -748,3 +748,194 @@ describe('HttpClient Hooks', () => {
     consoleSpy.mockRestore();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Response metadata (includeMeta) tests
+// ---------------------------------------------------------------------------
+describe('HttpClient includeMeta', () => {
+  const baseUrl = 'https://api.test.com';
+  let mockFetch: any;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+  });
+
+  it('returns plain data by default (backwards-compatible)', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ result: 'ok' }),
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    });
+
+    const result = await client.get<{ result: string }>('/test');
+    expect(result).toEqual({ result: 'ok' });
+    // Should be plain data, not { data, meta }
+    expect(result).not.toHaveProperty('meta');
+    expect(result).not.toHaveProperty('data');
+  });
+
+  it('returns { data, meta } when includeMeta: true on GET', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ result: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Request-ID': 'req-abc-123',
+      }),
+    });
+
+    const result = await client.get<{ result: string }>('/test', { includeMeta: true });
+
+    expect(result).toEqual({
+      data: { result: 'ok' },
+      meta: expect.objectContaining({
+        status: 200,
+        durationMs: expect.any(Number),
+        requestId: 'req-abc-123',
+      }),
+    });
+  });
+
+  it('returns { data, meta } when includeMeta: true on POST', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () => Promise.resolve({ id: 'new-resource' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': 'corr-xyz-789',
+      }),
+    });
+
+    const result = await client.post<{ id: string }>('/create', { name: 'test' }, { includeMeta: true });
+
+    expect(result).toEqual({
+      data: { id: 'new-resource' },
+      meta: expect.objectContaining({
+        status: 201,
+        durationMs: expect.any(Number),
+        correlationId: 'corr-xyz-789',
+      }),
+    });
+  });
+
+  it('captures traceparent header when present', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    const traceparentValue = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        traceparent: traceparentValue,
+      }),
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+
+    expect(result).toHaveProperty('meta.traceparent', traceparentValue);
+  });
+
+  it('captures x-trace-id header when present', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Trace-ID': 'trace-456-def',
+      }),
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+
+    expect(result).toHaveProperty('meta.traceId', 'trace-456-def');
+  });
+
+  it('meta fields are undefined when headers are missing', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+
+    expect(result).toEqual({
+      data: { data: 'ok' },
+      meta: expect.objectContaining({
+        status: 200,
+        durationMs: expect.any(Number),
+      }),
+    });
+    // Diagnostic headers should be absent
+    const meta = (result as any).meta;
+    expect(meta.requestId).toBeUndefined();
+    expect(meta.correlationId).toBeUndefined();
+    expect(meta.traceparent).toBeUndefined();
+    expect(meta.traceId).toBeUndefined();
+  });
+
+  it('does not leak sensitive headers in meta', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Request-ID': 'req-123',
+        Authorization: 'Bearer secret-token',
+        'X-API-Key': 'sk-sensitive',
+        'Set-Cookie': 'session=abc123',
+      }),
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+    const meta = (result as any).meta;
+
+    // Safe headers captured
+    expect(meta.requestId).toBe('req-123');
+
+    // Sensitive headers must NOT appear
+    expect(meta).not.toHaveProperty('authorization');
+    expect(meta).not.toHaveProperty('x-api-key');
+    expect(meta).not.toHaveProperty('set-cookie');
+  });
+
+  it('meta includes accurate durationMs', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockImplementation(async () => {
+      // Simulate a 50ms network round-trip
+      await new Promise((r) => setTimeout(r, 50));
+      return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ data: 'ok' }),
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      };
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+    const meta = (result as any).meta;
+
+    expect(meta.durationMs).toBeGreaterThanOrEqual(50);
+  });
+});

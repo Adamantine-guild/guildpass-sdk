@@ -1,6 +1,11 @@
 // GuildPass SDK: Core operational type definition.
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
+export type RateLimitConfig = {
+  requestsPerSecond: number;
+  burst?: number;
+};
+
 export type RetryConfig = {
   /** Maximum number of retry attempts (default: 0). */
   maxRetries?: number;
@@ -53,6 +58,8 @@ export type HttpClientConfig = {
   fetch?: FetchLike;
   /** Optional client metadata attached as headers on API-relative requests. */
   metadata?: ClientMetadata;
+  /** Optional token-bucket rate limiter to proactively pace outgoing requests. */
+  rateLimit?: RateLimitConfig;
 };
 
 // GuildPass SDK: Exported function execution unit.
@@ -81,11 +88,20 @@ export type HttpRequestOptions = {
 // NOT redeclare a second `RequestOptions` type — having two same-named types in
 // different modules is the import conflict this removal resolves (see #83).
 
+import type { ResponseMeta } from '../types/common';
+
 // GuildPass SDK: Exported component definition.
 export type HttpResponse<T = any> = {
   data: T;
   status: number;
   headers: Headers;
+  /**
+   * Safe response metadata captured when `includeMeta: true` is set on the
+   * request. Contains diagnostic headers (request ID, correlation ID, trace
+   * context) plus status and duration. `undefined` when metadata was not
+   * requested.
+   */
+  meta?: ResponseMeta;
   // GuildPass SDK: End of logic containment structure block.
 };
 

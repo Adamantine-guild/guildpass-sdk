@@ -60,7 +60,9 @@
     "docs": "typedoc src/index.ts",
     "validate": "npx --yes publint",
     "api-report": "api-extractor run --local --verbose",
-    "api-report:ci": "pnpm build && api-extractor run --verbose"
+    "api-report:ci": "pnpm build && api-extractor run --verbose",
+    "size": "node scripts/check-bundle-size.mjs",
+    "size:generate": "node scripts/check-bundle-size.mjs --generate"
   },
   "keywords": [
     "web3",
@@ -106,6 +108,7 @@
     "@types/node": "^25.9.3",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "esbuild": "^0.28.1",
     "eslint": "^8.56.0",
     "fast-check": "3.22.0",
     "prettier": "^3.2.5",
