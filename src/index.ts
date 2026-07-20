@@ -20,6 +20,7 @@ export type { ResponseMetadata } from './http/http.types';
 // Errors
 export * from './errors/GuildPassError';
 export * from './errors/errorCodes';
+export * from './errors/guards';
 
 // Utils
 export * from './utils/address';
