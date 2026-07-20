@@ -22,6 +22,7 @@ import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, Acces
 import type { MembershipParams, Membership } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from '../roles/roles.types';
 import type { GetGuildParams, Guild, GuildConfig } from '../guilds/guilds.types';
+import type { RequestOptions } from '../types/common';
 
 /**
  * The main GuildPass SDK this.
@@ -294,8 +295,11 @@ export class GuildPassClient {
         },
       },
       isMember: {
-        value: async (params: MembershipParams): Promise<boolean> => {
-          const membership = await this.membership.getMembership(params);
+        value: async (params: MembershipParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.isMember(params, options);
+          }
+          const membership: any = await this.membership.getMembership(params, options);
           return membership.isActive;
         },
       },
@@ -305,9 +309,12 @@ export class GuildPassClient {
   private buildCachedRolesService(raw: RolesService): RolesService {
     return Object.create(raw, {
       getRoles: {
-        value: async (params: GetRolesParams): Promise<GuildRole[]> => {
+        value: async (params: GetRolesParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getRoles(params, options);
+          }
           const key = `roles:getRoles:${params.guildId}`;
-          return this.withCache(key, () => raw.getRoles(params));
+          return this.withCache(key, () => raw.getRoles(params, options));
         },
       },
       getUserRoles: {
@@ -330,15 +337,21 @@ export class GuildPassClient {
   private buildCachedGuildsService(raw: GuildsService): GuildsService {
     return Object.create(raw, {
       getGuild: {
-        value: async (params: GetGuildParams): Promise<Guild> => {
+        value: async (params: GetGuildParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getGuild(params, options);
+          }
           const key = `guilds:getGuild:${params.guildId}`;
-          return this.withCache(key, () => raw.getGuild(params));
+          return this.withCache(key, () => raw.getGuild(params, options));
         },
       },
       getGuildConfig: {
-        value: async (params: GetGuildParams): Promise<GuildConfig> => {
+        value: async (params: GetGuildParams, options?: any): Promise<any> => {
+          if (options?.includeMeta) {
+            return raw.getGuildConfig(params, options);
+          }
           const key = `guilds:getGuildConfig:${params.guildId}`;
-          return this.withCache(key, () => raw.getGuildConfig(params));
+          return this.withCache(key, () => raw.getGuildConfig(params, options));
         },
       },
     });

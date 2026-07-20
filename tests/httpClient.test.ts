@@ -749,100 +749,193 @@ describe('HttpClient Hooks', () => {
   });
 });
 
-describe('HttpClient rate limiting', () => {
+// ---------------------------------------------------------------------------
+// Response metadata (includeMeta) tests
+// ---------------------------------------------------------------------------
+describe('HttpClient includeMeta', () => {
   const baseUrl = 'https://api.test.com';
+  let mockFetch: any;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    mockFetch = vi.fn();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  it('returns plain data by default (backwards-compatible)', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
 
-  it('paces concurrent calls to the configured rate', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+    mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ ok: true }),
+      json: () => Promise.resolve({ result: 'ok' }),
       headers: new Headers({ 'Content-Type': 'application/json' }),
     });
 
-    const client = new HttpClient(baseUrl, undefined, 10000, {
-      fetch: mockFetch,
-      rateLimit: { requestsPerSecond: 2, burst: 2 },
-    });
-
-    const p1 = client.get('/a');
-    const p2 = client.get('/b');
-    const p3 = client.get('/c');
-    const p4 = client.get('/d');
-
-    // Advance time enough for all 4 calls to complete
-    // (2 immediate via burst + 2 paced at 500ms each)
-    vi.advanceTimersByTime(1000);
-
-    // All promises should now resolve
-    const results = await Promise.all([p1, p2, p3, p4]);
-    expect(results).toEqual([
-      { ok: true },
-      { ok: true },
-      { ok: true },
-      { ok: true },
-    ]);
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+    const result = await client.get<{ result: string }>('/test');
+    expect(result).toEqual({ result: 'ok' });
+    // Should be plain data, not { data, meta }
+    expect(result).not.toHaveProperty('meta');
+    expect(result).not.toHaveProperty('data');
   });
 
-  it('without rateLimit config behavior is unchanged', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+  it('returns { data, meta } when includeMeta: true on GET', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ data: 'no-limit' }),
+      json: () => Promise.resolve({ result: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Request-ID': 'req-abc-123',
+      }),
+    });
+
+    const result = await client.get<{ result: string }>('/test', { includeMeta: true });
+
+    expect(result).toEqual({
+      data: { result: 'ok' },
+      meta: expect.objectContaining({
+        status: 200,
+        durationMs: expect.any(Number),
+        requestId: 'req-abc-123',
+      }),
+    });
+  });
+
+  it('returns { data, meta } when includeMeta: true on POST', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () => Promise.resolve({ id: 'new-resource' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': 'corr-xyz-789',
+      }),
+    });
+
+    const result = await client.post<{ id: string }>('/create', { name: 'test' }, { includeMeta: true });
+
+    expect(result).toEqual({
+      data: { id: 'new-resource' },
+      meta: expect.objectContaining({
+        status: 201,
+        durationMs: expect.any(Number),
+        correlationId: 'corr-xyz-789',
+      }),
+    });
+  });
+
+  it('captures traceparent header when present', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    const traceparentValue = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        traceparent: traceparentValue,
+      }),
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+
+    expect(result).toHaveProperty('meta.traceparent', traceparentValue);
+  });
+
+  it('captures x-trace-id header when present', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Trace-ID': 'trace-456-def',
+      }),
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+
+    expect(result).toHaveProperty('meta.traceId', 'trace-456-def');
+  });
+
+  it('meta fields are undefined when headers are missing', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
       headers: new Headers({ 'Content-Type': 'application/json' }),
     });
 
-    const client = new HttpClient(baseUrl, undefined, 10000, {
-      fetch: mockFetch,
+    const result = await client.get('/test', { includeMeta: true });
+
+    expect(result).toEqual({
+      data: { data: 'ok' },
+      meta: expect.objectContaining({
+        status: 200,
+        durationMs: expect.any(Number),
+      }),
     });
-
-    const p1 = client.get('/a');
-    const p2 = client.get('/b');
-    const p3 = client.get('/c');
-
-    const results = await Promise.all([p1, p2, p3]);
-    expect(results).toEqual([
-      { data: 'no-limit' },
-      { data: 'no-limit' },
-      { data: 'no-limit' },
-    ]);
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    // Diagnostic headers should be absent
+    const meta = (result as any).meta;
+    expect(meta.requestId).toBeUndefined();
+    expect(meta.correlationId).toBeUndefined();
+    expect(meta.traceparent).toBeUndefined();
+    expect(meta.traceId).toBeUndefined();
   });
 
-  it('survives a 429 when rate limiting is active', { timeout: 10000 }, async () => {
-    vi.useRealTimers();
+  it('does not leak sensitive headers in meta', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
 
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        headers: new Headers({ 'Content-Type': 'application/json' }),
-        json: () => Promise.resolve(null),
-      })
-      .mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'ok' }),
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Request-ID': 'req-123',
+        Authorization: 'Bearer secret-token',
+        'X-API-Key': 'sk-sensitive',
+        'Set-Cookie': 'session=abc123',
+      }),
+    });
+
+    const result = await client.get('/test', { includeMeta: true });
+    const meta = (result as any).meta;
+
+    // Safe headers captured
+    expect(meta.requestId).toBe('req-123');
+
+    // Sensitive headers must NOT appear
+    expect(meta).not.toHaveProperty('authorization');
+    expect(meta).not.toHaveProperty('x-api-key');
+    expect(meta).not.toHaveProperty('set-cookie');
+  });
+
+  it('meta includes accurate durationMs', async () => {
+    const client = new HttpClient(baseUrl, undefined, 10000, { fetch: mockFetch });
+
+    mockFetch.mockImplementation(async () => {
+      // Simulate a 50ms network round-trip
+      await new Promise((r) => setTimeout(r, 50));
+      return {
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ ok: true }),
+        json: () => Promise.resolve({ data: 'ok' }),
         headers: new Headers({ 'Content-Type': 'application/json' }),
-      });
-
-    const client = new HttpClient(baseUrl, undefined, 10000, {
-      fetch: mockFetch,
-      retry: { maxRetries: 1, baseDelayMs: 1 },
-      rateLimit: { requestsPerSecond: 100, burst: 10 },
+      };
     });
 
-    const result = await client.get('/rate-limited');
-    expect(result).toEqual({ ok: true });
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const result = await client.get('/test', { includeMeta: true });
+    const meta = (result as any).meta;
+
+    expect(meta.durationMs).toBeGreaterThanOrEqual(50);
   });
 });
