@@ -33,3 +33,7 @@ export * from './config/sdkConfig';
 export * from './validation/responseGuards';
 export * from './validation/assertResponse';
 export * from './wallet/helpers';
+
+// Contract Providers
+export * from './contracts/providers/provider.types';
+export { WebSocketContractProvider } from './contracts/providers/webSocketProvider';
