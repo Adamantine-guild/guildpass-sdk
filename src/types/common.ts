@@ -44,6 +44,8 @@ export type RequestOptions = {
   retry?: RetryConfig;
   /** External AbortSignal. Aborts the underlying fetch when fired; composes with the timeout. */
   signal?: AbortSignal;
+
+  includeMeta?: boolean;
 };
 
 // GuildPass SDK: Core operational type definition.

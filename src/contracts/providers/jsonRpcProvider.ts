@@ -8,45 +8,52 @@ import { ContractProvider, EthCallRequest } from './provider.types';
 import { HttpHooks, RpcFailoverHookPayload } from '../../http/http.types';
 
 type JsonRpcSuccess = {
-  result?: unknown;
+result?: unknown;
 };
 
 type JsonRpcError = {
-  error?: {
-    code?: number;
-    message?: string;
-  };
+error?: {
+code?: number;
+message?: string;
+};
+};
+
+type JsonRpcRequest = {
+jsonrpc: '2.0';
+id: number;
+method: string;
+params: unknown[];
 };
 
 type JsonRpcBatchResponseItem = {
-  id?: number;
-  result?: unknown;
-  error?: {
-    code?: number;
-    message?: string;
-  };
+id?: number;
+result?: unknown;
+error?: {
+code?: number;
+message?: string;
+};
 };
 
 /**
- * Returns `true` when the error is a *transient* infrastructure failure —
- * meaning the same request may succeed on a different RPC node. Contract-level
- * errors (execution reverted, invalid parameters, etc.) are not transient and
- * should be surfaced to the caller immediately.
- *
- * Transient signals:
- * - Network / fetch-level errors (ECONNREFUSED, ETIMEDOUT, etc.)
- *   These may arrive either as raw `TypeError` or wrapped by HttpClient as
- *   `GuildPassError(HTTP_ERROR)` with a TypeError in `details`.
- * - HTTP 429 (rate-limited) and 5xx (server-side) responses
- * - SDK SERVER_ERROR / RATE_LIMITED / TIMEOUT codes
- *
- * Non-transient:
- * - Contract-level failures (execution reverted, bad params) arrive as
- *   `HTTP_ERROR` with a JSON-RPC error object in `details` that has a numeric
- *   `code` property — these will fail on every node.
- * - INVALID_RESPONSE (malformed reply format) — not recoverable by retrying.
- * - REQUEST_CANCELLED / ABORTED — honour the caller's intent immediately.
- */
+* Returns `true` when the error is a *transient* infrastructure failure —
+* meaning the same request may succeed on a different RPC node. Contract-level
+* errors (execution reverted, invalid parameters, etc.) are not transient and
+* should be surfaced to the caller immediately.
+*
+* Transient signals:
+* - Network / fetch-level errors (ECONNREFUSED, ETIMEDOUT, etc.)
+*   These may arrive either as raw `TypeError` or wrapped by HttpClient as
+*   `GuildPassError(HTTP_ERROR)` with a TypeError in `details`.
+* - HTTP 429 (rate-limited) and 5xx (server-side) responses
+* - SDK SERVER_ERROR / RATE_LIMITED / TIMEOUT codes
+*
+* Non-transient:
+* - Contract-level failures (execution reverted, bad params) arrive as
+*   `HTTP_ERROR` with a JSON-RPC error object in `details` that has a numeric
+*   `code` property — these will fail on every node.
+* - INVALID_RESPONSE (malformed reply format) — not recoverable by retrying.
+* - REQUEST_CANCELLED / ABORTED — honour the caller's intent immediately.
+*/
 function isTransientError(err: unknown): boolean {
   if (err instanceof GuildPassError) {
     // REQUEST_CANCELLED / ABORTED — never retry
@@ -124,11 +131,11 @@ export class JsonRpcContractProvider implements ContractProvider {
   /**
    * @param http     - The SDK HttpClient instance.
    * @param rpcUrls  - One or more RPC endpoint URLs. Failover is applied when
-   *                   multiple URLs are provided.
+   *                     multiple URLs are provided.
    * @param hooks    - Optional observability hooks. `onRpcFailover` is called
-   *                   when the provider switches to a fallback URL.
+   *                     when the provider switches to a fallback URL.
    * @param chainId  - The chain ID for the current contract call, passed
-   *                   through to the `onRpcFailover` hook when known.
+   *                     through to the `onRpcFailover` hook when known.
    */
   constructor(http: HttpClient, rpcUrls: string | string[], hooks?: HttpHooks, chainId?: number) {
     this.http = http;
@@ -172,11 +179,7 @@ export class JsonRpcContractProvider implements ContractProvider {
       signal: options?.signal,
     };
 
-    const payload = (await (this.http.post as (
-      path: string,
-      body: unknown,
-      opts?: unknown,
-    ) => Promise<(JsonRpcSuccess & JsonRpcError) | undefined>)(
+    const payload = await this.http.post<JsonRpcSuccess & JsonRpcError, JsonRpcRequest>(
       url,
       {
         jsonrpc: '2.0',
@@ -185,7 +188,7 @@ export class JsonRpcContractProvider implements ContractProvider {
         params: [{ to: request.to, data: request.data }, 'latest'],
       },
       callOptions,
-    ));
+    );
 
     if (payload?.error) {
       throw new GuildPassError(
@@ -208,10 +211,10 @@ export class JsonRpcContractProvider implements ContractProvider {
     requests: EthCallRequest[],
     options?: RequestOptions,
   ): Promise<BatchItemResult[]> {
-    const batchPayload = requests.map((call, idx) => ({
-      jsonrpc: '2.0' as const,
+    const batchPayload: JsonRpcRequest[] = requests.map((call, idx) => ({
+      jsonrpc: '2.0',
       id: idx + 1,
-      method: 'eth_call' as const,
+      method: 'eth_call',
       params: [{ to: call.to, data: call.data }, 'latest'],
     }));
 
@@ -224,11 +227,11 @@ export class JsonRpcContractProvider implements ContractProvider {
       signal: options?.signal,
     };
 
-    const payloads = (await (this.http.post as (
-      path: string,
-      body: unknown,
-      opts?: unknown,
-    ) => Promise<JsonRpcBatchResponseItem[]>)(url, batchPayload, callOptions));
+    const payloads = await this.http.post<JsonRpcBatchResponseItem[], JsonRpcRequest[]>(
+      url,
+      batchPayload,
+      callOptions
+    );
 
     if (!Array.isArray(payloads)) {
       throw new GuildPassError(
