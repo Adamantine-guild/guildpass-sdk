@@ -96,6 +96,7 @@ export class GuildPassClient {
         retry: this.config.retry,
         hooks: this.config.hooks,
         fetch: this.config.fetch,
+        rateLimit: this.config.rateLimit,
         metadata: {
           sdkVersion: SDK_VERSION,
           clientName: this.config.clientName,

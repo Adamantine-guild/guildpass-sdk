@@ -15,6 +15,7 @@ import {
   ResponseMetadata,
   RetryConfig,
 } from './http.types';
+import { TokenBucket } from './tokenBucket';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
@@ -268,6 +269,7 @@ export class HttpClient {
   private readonly hooks?: HttpHooks;
   private readonly fetchTransport?: FetchLike;
   private readonly metadata?: ClientMetadata;
+  private readonly tokenBucket?: TokenBucket;
 
   // GuildPass SDK: Class member structure property or constructor.
   constructor(
@@ -287,6 +289,9 @@ export class HttpClient {
         this.hooks = configOrHooks.hooks;
         this.fetchTransport = configOrHooks.fetch;
         this.metadata = configOrHooks.metadata;
+        if (configOrHooks.rateLimit) {
+          this.tokenBucket = new TokenBucket(configOrHooks.rateLimit);
+        }
       } else if (isRetryConfig(configOrHooks)) {
         this.globalRetry = configOrHooks;
       } else if (isHooksConfig(configOrHooks)) {
@@ -411,6 +416,8 @@ export class HttpClient {
     let attempt = 0;
 
     while (true) {
+      await this.tokenBucket?.acquire();
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
@@ -448,6 +455,7 @@ export class HttpClient {
           if (isRetryable && attempt < retryConfig.maxRetries) {
             const retryAfter = getRetryAfterMs(response.headers);
             const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
+            this.tokenBucket?.onRateLimited(retryAfter ?? undefined);
             await delay(retryAfter ?? backoff);
             attempt++;
             continue;
@@ -479,6 +487,7 @@ export class HttpClient {
           }
         }
 
+        this.tokenBucket?.onSuccess();
         const meta = options.includeMeta
           ? extractResponseMeta(response, durationMs)
           : undefined;
