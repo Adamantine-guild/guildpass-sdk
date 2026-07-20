@@ -34,5 +34,8 @@ pnpm-debug.log*
 .env.test.local
 .env.production.local
 
-# Agents
+# Excluded files
 AGENTS.md
+update-test.js
+update-test.mjs
+temp/
