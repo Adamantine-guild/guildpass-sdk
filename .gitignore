@@ -39,3 +39,9 @@ AGENTS.md
 update-test.js
 update-test.mjs
 temp/
+
+# Lock files
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+bun.lock
