@@ -9,6 +9,7 @@ import {
   encodeAddressArgument,
   encodeGuildId,
 } from '../src/contracts/contractClient';
+import { BatchEthCallItem, BatchItemResult } from '../src/contracts/contract.types';
 import { ContractProvider, EthCallRequest } from '../src/contracts/providers/provider.types';
 import { viemContractProvider } from '../src/adapters/viem';
 import { ethersContractProvider } from '../src/adapters/ethers';
@@ -258,5 +259,347 @@ describe('adapter batch semantics', () => {
   it('adapters reject inputs without a call() method', () => {
     expect(() => viemContractProvider({} as any)).toThrowError(/call\(\)/);
     expect(() => ethersContractProvider(null as any)).toThrowError(/call\(\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chunk concurrency tests
+// ---------------------------------------------------------------------------
+
+describe('chunk concurrency', () => {
+  // Helper: create a batchEthCall mock that resolves each chunk after a
+  // configurable delay so we can observe interleaving.
+  const makeDelayedBatch = (delaysMs: number[]) => {
+    let callIdx = 0;
+    return vi.fn().mockImplementation((calls: BatchEthCallItem[]) => {
+      const delay = delaysMs[callIdx] ?? delaysMs[delaysMs.length - 1] ?? 0;
+      callIdx++;
+      return new Promise<BatchItemResult[]>((resolve) =>
+        setTimeout(
+          () =>
+            resolve(
+              calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT })),
+            ),
+          delay,
+        ),
+      );
+    });
+  };
+
+  // Helper: build a client with a contractProvider whose batchEthCall is
+  // controlled by the test.
+  const makeClient = (batchEthCall: ReturnType<typeof vi.fn>) =>
+    new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractProvider: { ethCall: vi.fn(), batchEthCall },
+    });
+
+  // Helper: produce N distinct wallet addresses for batch input.
+  const wallets = (n: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const hex = (i + 1).toString(16).padStart(40, '0');
+      return `0x${hex}`;
+    });
+
+  it('preserves result ordering with concurrent chunks (randomized latency)', async () => {
+    // 10 wallets, maxBatchSize=2 → 5 chunks.
+    // Assign each chunk a different delay so chunks finish out of order.
+    const delays = [50, 10, 30, 5, 20]; // ms
+    const batchMock = makeDelayedBatch(delays);
+    const client = makeClient(batchMock);
+
+    const results = await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(10),
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: 5, // all chunks run concurrently
+    });
+
+    // All 10 items must succeed
+    expect(results).toHaveLength(10);
+    for (const r of results) {
+      expect(r.status).toBe('success');
+    }
+
+    // The mock was called 5 times (once per chunk)
+    expect(batchMock).toHaveBeenCalledTimes(5);
+
+    // Verify per-chunk call arguments: each chunk must have exactly 2 items
+    // with correct contract address and encoded wallet data.
+    for (let i = 0; i < 5; i++) {
+      const callArgs = batchMock.mock.calls[i][0] as BatchEthCallItem[];
+      expect(callArgs).toHaveLength(2);
+      for (const item of callArgs) {
+        expect(item.to).toBe(CONTRACT);
+        expect(item.data).toMatch(/^0x/);
+      }
+    }
+  });
+
+  it('default (no chunkConcurrency) is sequential', async () => {
+    // Track execution order via a shared array.
+    const order: number[] = [];
+    const batchMock = vi.fn().mockImplementation(async (_calls: BatchEthCallItem[]) => {
+      const chunkNum = batchMock.mock.calls.length; // 1-based
+      // Simulate some async work
+      await new Promise((r) => setTimeout(r, 5));
+      order.push(chunkNum);
+      return _calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }));
+    });
+
+    const client = makeClient(batchMock);
+
+    await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(6),
+      maxBatchSize: 2,
+      chunk: true,
+      // chunkConcurrency omitted → default 1 (sequential)
+    });
+
+    // With sequential execution, chunks finish in order 1,2,3
+    expect(order).toEqual([1, 2, 3]);
+    expect(batchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('explicit chunkConcurrency:1 is sequential', async () => {
+    const order: number[] = [];
+    const batchMock = vi.fn().mockImplementation(async (calls: BatchEthCallItem[]) => {
+      const chunkNum = batchMock.mock.calls.length;
+      await new Promise((r) => setTimeout(r, 5));
+      order.push(chunkNum);
+      return calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }));
+    });
+
+    const client = makeClient(batchMock);
+
+    await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(6),
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: 1,
+    });
+
+    expect(order).toEqual([1, 2, 3]);
+    expect(batchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('wall-clock improvement with concurrent chunks (fake timers)', async () => {
+    vi.useFakeTimers();
+
+    // 12 wallets, maxBatchSize=4 → 3 chunks, each takes 100ms
+    const batchMock = vi.fn().mockImplementation(
+      (calls: BatchEthCallItem[]) =>
+        new Promise<BatchItemResult[]>((resolve) =>
+          setTimeout(
+            () => resolve(calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }))),
+            100,
+          ),
+        ),
+    );
+
+    const client = makeClient(batchMock);
+
+    // Start the request but don't await — we'll advance timers manually.
+    const promise = client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(12),
+      maxBatchSize: 4,
+      chunk: true,
+      chunkConcurrency: 3,
+    });
+
+    // Advance time: all 3 chunks should start concurrently and finish after 100ms total.
+    await vi.advanceTimersByTimeAsync(100);
+
+    const results = await promise;
+    expect(results).toHaveLength(12);
+    for (const r of results) {
+      expect(r.status).toBe('success');
+    }
+    expect(batchMock).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+  });
+
+  it('sequential execution takes longer wall-clock with same per-chunk latency (fake timers)', async () => {
+    vi.useFakeTimers();
+
+    const batchMock = vi.fn().mockImplementation(
+      (calls: BatchEthCallItem[]) =>
+        new Promise<BatchItemResult[]>((resolve) =>
+          setTimeout(
+            () => resolve(calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }))),
+            100,
+          ),
+        ),
+    );
+
+    const client = makeClient(batchMock);
+
+    const promise = client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(12),
+      maxBatchSize: 4,
+      chunk: true,
+      // chunkConcurrency omitted → sequential
+    });
+
+    // After 100ms, only the first chunk is done
+    await vi.advanceTimersByTimeAsync(100);
+    // Promise should NOT be resolved yet (2 more chunks to go)
+    // We can check by advancing another 200ms
+    await vi.advanceTimersByTimeAsync(200);
+
+    const results = await promise;
+    expect(results).toHaveLength(12);
+    for (const r of results) {
+      expect(r.status).toBe('success');
+    }
+    expect(batchMock).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+  });
+
+  it('caps chunkConcurrency at 20', async () => {
+    // 42 wallets, maxBatchSize=2 → 21 chunks
+    const batchMock = vi.fn().mockImplementation((calls: BatchEthCallItem[]) =>
+      Promise.resolve(calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }))),
+    );
+    const client = makeClient(batchMock);
+
+    await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(42),
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: 999, // should be capped to 20
+    });
+
+    expect(batchMock).toHaveBeenCalledTimes(21);
+  });
+
+  it('treats non-positive chunkConcurrency as sequential (1)', async () => {
+    const order: number[] = [];
+    const batchMock = vi.fn().mockImplementation(async (calls: BatchEthCallItem[]) => {
+      const chunkNum = batchMock.mock.calls.length;
+      await new Promise((r) => setTimeout(r, 5));
+      order.push(chunkNum);
+      return calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }));
+    });
+
+    const client = makeClient(batchMock);
+
+    await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(6),
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: 0, // invalid → treated as 1
+    });
+
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('treats negative chunkConcurrency as sequential (1)', async () => {
+    const order: number[] = [];
+    const batchMock = vi.fn().mockImplementation(async (calls: BatchEthCallItem[]) => {
+      const chunkNum = batchMock.mock.calls.length;
+      await new Promise((r) => setTimeout(r, 5));
+      order.push(chunkNum);
+      return calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }));
+    });
+
+    const client = makeClient(batchMock);
+
+    await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(6),
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: -5,
+    });
+
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('per-item error isolation preserved with concurrent chunks', async () => {
+    // Simulate a provider that fails every other chunk
+    const batchMock = vi
+      .fn()
+      .mockImplementationOnce((calls: BatchEthCallItem[]) =>
+        Promise.resolve(calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }))),
+      )
+      .mockImplementationOnce(() => Promise.reject(new Error('chunk 2 failed')))
+      .mockImplementationOnce((calls: BatchEthCallItem[]) =>
+        Promise.resolve(calls.map(() => ({ status: 'success' as const, result: BALANCE_RESULT }))),
+      );
+
+    const client = makeClient(batchMock);
+
+    // 6 wallets, maxBatchSize=2 → 3 chunks, all concurrent
+    const promise = client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets(6),
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: 3,
+    });
+
+    // The failing chunk (index 1) should cause the whole operation to reject
+    await expect(promise).rejects.toThrow('chunk 2 failed');
+  });
+
+  it('chunkConcurrency works with getGuildOwnersBatch', async () => {
+    const batchMock = vi.fn().mockImplementation((calls: BatchEthCallItem[]) =>
+      Promise.resolve(calls.map(() => ({ status: 'success' as const, result: OWNER_RESULT }))),
+    );
+    const client = makeClient(batchMock);
+
+    const guildIds = Array.from({ length: 10 }, (_, i) => `guild_${i + 1}`);
+    const results = await client.contracts.getGuildOwnersBatch({
+      guildIds,
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: 3,
+    });
+
+    expect(results).toHaveLength(10);
+    for (const r of results) {
+      expect(r.status).toBe('success');
+    }
+    expect(batchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('result ordering is deterministic across multiple runs with concurrency', async () => {
+    // Run 5 times with randomized delays to prove output ordering is stable
+    for (let run = 0; run < 5; run++) {
+      // Random delays between 1-30ms for 5 chunks
+      const delays = Array.from({ length: 5 }, () => Math.floor(Math.random() * 30) + 1);
+      const batchMock = makeDelayedBatch(delays);
+      const client = makeClient(batchMock);
+
+      const results = await client.contracts.getMembershipTokenBalancesBatch({
+        walletAddresses: wallets(10),
+        maxBatchSize: 2,
+        chunk: true,
+        chunkConcurrency: 5,
+      });
+
+      expect(results).toHaveLength(10);
+
+      // Verify that each result corresponds to the correct wallet in order:
+      // wallet[i] → BALANCE_OF_SELECTOR + encodeAddressArgument(wallet[i])
+      for (let i = 0; i < 10; i++) {
+        expect(results[i].status).toBe('success');
+      }
+
+      // Verify call arguments preserve index ordering
+      let callItemIdx = 0;
+      for (const call of batchMock.mock.calls) {
+        const items = call[0] as BatchEthCallItem[];
+        for (const item of items) {
+          expect(item.to).toBe(CONTRACT);
+          // Verify the encoded wallet address matches the expected position
+          const expectedWallet = wallets(10)[callItemIdx];
+          expect(item.data).toBe(`${BALANCE_OF_SELECTOR}${encodeAddressArgument(expectedWallet)}`);
+          callItemIdx++;
+        }
+      }
+    }
   });
 });

@@ -236,9 +236,6 @@ async function parseErrorResponse(response: Response): Promise<unknown> {
   }
 }
 
-/** Diagnostic headers that are safe to expose to SDK consumers. */
-const META_HEADERS = ['x-request-id', 'x-correlation-id', 'traceparent'] as const;
-
 /**
  * Extracts safe diagnostic metadata from an HTTP response.
  * Only non-sensitive headers are captured; API keys and auth tokens are never included.

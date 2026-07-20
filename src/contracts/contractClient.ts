@@ -275,7 +275,7 @@ export class ContractClient {
   private async batchEthCallInternal(
     calls: BatchEthCallItem[],
     chainConfig: { rpcUrl?: string; rpcUrls?: string[] },
-    options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean },
+    options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean; chunkConcurrency?: number },
     chainId?: number,
   ): Promise<BatchItemResult[]> {
     const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for batch contract calls', chainId);
@@ -289,19 +289,95 @@ export class ContractClient {
         );
       }
 
-      const results: BatchItemResult[] = [];
+      // Build chunks
+      const chunks: BatchEthCallItem[][] = [];
       for (let i = 0; i < calls.length; i += limit) {
-        const chunkCalls = calls.slice(i, i + limit);
-        const chunkResults = await this.batchEthCallInternal(chunkCalls, chainConfig, { ...options, chunk: false }, chainId);
-        results.push(...chunkResults);
+        chunks.push(calls.slice(i, i + limit));
       }
-      return results;
+
+      // Validate chunkConcurrency
+      const concurrency = this.validateChunkConcurrency(options?.chunkConcurrency);
+
+      if (concurrency <= 1) {
+        // Sequential path: preserve existing behaviour for backwards compatibility
+        const results: BatchItemResult[] = [];
+        for (const chunk of chunks) {
+          const chunkResults = await this.batchEthCallInternal(
+            chunk,
+            chainConfig,
+            { ...options, chunk: false },
+            chainId,
+          );
+          results.push(...chunkResults);
+        }
+        return results;
+      }
+
+      // Bounded-concurrency worker-pool path
+      return this.executeChunksConcurrently(chunks, concurrency, chainConfig, options, chainId);
     }
 
     return provider.batchEthCall(
       calls.map((call) => ({ to: call.to, data: call.data })),
       options,
     );
+  }
+
+  /**
+   * Validates and normalises the `chunkConcurrency` option.
+   * Returns `1` (sequential) when omitted, `0`, or negative.
+   * Caps at 20 to protect the RPC provider.
+   */
+  private validateChunkConcurrency(raw?: number): number {
+    if (raw === undefined || raw === null) return 1;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) return 1;
+    return Math.min(n, 20);
+  }
+
+  /**
+   * Executes the given chunks concurrently with a bounded worker pool,
+   * preserving output ordering by writing results into pre-allocated slots.
+   */
+  private async executeChunksConcurrently(
+    chunks: BatchEthCallItem[][],
+    concurrency: number,
+    chainConfig: { rpcUrl?: string; rpcUrls?: string[] },
+    options: (RequestOptions & { maxBatchSize?: number; chunk?: boolean }) | undefined,
+    chainId: number | undefined,
+  ): Promise<BatchItemResult[]> {
+    // Pre-allocate result slots by chunk index so ordering is preserved
+    const chunkResults: BatchItemResult[][] = new Array(chunks.length);
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (true) {
+        const idx = nextIndex;
+        if (idx >= chunks.length) break;
+        nextIndex = idx + 1;
+
+        const chunkResult = await this.batchEthCallInternal(
+          chunks[idx],
+          chainConfig,
+          { ...options, chunk: false },
+          chainId,
+        );
+        chunkResults[idx] = chunkResult;
+      }
+    };
+
+    const workers = Array(Math.min(concurrency, chunks.length))
+      .fill(null)
+      .map(() => worker());
+
+    await Promise.all(workers);
+
+    // Flatten in index order
+    const results: BatchItemResult[] = [];
+    for (const cr of chunkResults) {
+      results.push(...cr);
+    }
+    return results;
   }
 
   /**
@@ -323,7 +399,7 @@ export class ContractClient {
   public async batchEthCall(
     calls: BatchEthCallItem[],
     rpcUrl?: string,
-    options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean },
+    options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean; chunkConcurrency?: number },
   ): Promise<BatchItemResult[]> {
     if (!Array.isArray(calls) || calls.length === 0) {
       throw new GuildPassError(
@@ -343,11 +419,49 @@ export class ContractClient {
         );
       }
 
-      const results: BatchItemResult[] = [];
+      // Build chunks
+      const chunks: BatchEthCallItem[][] = [];
       for (let i = 0; i < calls.length; i += limit) {
-        const chunkCalls = calls.slice(i, i + limit);
-        const chunkResults = await this.batchEthCall(chunkCalls, rpcUrl, { ...options, chunk: false });
-        results.push(...chunkResults);
+        chunks.push(calls.slice(i, i + limit));
+      }
+
+      const concurrency = this.validateChunkConcurrency(options?.chunkConcurrency);
+
+      if (concurrency <= 1) {
+        // Sequential path: preserve existing behaviour for backwards compatibility
+        const results: BatchItemResult[] = [];
+        for (const chunk of chunks) {
+          const chunkResults = await this.batchEthCall(chunk, rpcUrl, { ...options, chunk: false });
+          results.push(...chunkResults);
+        }
+        return results;
+      }
+
+      // Bounded-concurrency worker-pool path
+      // Pre-allocate result slots by chunk index so ordering is preserved
+      const chunkResults: BatchItemResult[][] = new Array(chunks.length);
+      let nextIndex = 0;
+
+      const worker = async () => {
+        while (true) {
+          const idx = nextIndex;
+          if (idx >= chunks.length) break;
+          nextIndex = idx + 1;
+
+          const chunkResult = await this.batchEthCall(chunks[idx], rpcUrl, { ...options, chunk: false });
+          chunkResults[idx] = chunkResult;
+        }
+      };
+
+      const workers = Array(Math.min(concurrency, chunks.length))
+        .fill(null)
+        .map(() => worker());
+
+      await Promise.all(workers);
+
+      const results: BatchItemResult[] = [];
+      for (const cr of chunkResults) {
+        results.push(...cr);
       }
       return results;
     }
@@ -434,6 +548,7 @@ export class ContractClient {
       ...options,
       maxBatchSize: params.maxBatchSize,
       chunk: params.chunk,
+      chunkConcurrency: params.chunkConcurrency,
     }, chainId);
 
     // Decode uint256 results where successful
@@ -512,6 +627,7 @@ export class ContractClient {
       ...options,
       maxBatchSize: params.maxBatchSize,
       chunk: params.chunk,
+      chunkConcurrency: params.chunkConcurrency,
     }, chainId);
 
     // Decode address results where successful
