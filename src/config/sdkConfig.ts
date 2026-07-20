@@ -1,5 +1,5 @@
 // GuildPass SDK: Import external module dependencies.
-import { FetchLike, HttpHooks, RetryConfig } from '../http/http.types';
+import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http.types';
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { CacheAdapter } from '../cache/cache.types';
@@ -37,6 +37,7 @@ export type GuildPassClientConfig = {
   retry?: RetryConfig;
   hooks?: HttpHooks;
   fetch?: FetchLike;
+  rateLimit?: RateLimitConfig;
   validateResponses?: boolean;
   cache?: CacheAdapter;
   cacheTtl?: number;
@@ -133,6 +134,26 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
     if (r.retryableStatuses !== undefined && (!Array.isArray(r.retryableStatuses) || r.retryableStatuses.length === 0 || r.retryableStatuses.some((s) => typeof s !== 'number' || !Number.isFinite(s)))) {
       throwConfigError('retryableStatuses must be a non-empty array of valid HTTP status numbers', 'retry.retryableStatuses', 'invalid_type', r.retryableStatuses);
+    }
+  }
+
+  if (config.rateLimit) {
+    const rl = config.rateLimit;
+    if (typeof rl.requestsPerSecond !== 'number' || rl.requestsPerSecond <= 0 || !Number.isFinite(rl.requestsPerSecond)) {
+      throwConfigError(
+        'rateLimit.requestsPerSecond must be a positive finite number',
+        'rateLimit.requestsPerSecond',
+        'invalid_range',
+        rl.requestsPerSecond,
+      );
+    }
+    if (rl.burst !== undefined && (typeof rl.burst !== 'number' || rl.burst < 1 || !Number.isFinite(rl.burst))) {
+      throwConfigError(
+        'rateLimit.burst must be a positive finite number >= 1',
+        'rateLimit.burst',
+        'invalid_range',
+        rl.burst,
+      );
     }
   }
 

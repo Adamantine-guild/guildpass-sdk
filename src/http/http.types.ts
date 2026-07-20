@@ -1,6 +1,11 @@
 // GuildPass SDK: Core operational type definition.
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
+export type RateLimitConfig = {
+  requestsPerSecond: number;
+  burst?: number;
+};
+
 export type RetryConfig = {
   /** Maximum number of retry attempts (default: 0). */
   maxRetries?: number;
@@ -53,6 +58,8 @@ export type HttpClientConfig = {
   fetch?: FetchLike;
   /** Optional client metadata attached as headers on API-relative requests. */
   metadata?: ClientMetadata;
+  /** Optional token-bucket rate limiter to proactively pace outgoing requests. */
+  rateLimit?: RateLimitConfig;
 };
 
 // GuildPass SDK: Exported function execution unit.

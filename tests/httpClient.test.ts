@@ -748,3 +748,101 @@ describe('HttpClient Hooks', () => {
     consoleSpy.mockRestore();
   });
 });
+
+describe('HttpClient rate limiting', () => {
+  const baseUrl = 'https://api.test.com';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('paces concurrent calls to the configured rate', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ok: true }),
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    });
+
+    const client = new HttpClient(baseUrl, undefined, 10000, {
+      fetch: mockFetch,
+      rateLimit: { requestsPerSecond: 2, burst: 2 },
+    });
+
+    const p1 = client.get('/a');
+    const p2 = client.get('/b');
+    const p3 = client.get('/c');
+    const p4 = client.get('/d');
+
+    // Advance time enough for all 4 calls to complete
+    // (2 immediate via burst + 2 paced at 500ms each)
+    vi.advanceTimersByTime(1000);
+
+    // All promises should now resolve
+    const results = await Promise.all([p1, p2, p3, p4]);
+    expect(results).toEqual([
+      { ok: true },
+      { ok: true },
+      { ok: true },
+      { ok: true },
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('without rateLimit config behavior is unchanged', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: 'no-limit' }),
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+    });
+
+    const client = new HttpClient(baseUrl, undefined, 10000, {
+      fetch: mockFetch,
+    });
+
+    const p1 = client.get('/a');
+    const p2 = client.get('/b');
+    const p3 = client.get('/c');
+
+    const results = await Promise.all([p1, p2, p3]);
+    expect(results).toEqual([
+      { data: 'no-limit' },
+      { data: 'no-limit' },
+      { data: 'no-limit' },
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('survives a 429 when rate limiting is active', { timeout: 10000 }, async () => {
+    vi.useRealTimers();
+
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve(null),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ok: true }),
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+      });
+
+    const client = new HttpClient(baseUrl, undefined, 10000, {
+      fetch: mockFetch,
+      retry: { maxRetries: 1, baseDelayMs: 1 },
+      rateLimit: { requestsPerSecond: 100, burst: 10 },
+    });
+
+    const result = await client.get('/rate-limited');
+    expect(result).toEqual({ ok: true });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
