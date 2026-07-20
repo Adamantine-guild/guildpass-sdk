@@ -378,3 +378,66 @@ describe('GuildPassClient – cache integration', () => {
     });
   });
 });
+
+describe('GuildPassClient – cache-key collision resistance', () => {
+  const mockAccess = { hasAccess: true, reason: null };
+  const wallet = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+
+  it('does not collide when a guildId/resourceId split shifts across the delimiter', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    // guildId "guild:1" + resourceId "a" previously produced the same raw
+    // string as guildId "guild" + resourceId "1:a".
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild:1', resourceId: 'a' });
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild', resourceId: '1:a' });
+
+    expect(httpGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('still cache-hits repeat calls when IDs contain the delimiter', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild:1', resourceId: 'a' });
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild:1', resourceId: 'a' });
+
+    expect(httpGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidateGuildCache clears encoded composite keys for a guildId containing the delimiter', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild:1', resourceId: 'a' });
+    expect(httpGet).toHaveBeenCalledTimes(1);
+
+    await client.invalidateGuildCache('guild:1');
+
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild:1', resourceId: 'a' });
+    expect(httpGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidateGuildCache does not over-delete entries from an unrelated guild', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild:1', resourceId: 'a' });
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild', resourceId: '1:a' });
+    expect(httpGet).toHaveBeenCalledTimes(2);
+
+    await client.invalidateGuildCache('guild:1');
+
+    // 'guild:1' entry was invalidated -> network hit again.
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild:1', resourceId: 'a' });
+    expect(httpGet).toHaveBeenCalledTimes(3);
+
+    // 'guild' entry must be untouched -> still a cache hit.
+    await client.access.checkAccess({ walletAddress: wallet, guildId: 'guild', resourceId: '1:a' });
+    expect(httpGet).toHaveBeenCalledTimes(3);
+  });
+});
