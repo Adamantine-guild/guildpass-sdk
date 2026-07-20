@@ -146,3 +146,14 @@ pnpm build        # Build must succeed
 
 - GitHub Issues: preferred for all task discussion
 - Contact: cerealboxx123@gmail.com
+
+---
+
+## Public API Changes
+
+We monitor changes to our public API surface closely to prevent accidental breaking changes.
+
+If you modify exported classes, interfaces, or types:
+1. Run `pnpm api-report` locally to update the API baseline file (`api-report/guildpass-sdk.api.md`).
+2. Commit the updated `guildpass-sdk.api.md` file alongside your code changes.
+3. Your pull request will display a diff of the API changes for maintainer review.

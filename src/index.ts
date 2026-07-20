@@ -11,9 +11,11 @@ export * from './roles/roles.service';
 export * from './guilds/guilds.service';
 export * from './contracts/contractClient';
 export * from './contracts/contract.types';
+export * from './contracts/providers';
 
 // Types
 export * from './types';
+export type { ResponseMetadata } from './http/http.types';
 
 // Errors
 export * from './errors/GuildPassError';
@@ -34,6 +36,5 @@ export * from './validation/responseGuards';
 export * from './validation/assertResponse';
 export * from './wallet/helpers';
 
-// Contract Providers
-export * from './contracts/providers/provider.types';
-export { WebSocketContractProvider } from './contracts/providers/webSocketProvider';
+// SIWE (Sign-In With Ethereum)
+export * from './siwe';

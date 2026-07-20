@@ -84,6 +84,76 @@ The SDK keeps the real API key internally and continues to use it for
 authenticated requests. Avoid logging the original constructor config object
 directly if it contains secrets.
 
+## Client Metadata Headers
+
+The SDK can attach lightweight metadata headers to API requests, helping backend
+services identify the SDK version, runtime, and integration source during
+debugging and support.
+
+### Default Behaviour
+
+By default, every GuildPass API-relative request includes an
+`X-GuildPass-SDK-Version` header with the bundled SDK version:
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  apiKey: process.env.GUILDPASS_API_KEY,
+});
+
+// Requests automatically include:
+//   X-GuildPass-SDK-Version: 0.1.0
+await client.guilds.getGuild({ guildId: 'prime-guild' });
+```
+
+### Custom Client Identification
+
+Set `clientName` and `clientVersion` to identify your integration in the
+`X-GuildPass-Client` header:
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  clientName: 'my-dapp',
+  clientVersion: '2.1.0',
+});
+
+// Requests include:
+//   X-GuildPass-SDK-Version: 0.1.0
+//   X-GuildPass-Client: my-dapp/2.1.0
+await client.access.checkAccess({ ... });
+```
+
+When `clientVersion` is omitted, only the client name is sent. When only
+`clientVersion` is provided, it is sent alone.
+
+### Disabling Metadata
+
+Set `sendClientMetadata: false` to suppress all metadata headers:
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  sendClientMetadata: false,
+});
+
+// No X-GuildPass-* headers are attached.
+await client.roles.getRoles({ guildId: 'guild-1' });
+```
+
+### Privacy and Security Considerations
+
+- **Metadata headers are only sent to GuildPass API-relative requests.** External
+  absolute URLs (e.g., custom RPC endpoints) never receive `X-GuildPass-*`
+  headers. Similarly, the `X-API-Key` header is never sent to external URLs.
+- **Metadata headers never include API keys, wallet secrets, or tokens.** The
+  header values only contain the SDK version and the consumer-provided client
+  name/version strings.
+- **Client name and version are public by design.** Use generic identifiers if
+  you prefer not to expose specific application names in network logs.
+- **Configuration is inspectable.** `client.getConfig()` returns `clientName`,
+  `clientVersion`, and `sendClientMetadata` (non-sensitive by design).
+
 ## Address Normalization and Checksums
 
 The SDK automatically normalizes addresses to lowercase for consistency and accepts both lowercase and mixed-case addresses by default.
@@ -175,6 +245,75 @@ The SDK validates the RPC and contract configuration before making the call,
 encodes the guild ID as `bytes32`, calls `getGuildOwner(bytes32)`, and validates
 that the RPC response decodes to an Ethereum address.
 
+Contract reads inherit the SDK's transport configuration. This means they
+support the same custom `fetch` transport, global `timeoutMs`, and `retry`
+policy as standard API calls.
+
+You can also provide per-call overrides for contract methods:
+
+```typescript
+const owner = await client.contracts.getGuildOwner({
+  guildId: 'guild_1'
+}, {
+  timeoutMs: 2000,
+  retry: { maxRetries: 2 }
+});
+```
+
+## Batch Contract Reads
+
+The batch helpers (`getMembershipTokenBalancesBatch`, `getGuildOwnersBatch`,
+`batchEthCall`) combine multiple contract reads into a single JSON-RPC batch
+request. By default, batches are limited to **100 calls** to stay within
+common RPC provider payload limits.
+
+If a batch exceeds the limit, the SDK throws a `GuildPassError` with code
+`INVALID_INPUT`:
+
+```typescript
+// Throws: Batch size 200 exceeds maxBatchSize 100. Use chunk: true to split requests.
+await client.contracts.getMembershipTokenBalancesBatch({
+  walletAddresses: twoHundredAddresses,
+});
+```
+
+### Automatic Chunking
+
+Set `chunk: true` to automatically split oversized batches into sequential
+requests of `maxBatchSize` each. Results are concatenated in order,
+preserving the original input positions. Per-item errors remain isolated
+across chunks.
+
+```typescript
+const results = await client.contracts.getMembershipTokenBalancesBatch({
+  walletAddresses: twoHundredAddresses,
+  chunk: true, // split into 2 × 100 sequential batch calls
+});
+// results.length === 200, order matches walletAddresses
+```
+
+### Tuning the Limit
+
+Override the default limit with `maxBatchSize`:
+
+```typescript
+const results = await client.contracts.getGuildOwnersBatch({
+  guildIds: largeGuildList,
+  maxBatchSize: 50, // conservative limit for rate-limited provider
+  chunk: true,
+});
+```
+
+The same options are available on the low-level `batchEthCall` method via
+its `options` parameter:
+
+```typescript
+await client.contracts.batchEthCall(calls, rpcUrl, {
+  maxBatchSize: 25,
+  chunk: true,
+});
+```
+
 ## Caching and Request Deduplication
 
 When a cache adapter is configured, the SDK automatically deduplicates concurrent
@@ -249,6 +388,8 @@ const client = new GuildPassClient({
 
 The hook receives a `CacheErrorHookPayload` containing the operation name (`get`, `set`, `delete`, `clear`), the affected `key` (if any), and the original `error`.
 
+For full details on implementing custom cache adapters — including TTL semantics, `deleteByPrefix`, serialisation, and production examples — see the [Cache Adapters Guide](./cache-adapters.md).
+
 ### Security Note
 
 The SDK ensures that sensitive information such as API keys and authorization
@@ -266,11 +407,17 @@ const controller = new AbortController();
 setTimeout(() => controller.abort(), 2000);
 
 try {
-  const data = await client.guilds.getGuild(guildId, {
+  // Standard API call
+  const data = await client.guilds.getGuild({ guildId }, {
     signal: controller.signal,
   });
+
+  // Contract read
+  const balance = await client.contracts.getMembershipTokenBalance({
+    walletAddress: '0x...',
+  }, { signal: controller.signal });
 } catch (err) {
-  if (err instanceof GuildPassError && err.code === GuildPassErrorCode.ABORTED) {
+  if (err instanceof GuildPassError && err.code === GuildPassErrorCode.REQUEST_CANCELLED) {
     // Request was cancelled by the caller
   } else if (err instanceof GuildPassError && err.code === GuildPassErrorCode.TIMEOUT) {
     // Request exceeded the configured timeout
@@ -342,94 +489,75 @@ Hook payloads expose safe request metadata only. Sensitive values like the API k
 
 ⚠️ **Warning:** Be careful not to log sensitive application data. Although the SDK automatically redacts known sensitive headers (`authorization`, `x-api-key`, `cookie`, `set-cookie`), any proprietary query parameters or custom headers containing sensitive info should be handled securely.
 
-## Response Metadata (includeMeta)
+## Response Metadata
 
-When you need to correlate SDK calls with server-side logs or support tickets,
-pass `includeMeta: true` in the request options. The service method returns a
-`{ data, meta }` object instead of the raw data value.
+Pass `includeMeta: true` in any service call's `RequestOptions` to receive diagnostic metadata alongside the response data. This is useful for correlating client-side failures with backend logs and support tickets without changing the default ergonomic API.
 
 ```typescript
-const result = await client.access.checkAccess(
-  { walletAddress: '0x...', guildId: 'guild_1', resourceId: 'res_1' },
+import { GuildPassClient } from '@guildpass/sdk';
+
+const client = new GuildPassClient({ apiUrl: 'https://api.guildpass.xyz' });
+
+// Default: returns plain data (backwards-compatible)
+const guild = await client.guilds.getGuild({ guildId: 'prime-guild' });
+// → { id: 'prime-guild', name: 'Prime Guild', ... }
+
+// Opt-in: includeMeta returns { data, meta }
+const result = await client.guilds.getGuild(
+  { guildId: 'prime-guild' },
   { includeMeta: true },
 );
-
-// result.data → AccessCheckResult (same shape as the default return)
-// result.meta → ResponseMeta (diagnostic info)
-
-console.log(result.meta.requestId);      // 'req-abc-123' — from X-Request-ID header
-console.log(result.meta.correlationId);  // 'corr-xyz-789' — from X-Correlation-ID header
-console.log(result.meta.traceparent);    // W3C trace context, if present
-console.log(result.meta.traceId);        // X-Trace-ID header, if present
-console.log(result.meta.status);         // 200
-console.log(result.meta.durationMs);     // 87 (total request time in milliseconds)
+console.log(result.data.name);          // 'Prime Guild'
+console.log(result.meta.requestId);     // 'req-abc-123' (if present)
+console.log(result.meta.correlationId); // 'corr-xyz-789' (if present)
+console.log(result.meta.traceId);       // W3C traceparent (if present)
+console.log(result.meta.status);        // 200
+console.log(result.meta.durationMs);    // 142
 ```
 
 ### Metadata Fields
 
-| Field | Type | Source Header | Description |
-| :--- | :--- | :--- | :--- |
-| `status` | `number` | — | HTTP status code of the response. |
-| `durationMs` | `number` | — | Total request duration in milliseconds. |
-| `requestId` | `string?` | `X-Request-ID` / `X-Request-Id` | Server-assigned request identifier. |
-| `correlationId` | `string?` | `X-Correlation-ID` | Cross-service correlation identifier. |
-| `traceparent` | `string?` | `Traceparent` | W3C trace context for distributed tracing. |
-| `traceId` | `string?` | `X-Trace-ID` | Alternative trace identifier. |
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `requestId` | `string \| undefined` | Value of the `X-Request-ID` response header. |
+| `correlationId` | `string \| undefined` | Value of the `X-Correlation-ID` response header. |
+| `traceId` | `string \| undefined` | Value of the `Traceparent` (W3C) response header. |
+| `status` | `number` | HTTP status code of the response. |
+| `durationMs` | `number` | Round-trip duration in milliseconds. |
 
-### Backwards Compatibility
+### Supported Services
 
-The default behaviour remains unchanged. Omitting `includeMeta` (or passing
-`includeMeta: false`) returns the plain data object exactly as before:
+All read-oriented service methods support `includeMeta`:
 
-```typescript
-// Default — returns AccessCheckResult directly (backwards-compatible)
-const access = await client.access.checkAccess(params);
+- `client.access.checkAccess(params, { includeMeta: true })`
+- `client.access.checkRoleAccess(params, { includeMeta: true })`
+- `client.membership.getMembership(params, { includeMeta: true })`
+- `client.roles.getRoles(params, { includeMeta: true })`
+- `client.roles.getUserRoles(params, { includeMeta: true })`
+- `client.guilds.getGuild(params, { includeMeta: true })`
+- `client.guilds.getGuildConfig(params, { includeMeta: true })`
 
-// Opt-in — returns { data: AccessCheckResult; meta: ResponseMeta }
-const result = await client.access.checkAccess(params, { includeMeta: true });
-```
+### Metadata on Errors
 
-### Security
-
-Response metadata only contains safe, non-sensitive headers. The `Authorization`,
-`X-API-Key`, `Cookie`, and `Set-Cookie` headers are **never** included in the
-`meta` object, regardless of what the server returns.
-
-### Supported Methods
-
-`includeMeta` is supported on all service read methods:
-
-- `client.access.checkAccess()`
-- `client.access.checkRoleAccess()`
-- `client.membership.getMembership()`
-- `client.membership.isMember()`
-- `client.roles.getRoles()`
-- `client.roles.getUserRoles()`
-- `client.guilds.getGuild()`
-- `client.guilds.getGuildConfig()`
-
-> **Note:** Metadata requests bypass the cache layer to ensure fresh diagnostic
-> values. If you need both caching and metadata, make two separate calls — one
-> cached call for the data, and a second call with `includeMeta: true` for
-> diagnostics.
-
-### Using Metadata for Support
-
-When filing a support ticket, include the `requestId` and `correlationId` from
-the metadata to help the backend team locate your request in the logs:
+When an HTTP error occurs (4xx, 5xx), the thrown `GuildPassError` includes a `requestMeta` property with the same diagnostic information. This lets you correlate failures with backend logs even in catch blocks:
 
 ```typescript
 try {
-  const result = await client.guilds.getGuild(
-    { guildId: 'my-guild' },
-    { includeMeta: true },
-  );
-  // ... use result.data
+  await client.guilds.getGuild({ guildId: 'unknown' });
 } catch (error) {
-  // On failure, you can still access metadata if captured via hooks
-  console.error('Support info:', {
-    requestId: error.meta?.requestId,
-    correlationId: error.meta?.correlationId,
-  });
+  if (error instanceof GuildPassError) {
+    console.error(`Request failed`, {
+      code: error.code,
+      status: error.status,
+      requestId: error.requestMeta?.requestId,
+      correlationId: error.requestMeta?.correlationId,
+    });
+  }
 }
 ```
+
+The `requestMeta` property is `undefined` for network errors, timeouts, and cancellations where no HTTP response was received.
+
+### Security
+
+Only the safe diagnostic headers (`X-Request-ID`, `X-Correlation-ID`, `Traceparent`) are captured. Sensitive headers like `Authorization`, `X-API-Key`, `Cookie`, and `Set-Cookie` are never exposed in response metadata. The metadata object is intentionally limited to fields useful for diagnostics and support.

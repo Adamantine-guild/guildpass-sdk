@@ -35,39 +35,97 @@ Designed for future on-chain support. Currently provides stubs and validation pa
 - On-chain role requirement validation
 - Guild ownership lookup
 
-### 5. WebSocketContractProvider (Advanced / Optional)
+All on-chain reads flow through a pluggable **ContractProvider** abstraction (see below).
 
-An optional, zero-dependency `SubscribableContractProvider` that connects to a WSS-capable
-RPC endpoint and subscribes to on-chain `Transfer` events in real time via `eth_subscribe`.
+### 5. RPC Failover
 
-- **Real-time event stream**: Subscribes to ERC-20/ERC-721 `Transfer` events filtered by
-  contract address and the canonical `Transfer(address,address,uint256)` topic.
-- **Typed callbacks**: Raw `eth_subscription` log notifications are decoded into
-  `TransferEvent` payloads (`from`, `to`, `value`, `blockNumber`, `transactionHash`).
-- **Auto-reconnect**: On WebSocket disconnect, reconnects with exponential backoff
-  (+ jitter) up to a configurable maximum, then re-establishes all active subscriptions.
-- **Composable with caching**: A `TransferEvent` callback can be wired to
-  `client.invalidateWalletCache(event.from)` / `client.invalidateWalletCache(event.to)`
-  for push-based cache invalidation without polling.
-- **Separate endpoint**: Requires a `wssUrl` distinct from the HTTP `rpcUrl`. Most RPC
-  providers expose WebSocket on a different host or port.
+When `rpcUrls` (or `chains[chainId].rpcUrls`) is configured with multiple endpoints, the SDK
+automatically fails over across them on transient errors. This is implemented inside
+`JsonRpcContractProvider`, which tries each URL in sequence:
 
-```typescript
-import { WebSocketContractProvider } from '@guildpass/sdk';
+1. The primary URL (`rpcUrl` or the first entry in `rpcUrls`) is attempted first.
+2. On a **transient error** (network failure, 429 rate-limit, 5xx server error, timeout) the
+   provider moves on to the next URL without surfacing the error to the caller.
+3. On a **non-transient error** (contract revert, invalid parameters, malformed response)
+   the error is propagated immediately — there is no point retrying a different node for a
+   contract-level failure.
+4. When all URLs are exhausted with transient errors, the last error is thrown.
 
-const provider = new WebSocketContractProvider({
-  wssUrl: 'wss://mainnet.infura.io/ws/v3/YOUR_KEY',
-});
+**Failover vs retry ordering**: Failover and retry are independent layers with failover
+running *inside* each retry attempt. Concretely:
 
-const unsub = provider.onTokenTransfer(
-  '0xTokenContract',
-  (event) => {
-    console.log(`${event.from} → ${event.to}  amount=${event.value}`);
-  },
-);
+- If `retry.maxRetries` is configured, `HttpClient` retries the same URL with exponential
+  backoff first.
+- When HttpClient gives up (max retries hit or a non-retryable error), the error propagates
+  up to `JsonRpcContractProvider`, which then moves to the next RPC URL.
+- Retry counters reset for each new URL — the next URL gets its own full set of retry
+  attempts.
+
+This means the upper-bound latency is:
+
+```
+(N_rpc_urls) × (1 + maxRetries) × (timeoutMs + maxDelayMs)
 ```
 
-### 6. Caching Layer
+For example, with 3 RPC URLs, `retry.maxRetries = 2`, `timeoutMs = 10_000`, and
+`retry.maxDelayMs = 5_000`, the upper bound is `3 × 3 × 15_000 = 135_000ms`.
+
+**Observability**: Configure the `onRpcFailover` hook to get notified each time the SDK
+switches endpoints:
+
+```ts
+const client = new GuildPassClient({
+  apiUrl: '...',
+  rpcUrls: ['https://rpc1.example', 'https://rpc2.example'],
+  hooks: {
+    onRpcFailover: ({ chainId, failedUrl, nextUrl, error }) => {
+      console.warn(`RPC failover on chain ${chainId}: ${failedUrl} → ${nextUrl}`);
+    },
+  },
+});
+```
+
+Hook failures are silently caught and never affect the failover flow.
+
+### 6. ContractProvider (pluggable RPC layer)
+
+`ContractClient` never talks to a chain directly. Instead, every read goes through the
+`ContractProvider` interface (`src/contracts/providers/provider.types.ts`):
+
+```ts
+interface ContractProvider {
+  ethCall(request: { to: string; data: string }, options?: RequestOptions): Promise<unknown>;
+  batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+}
+```
+
+**Provider resolution** (per call):
+
+1. If `GuildPassClientConfig.contractProvider` is set, it is used for every contract read
+   and takes precedence over `rpcUrl` (including per-chain `chains[].rpcUrl`).
+2. Otherwise the default `JsonRpcContractProvider` is constructed from the resolved
+   `rpcUrl` — the original raw JSON-RPC-over-fetch behavior, unchanged.
+3. If neither is available, the call fails fast with `INVALID_CONFIG`
+   (`"rpcUrl is required for contract calls"`), exactly as before.
+
+**Responsibility split**: `ContractClient` owns input validation, chain/contract-address
+resolution, batch size limits/chunking, and result decoding. Providers own only transport —
+"make an eth_call reach a chain". This keeps error semantics uniform: provider-level
+failures are always `HTTP_ERROR`, undecodable results are always `INVALID_RESPONSE`,
+regardless of which provider is in use.
+
+**Adapters** for viem and ethers live in dedicated subpath exports so they are only ever
+bundled when explicitly imported:
+
+- `@guildpass/sdk/adapters/viem` → `viemContractProvider(publicClient)`
+- `@guildpass/sdk/adapters/ethers` → `ethersContractProvider(provider)`
+
+The adapters are *structurally typed* — they accept anything with a compatible `call()`
+method and never `import` viem or ethers. Both libraries are optional peer dependencies
+only; the core package stays zero-runtime-dependency, and consumers who don't import the
+adapter subpaths see no bundle-size increase.
+
+### 7. Caching Layer
 
 The SDK includes a resilient caching layer that wraps service methods.
 

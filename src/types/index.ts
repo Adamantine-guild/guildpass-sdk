@@ -19,5 +19,6 @@ export type {
   RequestHookPayload,
   ResponseHookPayload,
   RetryConfig,
+  RpcFailoverHookPayload,
 } from '../http/http.types';
 export * from '../errors/errorCodes';

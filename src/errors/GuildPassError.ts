@@ -1,5 +1,6 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassErrorCode } from './errorCodes';
+import type { ResponseMetadata } from '../http/http.types';
 
 // GuildPass SDK: Exposed interface structure.
 export class GuildPassError extends Error {
@@ -9,6 +10,13 @@ export class GuildPassError extends Error {
   public readonly status?: number;
   // GuildPass SDK: Class member structure property or constructor.
   public readonly details?: any;
+  /**
+   * Safe diagnostic metadata captured from the HTTP response that caused
+   * this error. Includes request ID, correlation ID, trace ID, status code,
+   * and round-trip duration. Only populated for errors that received an HTTP
+   * response; `undefined` for network, timeout, and cancellation errors.
+   */
+  public requestMeta?: ResponseMetadata;
 
   // GuildPass SDK: Class member structure property or constructor.
   constructor(message: string, code: GuildPassErrorCode, status?: number, details?: any) {

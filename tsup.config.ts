@@ -7,6 +7,8 @@ export default defineConfig({
     errors: 'src/errors/index.ts',
     utils: 'src/utils/index.ts',
     types: 'src/types/index.ts',
+    'adapters/viem': 'src/adapters/viem.ts',
+    'adapters/ethers': 'src/adapters/ethers.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

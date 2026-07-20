@@ -1,4 +1,4 @@
-// GuildPass SDK: Import external module dependencies.
+﻿// GuildPass SDK: Import external module dependencies.
 import { HttpClient } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import {
@@ -10,7 +10,8 @@ import {
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isAccessCheckResult } from '../validation/responseGuards';
-import type { RequestOptions, ResponseMeta } from '../types/common';
+import type { RequestOptions } from '../types/common';
+import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
 import { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult } from './access.types';
 
@@ -26,10 +27,9 @@ export class AccessService {
    * Checks whether a wallet has access to a gated resource.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async checkAccess<T extends RequestOptions | undefined = undefined>(
-    params: AccessCheckParams,
-    options?: T,
-  ): Promise<T extends { includeMeta: true } ? { data: AccessCheckResult; meta: ResponseMeta } : AccessCheckResult> {
+  public async checkAccess(params: AccessCheckParams): Promise<AccessCheckResult>;
+  public async checkAccess(params: AccessCheckParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: AccessCheckResult; meta: ResponseMetadata }>;
+  public async checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult | { data: AccessCheckResult; meta: ResponseMetadata }> {
     // GuildPass SDK: Variable binding initialization.
     const { walletAddress, guildId, resourceId } = params;
 
@@ -39,6 +39,7 @@ export class AccessService {
 
     // GuildPass SDK: Return evaluated output value.
     const result = await this.http.get<AccessCheckResult>(`/access/check`, {
+      ...options,
       // GuildPass SDK: Execution block boundary initialization.
       params: {
         address: normaliseAddress(walletAddress),
@@ -46,15 +47,16 @@ export class AccessService {
         resourceId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
-      includeMeta: (options as any)?.includeMeta,
       // GuildPass SDK: End of logic containment structure block.
     });
 
+    if (options?.includeMeta) {
+      return result as { data: AccessCheckResult; meta: ResponseMetadata };
+    }
+
     return this.validateResponses
-      ? assertValidResponse(result, isAccessCheckResult, 'AccessCheckResult')
-      : result as any;
+      ? assertValidResponse(result as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult')
+      : (result as AccessCheckResult);
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -65,6 +67,7 @@ export class AccessService {
     items: AccessCheckParams[],
     options?: AccessCheckBatchOptions & RequestOptions
   ): Promise<AccessCheckBatchResult[]> {
+    this.validateBatchOptions(items, options);
     const concurrency = options?.concurrency ?? 5;
     const failFast = options?.failFast ?? false;
 
@@ -74,7 +77,12 @@ export class AccessService {
     const execute = async (item: AccessCheckParams, index: number) => {
       if (hasFailed && failFast) return;
       try {
-        const result = await this.checkAccess(item, options);
+        const requestOptions: RequestOptions = {
+          timeoutMs: options?.timeoutMs,
+          retry: options?.retry,
+          signal: options?.signal,
+        };
+        const result = await this.checkAccess(item, requestOptions);
         results[index] = { input: item, status: 'fulfilled', value: result };
       } catch (error) {
         if (failFast) hasFailed = true;
@@ -106,10 +114,30 @@ export class AccessService {
    * Checks whether a wallet has a specific role in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async checkRoleAccess<T extends RequestOptions | undefined = undefined>(
+  private validateBatchOptions(items: AccessCheckParams[], options?: AccessCheckBatchOptions): void {
+    const concurrency = options?.concurrency ?? 5;
+    if (!Number.isInteger(concurrency) || concurrency < 1 || !Number.isFinite(concurrency)) {
+      throw new Error("concurrency must be a positive finite integer");
+    }
+    if (concurrency > 50) {
+      throw new Error("concurrency must not exceed 50");
+    }
+    if (!items || items.length === 0) {
+      throw new Error("items array must not be empty");
+    }
+  }
+
+  public async checkRoleAccess(
     params: RoleAccessCheckParams,
-    options?: T,
-  ): Promise<T extends { includeMeta: true } ? { data: boolean; meta: ResponseMeta } : boolean> {
+  ): Promise<boolean>;
+  public async checkRoleAccess(
+    params: RoleAccessCheckParams,
+    options: RequestOptions & { includeMeta: true },
+  ): Promise<{ data: boolean; meta: ResponseMetadata }>;
+  public async checkRoleAccess(
+    params: RoleAccessCheckParams,
+    options?: RequestOptions,
+  ): Promise<boolean | { data: boolean; meta: ResponseMetadata }> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId, roleId } = params;
 
@@ -126,18 +154,18 @@ export class AccessService {
         roleId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
-      includeMeta: (options as any)?.includeMeta,
       // GuildPass SDK: End of logic containment structure block.
     });
 
-    // GuildPass SDK: Terminate function block execution and return.
-    if ((options as any)?.includeMeta && typeof result === 'object' && 'meta' in result) {
-      return { data: (result as any).data.hasRole, meta: (result as any).meta } as any;
+    if (options?.includeMeta) {
+      const r = result as { data: { hasRole: boolean }; meta: ResponseMetadata };
+      return { data: r.data.hasRole, meta: r.meta };
     }
-    return (result as { hasRole: boolean }).hasRole as any;
+
+    // GuildPass SDK: Terminate function block execution and return.
+    return (result as { hasRole: boolean }).hasRole;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.
 }
+

@@ -5,12 +5,14 @@ import { GuildPassErrorCode } from '../errors/errorCodes';
 import type { ResponseMeta } from '../types/common';
 // GuildPass SDK: Pull in package or module bindings.
 import {
+  ClientMetadata,
   FetchLike,
   HttpClientConfig,
   HttpHooks,
   HttpRequestOptions,
   HttpResponse,
   RequestHookPayload,
+  ResponseMetadata,
   RetryConfig,
 } from './http.types';
 
@@ -48,6 +50,8 @@ function extractResponseMeta(response: Response, durationMs: number): ResponseMe
 
 export function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};
+
+  if (!headers) return redacted;
 
   if (headers instanceof Headers) {
     headers.forEach((value, key) => {
@@ -123,6 +127,7 @@ function resolveRetry(
 }
 
 function getRetryAfterMs(headers: Headers): number | null {
+  if (!headers || typeof headers.get !== 'function') return null;
   const header = headers.get('Retry-After');
   if (!header) return null;
   const seconds = Number(header);
@@ -160,7 +165,7 @@ function buildInvalidResponseError(
   response: Response,
   reason: 'unexpected_content_type' | 'malformed_json',
 ): GuildPassError {
-  const contentType = response.headers.get('Content-Type');
+  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
   const message = reason === 'unexpected_content_type'
     ? `Invalid response: expected JSON but received ${contentType || 'unknown content type'}`
     : 'Invalid response: received malformed JSON';
@@ -188,11 +193,13 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 async function parseSuccessResponse<T>(response: Response): Promise<T> {
-  if (response.status === 204 || response.status === 205 || response.headers.get('Content-Length') === '0') {
+  const contentLength = response.headers?.get ? response.headers.get('Content-Length') : null;
+  if (response.status === 204 || response.status === 205 || contentLength === '0') {
     return undefined as T;
   }
 
-  if (!isJsonContentType(response.headers.get('Content-Type'))) {
+  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
+  if (!isJsonContentType(contentType)) {
     throw buildInvalidResponseError(response, 'unexpected_content_type');
   }
 
@@ -200,16 +207,18 @@ async function parseSuccessResponse<T>(response: Response): Promise<T> {
 }
 
 async function parseErrorResponse(response: Response): Promise<unknown> {
-  if (response.status === 204 || response.status === 205 || response.headers.get('Content-Length') === '0') {
+  const contentLength = response.headers?.get ? response.headers.get('Content-Length') : null;
+  if (response.status === 204 || response.status === 205 || contentLength === '0') {
     return null;
   }
 
-  if (!isJsonContentType(response.headers.get('Content-Type'))) {
+  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
+  if (!isJsonContentType(contentType)) {
     return {
       code: GuildPassErrorCode.INVALID_RESPONSE,
       message: 'Endpoint returned a non-JSON error response',
       meta: {
-        contentType: response.headers.get('Content-Type'),
+        contentType,
       },
     };
   }
@@ -221,10 +230,28 @@ async function parseErrorResponse(response: Response): Promise<unknown> {
       code: GuildPassErrorCode.INVALID_RESPONSE,
       message: 'Endpoint returned malformed JSON in an error response',
       meta: {
-        contentType: response.headers.get('Content-Type'),
+        contentType,
       },
     };
   }
+}
+
+/** Diagnostic headers that are safe to expose to SDK consumers. */
+const META_HEADERS = ['x-request-id', 'x-correlation-id', 'traceparent'] as const;
+
+/**
+ * Extracts safe diagnostic metadata from an HTTP response.
+ * Only non-sensitive headers are captured; API keys and auth tokens are never included.
+ */
+function extractMeta(response: HttpResponse, durationMs: number): ResponseMetadata {
+  const safeGet = (key: string) => response.headers?.get?.(key) ?? undefined;
+  return {
+    requestId: safeGet('x-request-id'),
+    correlationId: safeGet('x-correlation-id'),
+    traceId: safeGet('traceparent'),
+    status: response.status,
+    durationMs,
+  };
 }
 
 // GuildPass SDK: Exposed interface structure.
@@ -240,6 +267,7 @@ export class HttpClient {
   // GuildPass SDK: Class member structure property or constructor.
   private readonly hooks?: HttpHooks;
   private readonly fetchTransport?: FetchLike;
+  private readonly metadata?: ClientMetadata;
 
   // GuildPass SDK: Class member structure property or constructor.
   constructor(
@@ -258,6 +286,7 @@ export class HttpClient {
         this.globalRetry = configOrHooks.retry;
         this.hooks = configOrHooks.hooks;
         this.fetchTransport = configOrHooks.fetch;
+        this.metadata = configOrHooks.metadata;
       } else if (isRetryConfig(configOrHooks)) {
         this.globalRetry = configOrHooks;
       } else if (isHooksConfig(configOrHooks)) {
@@ -267,40 +296,35 @@ export class HttpClient {
   }
 
   // GuildPass SDK: Class member structure property or constructor.
-  public async get<T>(
-    path: string,
-    options?: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta?: false | undefined },
-  ): Promise<T>;
-  public async get<T>(
-    path: string,
-    options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true },
-  ): Promise<{ data: T; meta: ResponseMeta }>;
-  public async get<T>(
-    path: string,
-    options?: Omit<HttpRequestOptions, 'method' | 'body'>,
-  ): Promise<T | { data: T; meta: ResponseMeta }> {
-    const result = await this.request<T>(path, { ...options, method: 'GET' });
-    return options?.includeMeta ? { data: result.data, meta: result.meta! } : result.data;
+  /**
+   * Sends a GET request. Returns plain `data` by default.
+   * Pass `includeMeta: true` to receive `{ data, meta }` with diagnostic headers.
+   */
+  public async get<T>(path: string): Promise<T>;
+  public async get<T>(path: string, options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true }): Promise<{ data: T; meta: ResponseMetadata }>;
+  public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<T | { data: T; meta: ResponseMetadata }> {
+    const startTime = Date.now();
+    const response = await this.request<T>(path, { ...options, method: 'GET' });
+    if (options?.includeMeta) {
+      return { data: response.data, meta: extractMeta(response, Date.now() - startTime) };
+    }
+    return response.data;
   }
 
   // GuildPass SDK: Class member structure property or constructor.
-  public async post<T>(
-    path: string,
-    body?: any,
-    options?: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta?: false | undefined },
-  ): Promise<T>;
-  public async post<T>(
-    path: string,
-    body: any,
-    options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true },
-  ): Promise<{ data: T; meta: ResponseMeta }>;
-  public async post<T>(
-    path: string,
-    body?: any,
-    options?: Omit<HttpRequestOptions, 'method' | 'body'>,
-  ): Promise<T | { data: T; meta: ResponseMeta }> {
-    const result = await this.request<T>(path, { ...options, method: 'POST', body });
-    return options?.includeMeta ? { data: result.data, meta: result.meta! } : result.data;
+  /**
+   * Sends a POST request. Returns plain `data` by default.
+   * Pass `includeMeta: true` to receive `{ data, meta }` with diagnostic headers.
+   */
+  public async post<T>(path: string, body?: any): Promise<T>;
+  public async post<T>(path: string, body: any, options: Omit<HttpRequestOptions, 'method' | 'body'> & { includeMeta: true }): Promise<{ data: T; meta: ResponseMetadata }>;
+  public async post<T>(path: string, body?: any, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<T | { data: T; meta: ResponseMetadata }> {
+    const startTime = Date.now();
+    const response = await this.request<T>(path, { ...options, method: 'POST', body });
+    if (options?.includeMeta) {
+      return { data: response.data, meta: extractMeta(response, Date.now() - startTime) };
+    }
+    return response.data;
   }
 
   // GuildPass SDK: Class member structure property or constructor.
@@ -308,13 +332,43 @@ export class HttpClient {
     path: string,
     options: HttpRequestOptions = {},
   ): Promise<HttpResponse<T>> {
-    const { method = 'GET', headers = {}, body, params, timeoutMs = this.timeoutMs, retry, signal } = options;
+    const {
+      method = 'GET',
+      headers = {},
+      body,
+      params,
+      timeoutMs = this.timeoutMs,
+      retry,
+      signal,
+    } = options;
+
+    const isAbsolute = path.startsWith('http://') || path.startsWith('https://');
 
     const requestHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(this.apiKey ? { 'X-API-Key': this.apiKey } : {}),
+      ...(this.apiKey && !isAbsolute ? { 'X-API-Key': this.apiKey } : {}),
       ...headers,
     };
+
+    // Attach client metadata headers only for GuildPass API-relative requests.
+    // Absolute external URLs never receive metadata headers.
+    if (!isAbsolute && this.metadata?.sendClientMetadata !== false) {
+      const sdkVersion = this.metadata?.sdkVersion;
+      if (sdkVersion && sdkVersion.length > 0) {
+        requestHeaders['X-GuildPass-SDK-Version'] = sdkVersion;
+      }
+
+      const clientParts: string[] = [];
+      if (this.metadata?.clientName && this.metadata.clientName.length > 0) {
+        clientParts.push(this.metadata.clientName);
+      }
+      if (this.metadata?.clientVersion && this.metadata.clientVersion.length > 0) {
+        clientParts.push(this.metadata.clientVersion);
+      }
+      if (clientParts.length > 0) {
+        requestHeaders['X-GuildPass-Client'] = clientParts.join('/');
+      }
+    }
 
     const retryConfig = resolveRetry(this.globalRetry, retry);
     const canRetry =
@@ -344,7 +398,10 @@ export class HttpClient {
       throw new GuildPassError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
     }
 
-    const url = new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
+    const url = isAbsolute
+      ? new URL(path)
+      : new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
+
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         url.searchParams.append(key, String(value));
@@ -355,11 +412,15 @@ export class HttpClient {
 
     while (true) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeoutMs);
 
       let onAbort: (() => void) | undefined;
       if (signal) {
-        onAbort = () => controller.abort();
+        onAbort = () => {
+          controller.abort();
+        };
         signal.addEventListener('abort', onAbort);
       }
 
@@ -393,7 +454,13 @@ export class HttpClient {
           }
 
           const errorData = await parseErrorResponse(response);
-          throw GuildPassError.fromHttpError(response.status, errorData);
+          const errorMeta = extractMeta(
+            { data: undefined, status: response.status, headers: response.headers },
+            Date.now() - startTime,
+          );
+          const httpError = GuildPassError.fromHttpError(response.status, errorData);
+          httpError.requestMeta = errorMeta;
+          throw httpError;
         }
 
         const data = await parseSuccessResponse<T>(response);

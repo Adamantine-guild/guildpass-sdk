@@ -89,6 +89,22 @@
           "message": "Internal Server Error"
         }
       }
+    },
+    "hasRole": {
+      "request": {
+        "path": "/access/role-check",
+        "method": "GET",
+        "query": ["address", "guildId", "roleId"]
+      },
+      "response": {
+        "success": {
+          "hasRole": true
+        },
+        "error": {
+          "code": "INTERNAL_ERROR",
+          "message": "Internal Server Error"
+        }
+      }
     }
   },
   "guilds": {

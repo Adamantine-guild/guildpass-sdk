@@ -22,10 +22,37 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type ClientMetadata = {
+  /**
+   * SDK version to send in the `X-GuildPass-SDK-Version` header.
+   * Defaults to the bundled SDK version. Set to an empty string to omit
+   * only the version header (client name will still be sent if provided).
+   */
+  sdkVersion?: string;
+  /**
+   * Optional client or integration name (e.g. `"my-dapp"`, `"discord-bot"`).
+   * Sent as `X-GuildPass-Client` alongside the SDK version.
+   */
+  clientName?: string;
+  /**
+   * Optional client version string sent as part of `X-GuildPass-Client`.
+   * When omitted, only the client name is sent (if provided).
+   */
+  clientVersion?: string;
+  /**
+   * Whether to send client metadata headers (`X-GuildPass-SDK-Version`,
+   * `X-GuildPass-Client`) on GuildPass API-relative requests.
+   * Defaults to `true`. Set to `false` to disable all metadata headers.
+   */
+  sendClientMetadata?: boolean;
+};
+
 export type HttpClientConfig = {
   retry?: RetryConfig;
   hooks?: HttpHooks;
   fetch?: FetchLike;
+  /** Optional client metadata attached as headers on API-relative requests. */
+  metadata?: ClientMetadata;
 };
 
 // GuildPass SDK: Exported function execution unit.
@@ -40,16 +67,19 @@ export type HttpRequestOptions = {
   /** External AbortSignal. Aborts the underlying fetch when fired; composes with the timeout. */
   signal?: AbortSignal;
   /**
-   * When `true`, the HTTP method returns `{ data, meta }` instead of the raw
-   * `data` value. The `meta` object contains safe diagnostic headers
-   * (request ID, correlation ID, trace context) plus status and duration.
+   * When `true`, the HTTP client returns `{ data, meta }` instead of just `data`.
+   * The `meta` object contains safe diagnostic headers (request ID, correlation ID,
+   * trace ID), the HTTP status code, and round-trip duration.
+   * Defaults to `false` to preserve the existing ergonomic API.
    */
   includeMeta?: boolean;
   // GuildPass SDK: End of logic containment structure block.
 };
 
-// GuildPass SDK: Simplified options for service methods.
-export type RequestOptions = Pick<HttpRequestOptions, 'timeoutMs' | 'signal'>;
+// The public, service-method request options live in ../types/common
+// (`RequestOptions`, which also carries `retry`). This module intentionally does
+// NOT redeclare a second `RequestOptions` type — having two same-named types in
+// different modules is the import conflict this removal resolves (see #83).
 
 import type { ResponseMeta } from '../types/common';
 
@@ -66,6 +96,24 @@ export type HttpResponse<T = any> = {
    */
   meta?: ResponseMeta;
   // GuildPass SDK: End of logic containment structure block.
+};
+
+/**
+ * Safe response metadata captured from response headers.
+ * Contains only non-sensitive diagnostic values suitable for logging,
+ * support tickets, and correlating client-side errors with backend traces.
+ */
+export type ResponseMetadata = {
+  /** Value of the `X-Request-ID` response header, if present. */
+  requestId?: string;
+  /** Value of the `X-Correlation-ID` response header, if present. */
+  correlationId?: string;
+  /** Value of the `Traceparent` (W3C) response header, if present. */
+  traceId?: string;
+  /** HTTP status code of the response. */
+  status: number;
+  /** Round-trip duration in milliseconds. */
+  durationMs: number;
 };
 
 // GuildPass SDK: Hook payloads for observability integration.
@@ -97,6 +145,22 @@ export type CacheErrorHookPayload = {
   error: Error;
 };
 
+/**
+ * Payload delivered to `onRpcFailover` when the SDK attempts the next RPC
+ * endpoint in the failover list. Useful for logging, metrics, and alerting
+ * on degrading infrastructure providers.
+ */
+export type RpcFailoverHookPayload = {
+  /** The chain ID the contract call was targeting, if known. */
+  chainId?: number;
+  /** The URL that just failed with a transient error. */
+  failedUrl: string;
+  /** The next URL that will be attempted. */
+  nextUrl: string;
+  /** The error that triggered the failover (may be a GuildPassError or a raw TypeError). */
+  error: unknown;
+};
+
 // GuildPass SDK: Lifecycle hooks interface.
 export interface HttpHooks {
   onRequest?: (payload: RequestHookPayload) => void | Promise<void>;
@@ -104,4 +168,13 @@ export interface HttpHooks {
   onError?: (payload: ErrorHookPayload) => void | Promise<void>;
   /** Called when a cache adapter operation fails. Cache failures are non-fatal. */
   onCacheError?: (payload: CacheErrorHookPayload) => void | Promise<void>;
+  /**
+   * Called when the SDK fails over from one RPC endpoint to the next due to a
+   * transient error (network failure, rate-limit, 5xx). Not invoked for
+   * contract-level errors (execution reverted, bad parameters) or when all
+   * endpoints are exhausted.
+   *
+   * Hook failures are silently caught — they never affect the failover flow.
+   */
+  onRpcFailover?: (payload: RpcFailoverHookPayload) => void | Promise<void>;
 }

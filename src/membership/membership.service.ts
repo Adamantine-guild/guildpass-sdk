@@ -5,7 +5,8 @@ import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isMembership } from '../validation/responseGuards';
-import type { RequestOptions, ResponseMeta } from '../types/common';
+import type { RequestOptions } from '../types/common';
+import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
 import { Membership, MembershipParams } from './membership.types';
 
@@ -23,8 +24,15 @@ export class MembershipService {
   // GuildPass SDK: Class member structure property or constructor.
   public async getMembership<T extends RequestOptions | undefined = undefined>(
     params: MembershipParams,
-    options?: T,
-  ): Promise<T extends { includeMeta: true } ? { data: Membership; meta: ResponseMeta } : Membership> {
+  ): Promise<Membership>;
+  public async getMembership(
+    params: MembershipParams,
+    options: RequestOptions & { includeMeta: true },
+  ): Promise<{ data: Membership; meta: ResponseMetadata }>;
+  public async getMembership(
+    params: MembershipParams,
+    options?: RequestOptions,
+  ): Promise<Membership | { data: Membership; meta: ResponseMetadata }> {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId } = params;
 
@@ -33,21 +41,23 @@ export class MembershipService {
 
     // GuildPass SDK: Terminate function block execution and return.
     const result = await this.http.get<Membership>(`/membership`, {
+      ...options,
       // GuildPass SDK: Execution block boundary initialization.
       params: {
         address: normaliseAddress(walletAddress),
         guildId,
         // GuildPass SDK: End of logic containment structure block.
       },
-      timeoutMs: options?.timeoutMs,
-      retry: options?.retry,
-      includeMeta: (options as any)?.includeMeta,
       // GuildPass SDK: End of logic containment structure block.
     });
 
+    if (options?.includeMeta) {
+      return result as { data: Membership; meta: ResponseMetadata };
+    }
+
     return this.validateResponses
-      ? assertValidResponse(result, isMembership, 'Membership')
-      : result as any;
+      ? assertValidResponse(result as Membership, isMembership, 'Membership')
+      : (result as Membership);
     // GuildPass SDK: End of logic containment structure block.
   }
 

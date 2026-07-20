@@ -25,6 +25,35 @@ describe('GuildPassClient', () => {
     // GuildPass SDK: End of logic containment structure block.
   });
 
+  it('should never expose apiKey through getConfig, including nested config', () => {
+    const secretApiKey = 'super-secret-api-key';
+
+    const chains = {
+      1: {
+        rpcUrl: 'https://ethereum.example',
+        contractAddress: '0x1111111111111111111111111111111111111111',
+      },
+      8453: {
+        rpcUrl: 'https://base.example',
+        contractAddress: '0x2222222222222222222222222222222222222222',
+      },
+    };
+
+    const client = new GuildPassClient({
+      apiUrl: 'https://test-api.com',
+      apiKey: secretApiKey,
+      chains,
+    });
+
+    const publicConfig = client.getConfig();
+    const serializedConfig = JSON.stringify(publicConfig);
+
+    expect(Object.keys(publicConfig)).not.toContain('apiKey');
+    expect(serializedConfig).not.toContain('"apiKey"');
+    expect(serializedConfig).not.toContain(secretApiKey);
+    expect(publicConfig.chains).toEqual(chains);
+  });
+
   it('should accept a custom fetch implementation', () => {
     const customFetch = vi.fn() as unknown as typeof fetch;
     const client = new GuildPassClient({
@@ -47,7 +76,7 @@ describe('GuildPassClient', () => {
 
   // GuildPass SDK: Validate unit assertion test case.
   it('should expose all required services', () => {
-    // GuildPass SDK: Variable binding initialization.
+    // GuildPass SDK: Define internal reference identifier.
     const client = new GuildPassClient({ apiUrl: 'https://test-api.com' });
 
     expect(client.access).toBeDefined();
@@ -118,6 +147,45 @@ describe('GuildPassClient config validation', () => {
   it('should not throw for valid config', () => {
     expect(() => new GuildPassClient({ apiUrl: 'https://api.guildpass.xyz', timeoutMs: 5000 }))
       .not.toThrow();
+  });
+
+  it('should throw when a chains entry has an invalid chain ID', () => {
+    expect(() => new GuildPassClient({
+      apiUrl: 'https://api.guildpass.xyz',
+      chains: {
+        0: { rpcUrl: 'https://rpc.guildpass.xyz' },
+      },
+    })).toThrow(expect.objectContaining({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('chains[0]'),
+    }));
+  });
+
+  it('should throw when a chains entry has an invalid RPC URL', () => {
+    expect(() => new GuildPassClient({
+      apiUrl: 'https://api.guildpass.xyz',
+      chains: {
+        8453: { rpcUrl: 'wss://base.example' },
+      },
+    })).toThrow(expect.objectContaining({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('chains[8453].rpcUrl'),
+    }));
+  });
+
+  it('should throw when a chains entry has an invalid contract address', () => {
+    expect(() => new GuildPassClient({
+      apiUrl: 'https://api.guildpass.xyz',
+      chains: {
+        8453: {
+          rpcUrl: 'https://base.example',
+          contractAddress: '0x1234',
+        },
+      },
+    })).toThrow(expect.objectContaining({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('chains[8453].contractAddress'),
+    }));
   });
 
   it('should throw when neither global fetch nor custom fetch exists', () => {
