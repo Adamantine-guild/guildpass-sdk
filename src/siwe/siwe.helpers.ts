@@ -12,6 +12,7 @@ import { keccak256 } from 'js-sha3';
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type { SiweMessage, SiweParseResult, SiweVerifyParams, SiweVerifyResult } from './siwe.types';
+import { constantTimeEqual } from '../utils';
 
 // ---------------------------------------------------------------------------
 // secp256k1 parameters (EIP-155 / Bitcoin / Ethereum)
@@ -544,7 +545,7 @@ export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult 
 
     const recovered = publicKeyToAddress(pubKey);
 
-    if (recovered.toLowerCase() !== siwe.address.toLowerCase()) {
+    if (!constantTimeEqual(recovered.toLowerCase(), siwe.address.toLowerCase())) {
       return {
         success: false,
         error: `Signature address mismatch: recovered "${recovered}", expected "${siwe.address}"`,
