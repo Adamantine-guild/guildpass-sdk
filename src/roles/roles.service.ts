@@ -45,7 +45,7 @@ export class RolesService {
    * Fetches roles assigned to a specific wallet in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getUserRoles(
+  public async getUserRoles<T extends RequestOptions | undefined = undefined>(
     params: GetUserRolesParams,
   ): Promise<GuildRole[]>;
   public async getUserRoles(
