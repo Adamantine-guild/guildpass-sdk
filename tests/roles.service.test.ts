@@ -106,6 +106,37 @@ describe('RolesService request options forwarding', () => {
   });
 });
 
+describe('RolesService pagination', () => {
+  it('forwards cursor and limit to getRoles as params', async () => {
+    const { get, service } = createService({ items: [{ id: '1', name: 'Role 1' }], hasMore: false });
+
+    await service.getRoles({ guildId: 'guild_1', cursor: 'abc', limit: 10 });
+
+    expect(get).toHaveBeenCalledWith('/guilds/guild_1/roles', {
+      params: { cursor: 'abc', limit: 10 },
+    });
+  });
+
+  it('returns PaginatedResult for getRoles when pagination requested but API returns array', async () => {
+    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+
+    const result = await service.getRoles({ guildId: 'guild_1', cursor: 'abc' });
+
+    expect(result).toEqual({ items: [{ id: '1', name: 'Role 1' }], hasMore: false });
+  });
+
+  it('forwards cursor and limit to getUserRoles as params', async () => {
+    const { get, service } = createService({ items: [{ id: '1', name: 'Role 1' }], hasMore: false });
+
+    await service.getUserRoles({ walletAddress: validAddress, guildId: 'guild_1', cursor: 'abc', limit: 5 });
+
+    expect(get).toHaveBeenCalledWith(
+      expect.stringContaining('/members/'),
+      { params: { cursor: 'abc', limit: 5 } },
+    );
+  });
+});
+
 describe('RolesService.hasRole', () => {
   it('returns true when the wallet holds the role', async () => {
     const { checkRoleAccess, service } = createServiceWithAccess(true);
