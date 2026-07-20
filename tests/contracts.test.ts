@@ -13,6 +13,7 @@ import {
   decodeAddressResult,
   decodeUint256Result,
 } from '../src/contracts/contractClient';
+import { validateAccessRequirement } from '../src/contracts/contractHelpers';
 import contractEncodingFixtures from './fixtures/contract-encoding.json';
 
 const WALLET = '0x1234567890123456789012345678901234567890';
@@ -717,6 +718,15 @@ describe('ContractClient.validateRoleRequirement', () => {
         message: expect.stringContaining('WHITELIST'),
       });
       expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('validateAccessRequirement explicitly rejects WHITELIST with NOT_IMPLEMENTED', async () => {
+      await expect(
+        validateAccessRequirement(walletAddress, { type: 'WHITELIST' }, vi.fn()),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.NOT_IMPLEMENTED,
+        message: expect.stringContaining('WHITELIST'),
+      });
     });
 
     it('rejects an unrecognised requirement type with a clear error', async () => {

@@ -49,6 +49,9 @@ Checks if a wallet has a specific role.
 
 - **Returns**: `Promise<boolean>`
 
+> [!NOTE]
+> **Known limitations:** On-chain validation for `WHITELIST` access requirements is currently not supported and will throw a `NOT_IMPLEMENTED` error. For whitelist-style gating, we recommend using the SIWE-based or off-chain `client.access.checkAccess()` API instead.
+
 ---
 
 ## Membership Module (`client.membership`)
