@@ -1,9 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { validateConfig } from '../src/config/sdkConfig';
 import { GuildPassError } from '../src/errors/GuildPassError';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { GuildPassClient } from '../src/client/GuildPassClient';
 
 const BASE = { apiUrl: 'https://api.example.com', fetch: globalThis.fetch ?? (() => Promise.resolve(new Response())) };
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('Partial retry configuration validation', () => {
   it('accepts { retry: { maxRetries: 2 } } with missing delay and status fields', () => {
@@ -82,5 +88,46 @@ describe('Partial retry configuration validation', () => {
 
   it('does not throw when retry is not provided at all', () => {
     expect(() => validateConfig({ ...BASE })).not.toThrow();
+  });
+});
+
+describe('Per-request retry configuration', () => {
+  it('uses local maxRetries and inherits global baseDelayMs for checkAccess', async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{}', {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ hasAccess: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const client = new GuildPassClient({
+      apiUrl: 'https://api.example.com',
+      fetch: fetchMock,
+      retry: {
+        maxRetries: 3,
+        baseDelayMs: 375,
+      },
+    });
+
+    const request = client.access.checkAccess(
+      {
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        guildId: 'guild-1',
+        resourceId: 'resource-1',
+      },
+      { retry: { maxRetries: 1 } },
+    );
+
+    await vi.runAllTimersAsync();
+    await expect(request).resolves.toMatchObject({ hasAccess: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 375);
   });
 });
