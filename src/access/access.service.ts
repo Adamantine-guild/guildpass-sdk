@@ -147,7 +147,6 @@ export class AccessService {
 
     // GuildPass SDK: Define internal reference identifier.
     const result = await this.http.get<{ hasRole: boolean }>(`/access/role-check`, {
-      ...options,
       // GuildPass SDK: Execution block boundary initialization.
       params: {
         address: normaliseAddress(walletAddress),
