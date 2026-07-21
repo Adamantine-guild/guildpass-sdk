@@ -60,7 +60,9 @@
     "docs": "typedoc src/index.ts",
     "validate": "npx --yes publint",
     "api-report": "api-extractor run --local --verbose",
-    "api-report:ci": "pnpm build && api-extractor run --verbose"
+    "api-report:ci": "pnpm build && api-extractor run --verbose",
+    "size": "node scripts/check-bundle-size.mjs",
+    "size:generate": "node scripts/check-bundle-size.mjs --generate"
   },
   "keywords": [
     "web3",
@@ -102,12 +104,15 @@
     }
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@microsoft/api-extractor": "^7.58.9",
     "@types/node": "^25.9.3",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "esbuild": "^0.28.1",
     "eslint": "^8.56.0",
     "fast-check": "3.22.0",
+    "jsdom": "^29.1.1",
     "prettier": "^3.2.5",
     "tsup": "^8.0.2",
     "typedoc": "^0.25.8",

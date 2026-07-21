@@ -1,5 +1,5 @@
 // GuildPass SDK: Import external module dependencies.
-import { FetchLike, HttpHooks, RetryConfig } from '../http/http.types';
+import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http.types';
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { CacheAdapter } from '../cache/cache.types';
@@ -37,12 +37,26 @@ export type GuildPassClientConfig = {
   retry?: RetryConfig;
   hooks?: HttpHooks;
   fetch?: FetchLike;
+  rateLimit?: RateLimitConfig;
   validateResponses?: boolean;
   cache?: CacheAdapter;
   cacheTtl?: number;
   sendClientMetadata?: boolean;
   clientName?: string;
   clientVersion?: string;
+  /**
+   * When enabled, the SDK verifies (via ERC-165 `supportsInterface`) that the
+   * target contract implements the expected interface before evaluating TOKEN,
+   * NFT, or ROLE requirements. If the contract both implements ERC-165 *and*
+   * reports it does NOT support the expected interface, validation fails closed
+   * with an `INVALID_CONFIG` error.
+   *
+   * Non-ERC-165 contracts (e.g. many ERC-20 tokens) are always allowed through
+   * regardless of this flag, preserving backward compatibility.
+   *
+   * @default false
+   */
+  strictInterfaceChecking?: boolean;
 };
 
 /**
@@ -104,6 +118,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throwConfigError('sendClientMetadata must be a boolean', 'sendClientMetadata', 'invalid_type', config.sendClientMetadata);
   }
 
+  if (config.strictInterfaceChecking !== undefined && typeof config.strictInterfaceChecking !== 'boolean') {
+    throwConfigError('strictInterfaceChecking must be a boolean', 'strictInterfaceChecking', 'invalid_type', config.strictInterfaceChecking);
+  }
+
   if (config.clientName !== undefined && typeof config.clientName !== 'string') {
     throwConfigError('clientName must be a string', 'clientName', 'invalid_type', config.clientName);
   }
@@ -133,6 +151,26 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
     if (r.retryableStatuses !== undefined && (!Array.isArray(r.retryableStatuses) || r.retryableStatuses.length === 0 || r.retryableStatuses.some((s) => typeof s !== 'number' || !Number.isFinite(s)))) {
       throwConfigError('retryableStatuses must be a non-empty array of valid HTTP status numbers', 'retry.retryableStatuses', 'invalid_type', r.retryableStatuses);
+    }
+  }
+
+  if (config.rateLimit) {
+    const rl = config.rateLimit;
+    if (typeof rl.requestsPerSecond !== 'number' || rl.requestsPerSecond <= 0 || !Number.isFinite(rl.requestsPerSecond)) {
+      throwConfigError(
+        'rateLimit.requestsPerSecond must be a positive finite number',
+        'rateLimit.requestsPerSecond',
+        'invalid_range',
+        rl.requestsPerSecond,
+      );
+    }
+    if (rl.burst !== undefined && (typeof rl.burst !== 'number' || rl.burst < 1 || !Number.isFinite(rl.burst))) {
+      throwConfigError(
+        'rateLimit.burst must be a positive finite number >= 1',
+        'rateLimit.burst',
+        'invalid_range',
+        rl.burst,
+      );
     }
   }
 

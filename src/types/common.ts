@@ -1,22 +1,43 @@
 import type { RetryConfig } from '../http/http.types';
 
-// GuildPass SDK: Exposed interface structure.
 export type Address = string;
 
-export type RequestOptions = {
-  /** Override the client-level timeout for this service call, in milliseconds. */
-  timeoutMs?: number;
-  /** Override retry behavior for this service call. */
-  retry?: RetryConfig;
-  /** External AbortSignal. Aborts the underlying fetch when fired; composes with the timeout. */
-  signal?: AbortSignal;
+export type ResponseMeta = {
+  status: number;
+  durationMs: number;
+  requestId?: string;
+  correlationId?: string;
+  traceparent?: string;
+  traceId?: string;
 };
 
-// GuildPass SDK: Core operational type definition.
+/**
+ * A block tag for historical or confirmed read state:
+ * - A `number` specifies confirmations (N blocks behind `latest`).
+ * - `'safe'` / `'finalized'` are post-Merge named tags supported by
+ *   Ethereum and compatible chains (support varies by client).
+ *
+ * **Caveat:** historical `eth_call` requires an **archive node** on most
+ * public RPC providers. Without archive data the call will revert.
+ */
+export type BlockTag = number | 'safe' | 'finalized';
+
+export type RequestOptions = {
+  timeoutMs?: number;
+  retry?: RetryConfig;
+  signal?: AbortSignal;
+  includeMeta?: boolean;
+  /**
+   * Client-provided idempotency key.
+   * If omitted and `retry.allowMutatingRetry` is true for a mutating request,
+   * the SDK will auto-generate one to ensure safe retries.
+   */
+  idempotencyKey?: string;
+};
+
 export type AccessRequirement = {
   type: 'TOKEN' | 'NFT' | 'ROLE' | 'WHITELIST';
   address?: Address;
   id?: string;
   minAmount?: string;
-  // GuildPass SDK: End of logic containment structure block.
 };

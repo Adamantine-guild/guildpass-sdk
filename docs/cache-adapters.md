@@ -260,3 +260,36 @@ await client.clearCache();
 ```
 
 See the [SDK Guide](./sdk-guide.md#caching-and-request-deduplication) for more on the caching layer.
+
+## Conformance Testing
+
+If you are authoring a custom adapter, you can use the shared conformance test suite to guarantee it behaves correctly against the `CacheAdapter` contract (including TTL semantics, prefix deletion, and error isolation).
+
+If you are developing inside the SDK repository, you can import the suite directly:
+
+```typescript
+import { runCacheAdapterConformanceTests } from '../tests/cacheAdapterConformance';
+import { MyCustomAdapter } from './MyCustomAdapter';
+
+runCacheAdapterConformanceTests({
+  factory: async () => {
+    const adapter = new MyCustomAdapter('redis://localhost:6379');
+    await adapter.connect();
+    await adapter.clear();
+    return adapter;
+  },
+  brokenFactory: async () => {
+    const adapter = new MyCustomAdapter('redis://localhost:6379');
+    // Force a closed connection or invalid state
+    await adapter.disconnect();
+    return adapter;
+  },
+  teardown: async () => {
+    // Disconnect properly after each test
+  },
+  // When testing against a real external database, provide a real-time delay function
+  // instead of relying on Vitest's default fake timers.
+  advanceTime: async (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+});
+```
+If you are building an adapter in an external project, you can use the above API as a reference and copy the tests/cacheAdapterConformance.ts file directly into your codebase to serve as your test harness.

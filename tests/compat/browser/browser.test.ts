@@ -28,3 +28,12 @@ describe('GuildPass SDK - Browser (JSDOM) Compatibility', () => {
     globalThis.fetch = originalFetch; 
   });
 });
+import { constantTimeEqual } from '../../../src/utils/constantTime';
+
+describe('constantTimeEqual - Browser (JSDOM) Compatibility', () => {
+  it('works in a jsdom environment', () => {
+    expect(constantTimeEqual('abc', 'abc')).toBe(true);
+    expect(constantTimeEqual('abc', 'abd')).toBe(false);
+    expect(constantTimeEqual('abc', 'abcd')).toBe(false);
+  });
+});

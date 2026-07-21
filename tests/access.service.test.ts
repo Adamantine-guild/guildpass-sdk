@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AccessService } from '../src/access/access.service';
+import { getAccessSummary } from '../src/access/accessHelpers';
 import type { AccessCheckResult } from '../src/access/access.types';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 import type { HttpClient } from '../src/http/httpClient';
@@ -320,5 +321,45 @@ describe('AccessService', () => {
         resourceId: 'resource_1',
       },
     });
+  });
+});
+
+describe('getAccessSummary', () => {
+  const baseResult: AccessCheckResult = {
+    hasAccess: false,
+    walletAddress: validAddress,
+    guildId: 'guild_1',
+    resourceId: 'resource_1',
+    requiredRoles: [],
+    matchedRoles: [],
+  };
+
+  it('summarizes allowed access', () => {
+    expect(getAccessSummary({ ...baseResult, hasAccess: true })).toBe('Access granted.');
+  });
+
+  it('summarizes missing roles', () => {
+    expect(
+      getAccessSummary({
+        ...baseResult,
+        requiredRoles: ['moderator', 'vip'],
+      }),
+    ).toBe('Missing required roles: moderator, vip.');
+  });
+
+  it('summarizes inactive membership', () => {
+    expect(getAccessSummary({ ...baseResult, reason: 'Membership is inactive' })).toBe(
+      'Membership is inactive or expired.',
+    );
+  });
+
+  it('summarizes an unknown denial with its reason', () => {
+    expect(getAccessSummary({ ...baseResult, reason: 'Resource is unavailable' })).toBe(
+      'Access denied: Resource is unavailable',
+    );
+  });
+
+  it('uses a safe fallback for an unknown denial without a reason', () => {
+    expect(getAccessSummary(baseResult)).toBe('Access denied.');
   });
 });

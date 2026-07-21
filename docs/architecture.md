@@ -153,7 +153,8 @@ The SDK includes a resilient caching layer that wraps service methods.
 
 ## Design Principles
 
-- **Zero External Dependencies**: The SDK relies on native platform features (like `fetch` and `AbortController`) to keep the bundle size small.
+- **Zero External Dependencies**: The SDK relies on native platform features (like `fetch`, `AbortController`, and `WebSocket`) to keep the bundle size small.
 - **Strong Typing**: Everything is typed with TypeScript for the best developer experience.
 - **Fail Fast**: Input validation happens before network requests.
-- **Environment Agnostic**: Works in Node.js, Browsers, and Edge runtimes.
+- **Environment Agnostic**: Works in Node.js (18+), Browsers, and Edge runtimes.
+- **Optional Advanced Features**: Real-time event subscriptions via `WebSocketContractProvider` are opt-in and do not affect the default HTTP RPC path.

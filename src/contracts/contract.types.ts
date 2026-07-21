@@ -98,6 +98,14 @@ export type TokenBalancesBatchParams = {
   maxBatchSize?: number;
   /** Automatically split large requests into sequential batches. Default: false. */
   chunk?: boolean;
+  /**
+   * Maximum number of chunks to execute concurrently when `chunk` is `true`.
+   * Omit or set to `1` for the default sequential behaviour. Values > 1
+   * enable bounded parallel chunk execution (e.g. `4` runs up to 4 chunks at
+   * once), reducing total wall-clock time for very large inputs. Capped at
+   * 20 to avoid overwhelming the RPC provider.
+   */
+  chunkConcurrency?: number;
 };
 
 /**
@@ -113,4 +121,12 @@ export type GuildOwnersBatchParams = {
   maxBatchSize?: number;
   /** Automatically split large requests into sequential batches. Default: false. */
   chunk?: boolean;
+  /**
+   * Maximum number of chunks to execute concurrently when `chunk` is `true`.
+   * Omit or set to `1` for the default sequential behaviour. Values > 1
+   * enable bounded parallel chunk execution (e.g. `4` runs up to 4 chunks at
+   * once), reducing total wall-clock time for very large inputs. Capped at
+   * 20 to avoid overwhelming the RPC provider.
+   */
+  chunkConcurrency?: number;
 };
