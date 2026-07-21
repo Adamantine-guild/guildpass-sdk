@@ -36,7 +36,7 @@ export class RolesService {
 
     const path = `/guilds/${encodePathSegment(guildId)}/roles`;
     
-    const reqOptions = { ...options };
+    const reqOptions: any = { ...options };
     if (cursor !== undefined || limit !== undefined) {
       reqOptions.params = { ...reqOptions.params, ...(cursor !== undefined && { cursor }), ...(limit !== undefined && { limit }) };
     }
@@ -63,7 +63,7 @@ export class RolesService {
 
     const path = `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/roles`;
     
-    const reqOptions = { ...options };
+    const reqOptions: any = { ...options };
     if (cursor !== undefined || limit !== undefined) {
       reqOptions.params = { ...reqOptions.params, ...(cursor !== undefined && { cursor }), ...(limit !== undefined && { limit }) };
     }
@@ -97,7 +97,7 @@ export class RolesService {
           'Use GuildPassClient to obtain a properly configured RolesService.',
       );
     }
-    return this.access.checkRoleAccess(params, options);
+    return this.access.checkRoleAccess(params, options as any) as any;
   }
 
   private handlePaginatedResponse<T>(
