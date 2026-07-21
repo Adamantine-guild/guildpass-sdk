@@ -342,6 +342,31 @@ describe('JsonRpcContractProvider ethCall failover', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it('falls back for eth_blockNumber used by confirmations option', async () => {
+    mockFetch()
+      .mockResolvedValueOnce(transientHttpError(503))
+      .mockResolvedValueOnce(ethCallResult('0x100'))
+      .mockResolvedValueOnce(ethCallResult(BALANCE_RESULT));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrls: [PRIMARY_RPC, FALLBACK_RPC],
+      contractAddress: CONTRACT,
+    });
+
+    const balance = await client.contracts.getMembershipTokenBalance(
+      { walletAddress: WALLET },
+      { confirmations: 6 },
+    );
+
+    expect(balance).toBe('42');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenNthCalledWith(1, expect.stringMatching(/rpc1\.test\.com/), expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(2, expect.stringMatching(/rpc2\.test\.com/), expect.any(Object));
+    // eth_call starts from primary URL (independent failover loop)
+    expect(fetch).toHaveBeenNthCalledWith(3, expect.stringMatching(/rpc1\.test\.com/), expect.any(Object));
+  });
+
   it('does NOT fall back on a contract-level error (execution reverted)', async () => {
     mockFetch().mockResolvedValueOnce({
       ok: true,
