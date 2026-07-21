@@ -19,12 +19,19 @@ import {
 import {
   BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
-  DECIMALS_SELECTOR, // <-- ADD THIS IMPORT
+  DECIMALS_SELECTOR,
   HEX_32_BYTES_LENGTH,
+  SUPPORTS_INTERFACE_SELECTOR,
+  ERC165_INTERFACE_ID,
+  ERC721_INTERFACE_ID,
+  ERC1155_INTERFACE_ID,
+  ACCESS_CONTROL_INTERFACE_ID,
+  REQUIREMENT_TYPE_INTERFACE_IDS,
   decodeAddressResult,
   decodeUint256Result,
   encodeAddressArgument,
   encodeGuildId,
+  encodeInterfaceId,
   validateAccessRequirement,
 } from './contractHelpers';
 import { GuildPassClientConfig, resolveChainConfig, mergeRpcUrls } from '../config/sdkConfig';
@@ -57,12 +64,19 @@ export const formatUnits = (value: string, decimals: number): string => {
 export {
   BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
-  DECIMALS_SELECTOR, // <-- ADD THIS EXPORT
+  DECIMALS_SELECTOR,
   HEX_32_BYTES_LENGTH,
+  SUPPORTS_INTERFACE_SELECTOR,
+  ERC165_INTERFACE_ID,
+  ERC721_INTERFACE_ID,
+  ERC1155_INTERFACE_ID,
+  ACCESS_CONTROL_INTERFACE_ID,
+  REQUIREMENT_TYPE_INTERFACE_IDS,
   decodeAddressResult,
   decodeUint256Result,
   encodeAddressArgument,
   encodeGuildId,
+  encodeInterfaceId,
 };
 
 
@@ -257,8 +271,11 @@ export class ContractClient {
 
     const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
 
-    return validateAccessRequirement(walletAddress, requirement, (to, data) =>
-      provider.ethCall({ to, data }, options),
+    return validateAccessRequirement(
+      walletAddress,
+      requirement,
+      (to, data) => provider.ethCall({ to, data }, options),
+      this.config.strictInterfaceChecking,
     );
   }
 
