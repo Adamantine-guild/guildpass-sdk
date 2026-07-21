@@ -40,47 +40,29 @@ const BASE_MSG: SiweMessage = {
 
 describe('SIWE EIP-2 malleability rejection', () => {
   it('rejects a signature with s in the upper half of N', () => {
-    // A valid basic SIWE message and its actual ethers signature
     const rawMessage = formatSiweMessage(BASE_MSG);
-
-    // This is the genuine signature from VECTORS.basic
     const genuineSig =
       '0x82790bc51f261e6461cb1a3baeed8494cd796093c93db2b564c2260535203c612ca06a4cf8ca39e15452d8fbd24000c6d752a45c5c46ae1ced3c641b5370c1901b';
 
-    // Parse r, s from the genuine signature
     const sigHex = genuineSig.slice(2);
     const rHex = sigHex.slice(0, 64);
     const sHex = sigHex.slice(64, 128);
     const vHex = sigHex.slice(128, 130);
 
-    const r = BigInt('0x' + rHex);
     const s = BigInt('0x' + sHex);
     const v = parseInt(vHex, 16);
 
-    // secp256k1 order
     const N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
-    const malleatedS = N - s; // s' = N - s
+    const malleatedS = N - s;
     const malleatedV = v === 27 ? 28 : v === 28 ? 27 : (v ^ 1) + 27;
 
-    // Construct malleated signature
-    const malleatedSigHex =
-      '0x' +
-      rHex +
-      malleatedS.toString(16).padStart(64, '0') +
-      malleatedV.toString(16).padStart(2, '0');
+    const malleatedSig =
+      '0x' + rHex + malleatedS.toString(16).padStart(64, '0') + malleatedV.toString(16).padStart(2, '0');
 
-    // Verify the genuine one passes
-    const genuineResult = verifySiweSignature({
-      message: rawMessage,
-      signature: genuineSig,
-    });
+    const genuineResult = verifySiweSignature({ message: rawMessage, signature: genuineSig });
     expect(genuineResult.success).toBe(true);
 
-    // Verify the malleated one is REJECTED
-    const malleatedResult = verifySiweSignature({
-      message: rawMessage,
-      signature: malleatedSigHex,
-    });
+    const malleatedResult = verifySiweSignature({ message: rawMessage, signature: malleatedSig });
     expect(malleatedResult.success).toBe(false);
     expect(malleatedResult.code).toBe(GuildPassErrorCode.SIWE_INVALID_SIGNATURE);
     expect(malleatedResult.error).toMatch(/EIP-2|malleable|s-value/i);
@@ -89,8 +71,6 @@ describe('SIWE EIP-2 malleability rejection', () => {
   it('rejects malleated signature for a message with statement', () => {
     const msg: SiweMessage = { ...BASE_MSG, statement: 'I accept the Terms of Service.' };
     const rawMessage = formatSiweMessage(msg);
-
-    // Genuine signature for message with statement
     const genuineSig =
       '0x63acbec0f3ada026872a68d0f3d95f8962091ede8a58f9ddf001d9aedb80c89c361976f45455abd987a43a52fbb0c773ca8de7b650cdd8f49ed492f6e332a4431b';
 
@@ -131,7 +111,6 @@ describe('generateSiweNonce distribution', () => {
 
   it('generates unique values', () => {
     const nonces = new Set(Array.from({ length: 1000 }, () => generateSiweNonce()));
-    // With rejection-sampled uniform distribution over 62^16, collisions are essentially impossible
     expect(nonces.size).toBe(1000);
   });
 
@@ -140,7 +119,6 @@ describe('generateSiweNonce distribution', () => {
     const counts: Record<string, number> = {};
     for (const c of chars) counts[c] = 0;
 
-    // Generate 10000 nonces = 160000 characters
     const N = 10000;
     for (let i = 0; i < N; i++) {
       const nonce = generateSiweNonce();
@@ -150,9 +128,8 @@ describe('generateSiweNonce distribution', () => {
     }
 
     const total = N * 16;
-    const expected = total / chars.length; // ~2580.6 per character
+    const expected = total / chars.length;
 
-    // Compute chi-squared statistic
     let chiSq = 0;
     for (const c of chars) {
       const observed = counts[c];
@@ -160,9 +137,8 @@ describe('generateSiweNonce distribution', () => {
       chiSq += (diff * diff) / expected;
     }
 
-    // Degrees of freedom = 61 (62 characters - 1)
-    // Critical value at α=0.01 for 61 df ≈ 88.0
-    // A well-distributed nonce should be well below 200 (generous threshold)
+    // 61 degrees of freedom, α=0.01 critical value ≈ 88.0
+    // Generous threshold of 150 to account for sampling noise
     expect(chiSq).toBeLessThan(150);
   });
 });
@@ -172,12 +148,7 @@ describe('generateSiweNonce distribution', () => {
 // ---------------------------------------------------------------------------
 
 describe('verifySiweSignature handles invalid recovered keys', () => {
-  it('returns SIWE_INVALID_SIGNATURE for a signature that recovers an invalid key', () => {
-    // Signature where ecRecover returns a key but publicKeyToAddress rejects it
-    // Use a crafted 65-byte format that ecRecover might produce but is invalid
-    // Actually, ecRecover always produces valid curve points, so this path
-    // would only be triggered if publicKeyToAddress is called with corrupt data.
-    // The null guard in verifySiweSignature handles this defensively.
+  it('returns SIWE_INVALID_SIGNATURE for a bogus signature', () => {
     const result = verifySiweSignature({
       message: formatSiweMessage(BASE_MSG),
       signature: '0x' + 'a'.repeat(130),
@@ -193,64 +164,43 @@ describe('verifySiweSignature handles invalid recovered keys', () => {
 
 describe('verifySiweSignature input safety', () => {
   it('handles null message gracefully', () => {
-    const result = verifySiweSignature({
-      message: null as any,
-      signature: '0x' + 'a'.repeat(130),
-    });
+    const result = verifySiweSignature({ message: null as any, signature: '0x' + 'a'.repeat(130) });
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   it('handles undefined message gracefully', () => {
-    const result = verifySiweSignature({
-      message: undefined as any,
-      signature: '0x' + 'a'.repeat(130),
-    });
+    const result = verifySiweSignature({ message: undefined as any, signature: '0x' + 'a'.repeat(130) });
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   it('handles null signature gracefully', () => {
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: null as any,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: null as any });
     expect(result.success).toBe(false);
     expect(result.code).toBe(GuildPassErrorCode.SIWE_INVALID_SIGNATURE);
   });
 
   it('handles undefined signature gracefully', () => {
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: undefined as any,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: undefined as any });
     expect(result.success).toBe(false);
     expect(result.code).toBe(GuildPassErrorCode.SIWE_INVALID_SIGNATURE);
   });
 
   it('handles empty message gracefully', () => {
-    const result = verifySiweSignature({
-      message: '',
-      signature: '0x' + 'a'.repeat(130),
-    });
+    const result = verifySiweSignature({ message: '', signature: '0x' + 'a'.repeat(130) });
     expect(result.success).toBe(false);
     expect(result.code).toBe(GuildPassErrorCode.SIWE_INVALID_MESSAGE);
   });
 
   it('handles empty signature gracefully', () => {
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: '',
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: '' });
     expect(result.success).toBe(false);
     expect(result.code).toBe(GuildPassErrorCode.SIWE_INVALID_SIGNATURE);
   });
 
   it('handles numeric types gracefully', () => {
-    const result = verifySiweSignature({
-      message: 42 as any,
-      signature: '0x' + 'a'.repeat(130),
-    });
+    const result = verifySiweSignature({ message: 42 as any, signature: '0x' + 'a'.repeat(130) });
     expect(result.success).toBe(false);
   });
 });
@@ -261,78 +211,52 @@ describe('verifySiweSignature input safety', () => {
 
 describe('signature boundary edge cases', () => {
   it('rejects signature with v=26 (out of range)', () => {
-    // Craft a signature with v=26 (0x1a)
     const sig = '0x' + 'a'.repeat(64) + 'b'.repeat(64) + '1a';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 
   it('rejects signature with v=29 (out of range)', () => {
     const sig = '0x' + 'a'.repeat(64) + 'b'.repeat(64) + '1d';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 
   it('rejects signature with v=0 (raw, no 27 offset)', () => {
-    // v=0 is valid AFTER subtracting 27, but the raw value should have 27/28
     const sig = '0x' + 'a'.repeat(64) + 'b'.repeat(64) + '00';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 
   it('rejects signature with v=1 (raw, no 27 offset)', () => {
     const sig = '0x' + 'a'.repeat(64) + 'b'.repeat(64) + '01';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 
   it('rejects signature with r=0', () => {
     const sig = '0x' + '0'.repeat(64) + 'b'.repeat(64) + '1b';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 
   it('rejects signature with s=0', () => {
     const sig = '0x' + 'a'.repeat(64) + '0'.repeat(64) + '1b';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 
   it('rejects signature with r == N (curve order)', () => {
     const N = 'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141';
     const sig = '0x' + N + 'b'.repeat(64) + '1b';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 
   it('rejects signature with s == N (curve order)', () => {
     const N = 'fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141';
     const sig = '0x' + 'a'.repeat(64) + N + '1b';
-    const result = verifySiweSignature({
-      message: formatSiweMessage(BASE_MSG),
-      signature: sig,
-    });
+    const result = verifySiweSignature({ message: formatSiweMessage(BASE_MSG), signature: sig });
     expect(result.success).toBe(false);
   });
 });
@@ -343,32 +267,18 @@ describe('signature boundary edge cases', () => {
 
 describe('verifySiweSignature cross-boundary robustness', () => {
   it('handles message just under the maximum length', () => {
-    // Create a message that pushes against the MAX_SIWE_MESSAGE_LENGTH limit
     const longStatement = 'x'.repeat(9000);
-    const msg: SiweMessage = {
-      ...BASE_MSG,
-      statement: longStatement,
-    };
+    const msg: SiweMessage = { ...BASE_MSG, statement: longStatement };
     const rawMessage = formatSiweMessage(msg);
-    // Message length should be under the 10,240 limit
     expect(rawMessage.length).toBeLessThan(10240);
 
-    // We don't have a valid signature for this, but verify should not throw
-    const result = verifySiweSignature({
-      message: rawMessage,
-      signature: '0x' + 'a'.repeat(130),
-    });
-    // Should fail with invalid signature, not crash
+    const result = verifySiweSignature({ message: rawMessage, signature: '0x' + 'a'.repeat(130) });
     expect(result.success).toBe(false);
     expect(result.code).toBeDefined();
   });
 
   it('handles messages with unusual but valid domains', () => {
-    const domains = [
-      'localhost',
-      'sub.domain.example.com',
-      'a.b.c.d.e.example.com',
-    ];
+    const domains = ['localhost', 'sub.domain.example.com', 'a.b.c.d.e.example.com'];
     for (const domain of domains) {
       const msg: SiweMessage = { ...BASE_MSG, domain };
       const raw = formatSiweMessage(msg);

@@ -1,4 +1,4 @@
-# Cryptographic Security Audit â€” secp256k1 Primitives
+# Cryptographic Security Audit GÇö secp256k1 Primitives
 
 > **Auditor:** Automated static + manual cryptographic review  
 > **Date:** 2026-07-21  
@@ -11,15 +11,15 @@
 2. [Threat Model](#2-threat-model)
 3. [Attack Surface Enumeration](#3-attack-surface-enumeration)
 4. [Finding Register](#4-finding-register)
-   - [F-01 â€” Non-constant-time scalar multiplication (timing side channel)](#f-01--non-constant-time-scalar-multiplication-timing-side-channel)
-   - [F-02 â€” No twist-security validation on recovered points](#f-02--no-twist-security-validation-on-recovered-points)
-   - [F-03 â€” Missing EIP-2 s-value malleability check](#f-03--missing-eip-2-s-value-malleability-check)
-   - [F-04 â€” Point-at-infinity not explicitly guarded in `pointAdd` slope computation](#f-04--point-at-infinity-not-explicitly-guarded-in-pointadd-slope-computation)
-   - [F-05 â€” Message-length leakage via `hashPersonalMessage` string concatenation](#f-05--message-length-leakage-via-hashpersonalmessage-string-concatenation)
-   - [F-06 â€” Node.js `Buffer` dependency in `ecRecover`](#f-06--nodejs-buffer-dependency-in-ecrecover)
-   - [F-07 â€” Modulo bias in `generateSiweNonce`](#f-07--modulo-bias-in-generatesiwenonce)
-   - [F-08 â€” No `r` upper-half malleability check](#f-08--no-r-upper-half-malleability-check)
-   - [F-09 â€” Public key not validated to be on curve before address derivation](#f-09--public-key-not-validated-to-be-on-curve-before-address-derivation)
+   - [F-01 GÇö Non-constant-time scalar multiplication (timing side channel)](#f-01--non-constant-time-scalar-multiplication-timing-side-channel)
+   - [F-02 GÇö No twist-security validation on recovered points](#f-02--no-twist-security-validation-on-recovered-points)
+   - [F-03 GÇö Missing EIP-2 s-value malleability check](#f-03--missing-eip-2-s-value-malleability-check)
+   - [F-04 GÇö Empty-hash crash in ecRecover](#f-04--point-at-infinity-not-explicitly-guarded-in-pointadd-slope-computation)
+   - [F-05 GÇö Message-length leakage via `hashPersonalMessage` string concatenation](#f-05--message-length-leakage-via-hashpersonalmessage-string-concatenation)
+   - [F-06 GÇö Node.js `Buffer` dependency in `ecRecover`](#f-06--nodejs-buffer-dependency-in-ecrecover)
+   - [F-07 GÇö Modulo bias in `generateSiweNonce`](#f-07--modulo-bias-in-generatesiwenonce)
+   - [F-08 GÇö No `r` upper-half malleability check](#f-08--no-r-upper-half-malleability-check)
+   - [F-09 GÇö Public key not validated to be on curve before address derivation](#f-09--public-key-not-validated-to-be-on-curve-before-address-derivation)
 5. [Severity Summary](#5-severity-summary)
 6. [Decision Analysis: Harden in Place vs. Adopt Audited Dependency](#6-decision-analysis-harden-in-place-vs-adopt-audited-dependency)
 7. [Remediation Actions](#7-remediation-actions)
@@ -60,18 +60,18 @@
 
 ```
 Attacker (provides signature + message) 
-    â”‚
-    â–¼
+    Göé
+    Gû+
 verifySiweSignature(message, signature)
-    â”‚
-    â”œâ”€â”€ parseSiweMessage()       â”€â”€â–º  rejects malformed messages
-    â”œâ”€â”€ expiry/nonce/domain checks â”€â”€â–º  protocol-level guards
-    â””â”€â”€ ecRecover(msgHash, v, r, s) â”€â”€â–º  cryptographic verification
-         â”‚
-         â”œâ”€â”€ modPow (sqrt via exponentiation)
-         â”œâ”€â”€ pointAdd / pointDouble
-         â”œâ”€â”€ scalarMul (double-and-add)
-         â””â”€â”€ publicKeyToAddress
+    Göé
+    Gö£GöÇGöÇ parseSiweMessage()       GöÇGöÇGû¦  rejects malformed messages
+    Gö£GöÇGöÇ expiry/nonce/domain checks GöÇGöÇGû¦  protocol-level guards
+    GööGöÇGöÇ ecRecover(msgHash, v, r, s) GöÇGöÇGû¦  cryptographic verification
+         Göé
+         Gö£GöÇGöÇ modPow (sqrt via exponentiation)
+         Gö£GöÇGöÇ pointAdd / pointDouble
+         Gö£GöÇGöÇ scalarMul (double-and-add)
+         GööGöÇGöÇ publicKeyToAddress
 ```
 
 **Attacker capabilities:** The attacker controls the `message` string and the `signature` hex string. They may also control the RPC endpoint returning parsed SIWE data. The attacker's goal is either:
@@ -87,13 +87,13 @@ verifySiweSignature(message, signature)
 | Computational power | Standard (no quantum) |
 | Timing measurement | Remote timing possible; JIT/GC noise in JS limits resolution but cannot be ruled out entirely |
 | Side channels | Can observe wall-clock time of verification calls |
-| Known values | Message, signature (r, s, v), recovered public key, resulting address â€” all visible to attacker |
+| Known values | Message, signature (r, s, v), recovered public key, resulting address GÇö all visible to attacker |
 
 ### Key Security Properties Required
 
 1. **Correctness:** `ecRecover` must return the public key that was used to produce the signature (or null for invalid signatures).
 2. **Non-malleability:** Given a valid signature `(r, s, v)`, it must NOT be possible to produce a second valid signature `(r', s', v')` that verifies for the same message under the same key.
-3. **DoS resistance:** All operations must have bounded resource consumption; no O(nÂ²) or unbounded allocation on attacker-controlled input.
+3. **DoS resistance:** All operations must have bounded resource consumption; no O(n-¦) or unbounded allocation on attacker-controlled input.
 4. **Defense in depth:** Even though `ecRecover` only uses public scalars (r, s, hash e), the code should not leak timing about which bits of these public values are set.
 
 ---
@@ -103,9 +103,9 @@ verifySiweSignature(message, signature)
 ### 3.1 Signature Input Validation
 
 The `verifySiweSignature` function validates:
-- `sigHex.length !== 130` â†’ rejects incorrect length
-- `v` must be in {0, 1, 27, 28} â†’ rejects invalid recovery IDs
-- `ecRecover` checks `r <= 0 || r >= N`, `s <= 0 || s >= N` â†’ rejects boundary values
+- `sigHex.length !== 130` GåÆ rejects incorrect length
+- `v` must be in {0, 1, 27, 28} GåÆ rejects invalid recovery IDs
+- `ecRecover` checks `r <= 0 || r >= N`, `s <= 0 || s >= N` GåÆ rejects boundary values
 
 **Missing:** No check that `s <= N/2` (EIP-2). No check that `r <= N/2`.
 
@@ -115,9 +115,9 @@ Every `modPow` call branches on each bit of the exponent. Since all exponents in
 
 ### 3.3 Point Recovery
 
-`ecRecover` reconstructs point R from x = r by computing `y = sqrt(xÂ³ + 7)`. It validates that `yÂ² â‰¡ xÂ³ + 7 (mod P)` before using the point. This prevents invalid-curve-point injection because the check is on the secp256k1 curve equation directly.
+`ecRecover` reconstructs point R from x = r by computing `y = sqrt(x-¦ + 7)`. It validates that `y-¦ Gëí x-¦ + 7 (mod P)` before using the point. This prevents invalid-curve-point injection because the check is on the secp256k1 curve equation directly.
 
-**However:** There is no check that the computed R is NOT the point at infinity. For x = 0, `ySquared = 7`, which is a quadratic residue modulo P (since P â‰¡ 3 mod 4), so a y exists and R is not infinity. For any x where `ySquared` is a QR, a non-infinity point exists. The point at infinity would require `xÂ³ + 7 â‰¡ 0 (mod P)`, which has at most 3 solutions. Not a practical concern but an completeness gap.
+**However:** There is no check that the computed R is NOT the point at infinity. For x = 0, `ySquared = 7`, which is a quadratic residue modulo P (since P Gëí 3 mod 4), so a y exists and R is not infinity. For any x where `ySquared` is a QR, a non-infinity point exists. The point at infinity would require `x-¦ + 7 Gëí 0 (mod P)`, which has at most 3 solutions. Not a practical concern but an completeness gap.
 
 ### 3.4 Public Key Derivation
 
@@ -133,11 +133,11 @@ Every `modPow` call branches on each bit of the exponent. Since all exponents in
 
 ## 4. Finding Register
 
-### F-01 â€” Non-constant-time scalar multiplication (timing side channel)
+### F-01 GÇö Non-constant-time scalar multiplication (timing side channel)
 
 **Severity:** Low (Medium if signing is ever added)  
 **Type:** Timing side channel  
-**File:** `src/crypto/secp256k1.ts` â€” `scalarMul` (line ~169) and transitively `modPow` (line ~47)
+**File:** `src/crypto/secp256k1.ts` GÇö `scalarMul` (line ~169) and transitively `modPow` (line ~47)
 
 **Description:** The `scalarMul` function uses the textbook double-and-add algorithm:
 
@@ -152,7 +152,7 @@ while (k > BigInt(0)) {
 The `if (k & BigInt(1))` branch is taken only when the current bit of the scalar is 1. This means:
 - Execution time depends on the Hamming weight of the scalar
 - The number of `pointAdd` calls is proportional to the number of 1-bits
-- In `ecRecover`, all scalars (r, s, e, rInv) are **public** â€” so this does NOT leak a secret key during verification
+- In `ecRecover`, all scalars (r, s, e, rInv) are **public** GÇö so this does NOT leak a secret key during verification
 - **However**, if this code is ever reused for signing (where the nonce `k` must be secret), it would leak the nonce, enabling full private key recovery via the standard ECDSA nonce-reuse / bias attacks
 
 **Exploitation:** An attacker would need to:
@@ -166,36 +166,36 @@ The `if (k & BigInt(1))` branch is taken only when the current bit of the scalar
 
 ---
 
-### F-02 â€” No twist-security validation on recovered points
+### F-02 GÇö No twist-security validation on recovered points
 
 **Severity:** Low  
 **Type:** Invalid-curve attack (limited)  
-**File:** `src/crypto/secp256k1.ts` â€” `ecRecover` (line ~200)
+**File:** `src/crypto/secp256k1.ts` GÇö `ecRecover` (line ~200)
 
-**Description:** The `ecRecover` function checks that `yÂ² â‰¡ xÂ³ + 7 (mod P)` for the recovered point R. This is sufficient to ensure R is on the secp256k1 curve. However, there is no validation that the point belongs to the **prime-order subgroup** of the curve (order N rather than a small-order factor).
+**Description:** The `ecRecover` function checks that `y-¦ Gëí x-¦ + 7 (mod P)` for the recovered point R. This is sufficient to ensure R is on the secp256k1 curve. However, there is no validation that the point belongs to the **prime-order subgroup** of the curve (order N rather than a small-order factor).
 
 For secp256k1, the curve order is prime (N is prime and the cofactor h=1), so every non-infinity point on the curve has order N. This means:
 - There are NO points of small order on secp256k1's curve
 - Twist-security validation is not needed for correctness because the cofactor is 1
-- **However**, there IS a quadratic twist of secp256k1 (the "twist curve") that has a small cofactor. If an attacker could supply x-coordinates that are on the twist rather than the curve, the yÂ² check would catch it because the curve equation would not hold.
+- **However**, there IS a quadratic twist of secp256k1 (the "twist curve") that has a small cofactor. If an attacker could supply x-coordinates that are on the twist rather than the curve, the y-¦ check would catch it because the curve equation would not hold.
 
-**Conclusion:** The `yÂ² â‰¡ xÂ³ + 7` check is fully sufficient for secp256k1. No twist attack is possible given this check.
+**Conclusion:** The `y-¦ Gëí x-¦ + 7` check is fully sufficient for secp256k1. No twist attack is possible given this check.
 
 **Mitigation:** None needed. This finding is documented to confirm the check is adequate.
 
 ---
 
-### F-03 â€” Missing EIP-2 s-value malleability check
+### F-03 GÇö Missing EIP-2 s-value malleability check
 
 **Severity:** High  
 **Type:** Signature malleability (EIP-2 violation)  
-**File:** `src/siwe/siwe.helpers.ts` â€” `verifySiweSignature` (line ~215) + `src/crypto/secp256k1.ts` â€” `ecRecover` (line ~195)
+**File:** `src/siwe/siwe.helpers.ts` GÇö `verifySiweSignature` (line ~215) + `src/crypto/secp256k1.ts` GÇö `ecRecover` (line ~195)
 
-**Description:** Ethereum's EIP-2 (Homestead) mandates that ECDSA signatures MUST have `s â‰¤ n/2` (where n is secp256k1's curve order) to prevent signature malleability. Given a valid signature `(r, s, v)`:
+**Description:** Ethereum's EIP-2 (Homestead) mandates that ECDSA signatures MUST have `s Gëñ n/2` (where n is secp256k1's curve order) to prevent signature malleability. Given a valid signature `(r, s, v)`:
 - `(r, n-s, v XOR 1)` is also a valid signature for the same message
 - This is because `s` and `n-s` are symmetric; the verification equation produces the same recovered public key (with the opposite y-coordinate parity)
 
-The current implementation does not check `s â‰¤ n/2`. A malleated signature will pass `ecRecover` and produce the same recovered address, causing `verifySiweSignature` to return `success: true`.
+The current implementation does not check `s Gëñ n/2`. A malleated signature will pass `ecRecover` and produce the same recovered address, causing `verifySiweSignature` to return `success: true`.
 
 **Exploitation:**
 1. Attacker observes a valid SIWE signature `(r, s, v)` on the public mempool / API
@@ -213,39 +213,23 @@ The current implementation does not check `s â‰¤ n/2`. A malleated signature wil
 
 ---
 
-### F-04 â€” Point-at-infinity not explicitly guarded in `pointAdd` slope computation
+### F-04 \u2014 Empty-hash crash in ecRecover
 
 **Severity:** Medium  
-**Type:** Edge-case crash / logic error  
-**File:** `src/crypto/secp256k1.ts` â€” `pointAdd` (line ~129)
+**Type:** Edge-case crash  
+**File:** src/crypto/secp256k1.ts \u2014 ecRecover`r
 
-**Description:** The `pointAdd` function handles null (point at infinity) correctly at the entry points:
-```typescript
-if (!P) return Q;
-if (!Q) return P;
-```
+**Description:** If msgHash is an empty Uint8Array, the pure-JS hex conversion produces an empty string, and BigInt('0x' + '') throws a SyntaxError. While this should not occur in normal SIWE usage (keccak256 always outputs 32 bytes), it is a defensive gap.
 
-And handles `P.x === Q.x` with the special cases (P+(-P) = infinity, or point doubling). However, there is an edge case in the slope computation at line ~137:
-```typescript
-const lam = (((Q.y - P.y) % SECP256K1_P + SECP256K1_P) *
-  modInv((Q.x - P.x + SECP256K1_P) % SECP256K1_P, SECP256K1_P)) % SECP256K1_P;
-```
-
-If `Q.x - P.x === 0` (which implies `P.x === Q.x`) but `P.y === Q.y`, the code correctly calls `pointDouble(P)`. And if `P.y !== Q.y`, it correctly returns null. This is correct.
-
-**However**, there is a subtle concern: if `P` and `Q` are the SAME object reference (not just equal, but literally `===`) AND `P.y === 0`, then `pointDouble` would also return null. This is correctly handled because `pointDouble` checks `P.y === BigInt(0)`.
-
-**Conclusion:** The point-at-infinity handling IS correct in all branches. However, the code would benefit from an explicit assertion/guard that `modInv`'s input is non-zero, to prevent a hypothetical "division by zero" scenario from producing a wrong result rather than an error. Currently, `modInv(0, P)` would compute `modPow(0, P-2, P) = 0`, and the slope would be 0, producing an incorrect result silently.
-
-**Mitigation:** Add a guard in `pointAdd` that `Q.x !== P.x` before the modInv call (the existing `if (P.x === Q.x)` already handles this, but an explicit assert for defense-in-depth would improve robustness).
+**Mitigation:** Added !msgHash || msgHash.length === 0 guard at the top of ecRecover.
 
 ---
 
-### F-05 â€” Message-length leakage via `hashPersonalMessage` string concatenation
+### F-05 GÇö Message-length leakage via `hashPersonalMessage` string concatenation
 
 **Severity:** Informational  
 **Type:** Timing side channel (minor)  
-**File:** `src/crypto/secp256k1.ts` â€” `hashPersonalMessage` (line ~280)
+**File:** `src/crypto/secp256k1.ts` GÇö `hashPersonalMessage` (line ~280)
 
 **Description:** The function computes:
 ```typescript
@@ -261,11 +245,11 @@ The string concatenation and `TextEncoder().encode()` have length-dependent timi
 
 ---
 
-### F-06 â€” Node.js `Buffer` dependency in `ecRecover`
+### F-06 GÇö Node.js `Buffer` dependency in `ecRecover`
 
 **Severity:** Low  
 **Type:** Cross-platform compatibility  
-**File:** `src/crypto/secp256k1.ts` â€” `ecRecover` (line ~212)
+**File:** `src/crypto/secp256k1.ts` GÇö `ecRecover` (line ~212)
 
 **Description:** The line:
 ```typescript
@@ -278,11 +262,11 @@ Uses Node.js `Buffer` API, which is not available in all edge/browser runtimes. 
 
 ---
 
-### F-07 â€” Modulo bias in `generateSiweNonce`
+### F-07 GÇö Modulo bias in `generateSiweNonce`
 
 **Severity:** Medium  
 **Type:** Randomness bias  
-**File:** `src/siwe/siwe.helpers.ts` â€” `generateSiweNonce` (line ~274)
+**File:** `src/siwe/siwe.helpers.ts` GÇö `generateSiweNonce` (line ~274)
 
 **Description:** The nonce generation uses:
 ```typescript
@@ -293,9 +277,9 @@ return Array.from(bytes).map((b) => chars[b % chars.length]).join('');
 ```
 
 Since 256 is not divisible by 62, the modulo operation introduces bias:
-- `256 = 62 Ã— 4 + 8`
-- Bytes 0â€“7 (indices 0â€“7 of the characters string: 'A'â€“'H') have probability 5/256 â‰ˆ 1.95%
-- Bytes 8â€“255 (indices 8â€“61) have probability 4/256 â‰ˆ 1.56%
+- `256 = 62 +ù 4 + 8`
+- Bytes 0GÇô7 (indices 0GÇô7 of the characters string: 'A'GÇô'H') have probability 5/256 Gëê 1.95%
+- Bytes 8GÇô255 (indices 8GÇô61) have probability 4/256 Gëê 1.56%
 - This is approximately a 25% bias for the first 8 characters relative to others
 
 For a 16-character nonce, the practical impact on security is minimal (the nonce space is still ~256 bits nominally, reduced slightly). However, for a security-sensitive nonce used in authentication, it should use a rejection-sampling or division-free approach.
@@ -315,11 +299,11 @@ while (result.length < 16) {
 
 ---
 
-### F-08 â€” No `r` upper-half malleability check
+### F-08 GÇö No `r` upper-half malleability check
 
 **Severity:** Low  
 **Type:** Edge case  
-**File:** `src/crypto/secp256k1.ts` â€” `ecRecover` (line ~195)
+**File:** `src/crypto/secp256k1.ts` GÇö `ecRecover` (line ~195)
 
 **Description:** `ecRecover` checks `r >= SECP256K1_N` but not `r > SECP256K1_N/2`. For Ethereum, the recovery of point R from x=r is done differently depending on whether r is in the "high" or "low" half relative to N/2 (because r + N is also a valid x-coordinate). The current code only tries the primary candidate `x = r` and not `x = r + N`.
 
@@ -331,15 +315,15 @@ However, a signature crafted with `r > N/2` might produce a different R point th
 
 ---
 
-### F-09 â€” Public key not validated to be on curve before address derivation
+### F-09 GÇö Public key not validated to be on curve before address derivation
 
 **Severity:** Medium  
 **Type:** Trusted-input assumption  
-**File:** `src/crypto/secp256k1.ts` â€” `publicKeyToAddress` (line ~295)
+**File:** `src/crypto/secp256k1.ts` GÇö `publicKeyToAddress` (line ~295)
 
 **Description:** The `publicKeyToAddress` function accepts a 65-byte Uint8Array and:
 1. Does NOT validate that `pubKey[0] === 0x04` (uncompressed key format marker)
-2. Does NOT validate that the x/y coordinates satisfy the curve equation `yÂ² = xÂ³ + 7`
+2. Does NOT validate that the x/y coordinates satisfy the curve equation `y-¦ = x-¦ + 7`
 3. Simply hashes whatever bytes are provided
 
 Since `publicKeyToAddress` is called from `verifySiweSignature` only with the output of `ecRecover` (which either returns a valid key or null), the current call path is safe. However, if the function is ever called with attacker-controlled bytes (e.g., from a wallet provider), it could produce a valid-looking address from invalid coordinates.
@@ -355,17 +339,17 @@ Since `publicKeyToAddress` is called from `verifySiweSignature` only with the ou
 
 | ID | Finding | Severity | Status |
 |----|---------|----------|--------|
-| F-01 | Non-constant-time scalarMul (timing side channel) | **Low** (Medium if signing added) | AcceptedÂ¹ |
-| F-02 | No twist-security issue (yÂ² check is sufficient) | None | â€” |
+| F-01 | Non-constant-time scalarMul (timing side channel) | **Low** (Medium if signing added) | Accepted-¦ |
+| F-02 | No twist-security issue (y-¦ check is sufficient) | None | GÇö |
 | F-03 | Missing EIP-2 s-value malleability check | **High** | **Fixed** (R-01) |
-| F-04 | Division-by-zero edge in pointAdd modInv | **Medium** | **Fixed** (R-02) |
+| F-04 | Empty-hash crash in ecRecover | **Medium** | **Fixed** (R-02) |
 | F-05 | Message-length leakage via string concat | Informational | Accepted |
 | F-06 | Node.js `Buffer` dependency | **Low** | **Fixed** (R-03) |
 | F-07 | Modulo bias in `generateSiweNonce` | **Medium** | **Fixed** (R-04) |
 | F-08 | No r upper-half check | **Low** | Documented |
 | F-09 | Public key not validated before address derivation | **Medium** | **Fixed** (R-05) |
 
-Â¹ Accepted: The timing side channel in `scalarMul` does not leak secrets because `ecRecover` only processes **public** scalars (r, s, hash e, rInv). The risk is only if this code is repurposed for signing. See Â§8.
+-¦ Accepted: The timing side channel in `scalarMul` does not leak secrets because `ecRecover` only processes **public** scalars (r, s, hash e, rInv). The risk is only if this code is repurposed for signing. See -º8.
 
 ---
 
@@ -387,7 +371,7 @@ Since `publicKeyToAddress` is called from `verifySiweSignature` only with the ou
 - All known issues fixed with minimal code changes
 - Timing side channel remains (documented, accepted for verification-only use)
 - No third-party supply-chain risk introduced
-- Full control over code â€” can audit line by line
+- Full control over code GÇö can audit line by line
 
 **Maintenance burden:**
 - No new dependency to track or update
@@ -406,10 +390,10 @@ Since `publicKeyToAddress` is called from `verifySiweSignature` only with the ou
 
 - **Security:** Actively maintained, audited (includes formal verification of core operations), constant-time scalar multiplication, validated point-on-curve in all operations
 - **API surface:** `secp256k1.verify(sig, hash, pubkey)`, `secp256k1.recoverPublicKey(hash, sig, recovery)`, `secp256k1.getPublicKey(privateKey)`
-- **Bundle impact:** Tree-shakeable â€” importing only `secp256k1` brings in ~18 KB (vs. current ~5 KB for the custom implementation)
+- **Bundle impact:** Tree-shakeable GÇö importing only `secp256k1` brings in ~18 KB (vs. current ~5 KB for the custom implementation)
 - **Dependencies:** Zero (pure JS)
 - **Runtime:** Node 18+, browsers, edge (all supported)
-- **Constant-time:** Yes â€” uses Montgomery ladder for scalar multiplication
+- **Constant-time:** Yes GÇö uses Montgomery ladder for scalar multiplication
 
 **Bundle size comparison (current entry point `"."` = 18,180 bytes budget):**
 
@@ -458,7 +442,7 @@ Since `publicKeyToAddress` is called from `verifySiweSignature` only with the ou
 | Fix ID | Finding(s) | Change | File |
 |--------|-----------|--------|------|
 | R-01 | F-03 | Add `s <= N/2` check in `ecRecover` and `verifySiweSignature` | `secp256k1.ts`, `siwe.helpers.ts` |
-| R-02 | F-04 | Add explicit zero-denominator guard before `modInv` in `pointAdd` | `secp256k1.ts` |
+| R-02 | F-04 | Add empty-hash guard in `ecRecover` | `secp256k1.ts` |
 | R-03 | F-06 | Replace `Buffer.from().toString('hex')` with pure-JS hex | `secp256k1.ts` |
 | R-04 | F-07 | Fix modulo bias in `generateSiweNonce` via rejection sampling | `siwe.helpers.ts` |
 | R-05 | F-09 | Add input validation to `publicKeyToAddress` | `secp256k1.ts` |
@@ -472,7 +456,7 @@ Since `publicKeyToAddress` is called from `verifySiweSignature` only with the ou
 | Risk | Rationale | Trigger for Re-evaluation |
 |------|-----------|--------------------------|
 | Timing side channel in `scalarMul` | All scalars processed by `ecRecover` are public (r, s, hash, rInv). The timing channel does not leak secret information during signature verification. | If the module is extended to support signing; if a practical remote timing attack against JS ECDSA verification is demonstrated |
-| No twist check on recovered R | secp256k1 has cofactor h=1, so all curve points have order N. The yÂ² check ensures the point is on the curve. | N/A (mathematically impossible to exploit given the yÂ² check) |
+| No twist check on recovered R | secp256k1 has cofactor h=1, so all curve points have order N. The y-¦ check ensures the point is on the curve. | N/A (mathematically impossible to exploit given the y-¦ check) |
 | Message-length timing in `hashPersonalMessage` | Message length is already public (it's in the attacker-controlled input). | N/A |
 | No r upper-half check | Ethereum signatures always have r < N; the single-candidate x=r approach is correct for all valid Ethereum signatures. | If the module is extended to support other chains with different signature formats |
 
