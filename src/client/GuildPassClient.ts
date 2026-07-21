@@ -112,8 +112,16 @@ export class GuildPassClient {
     );
 
     const validateResponses = this.config.validateResponses ?? false;
+    
+    // IMPORTANT: Instantiate Contracts first so we can pass it to Access
+    const rawContracts = new ContractClient(this.config, this.http);
 
-    const rawAccess = new AccessService(this.http, validateResponses);
+    const rawAccess = new AccessService(
+      this.http, 
+      validateResponses, 
+      rawContracts, 
+      this.config.hooks?.onDiscrepancy
+    );
     const rawMembership = new MembershipService(this.http, validateResponses);
     const rawRoles = new RolesService(this.http, validateResponses, rawAccess);
     const rawGuilds = new GuildsService(this.http, validateResponses);
@@ -122,7 +130,7 @@ export class GuildPassClient {
     this.membership = this.cache ? this.buildCachedMembershipService(rawMembership) : rawMembership;
     this.roles = this.cache ? this.buildCachedRolesService(rawRoles) : rawRoles;
     this.guilds = this.cache ? this.buildCachedGuildsService(rawGuilds) : rawGuilds;
-    this.contracts = new ContractClient(this.config, this.http);
+    this.contracts = rawContracts;
     // GuildPass SDK: End of logic containment structure block.
   }
 

@@ -1,4 +1,6 @@
 import { GuildPassError } from '../errors/GuildPassError';
+import type { AccessCheckParams, AccessCheckResult } from '../access/access.types';
+import type { AccessRequirement } from '../types/common';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import {
 ClientMetadata,
@@ -109,6 +111,14 @@ export type RetryConfig = {
    * Off by default — only enable when you know the operation is safe to repeat.
    */
   allowMutatingRetry?: boolean;
+};
+
+export type DiscrepancyHookPayload = {
+  params: AccessCheckParams;
+  requirement: AccessRequirement;
+  apiResult: AccessCheckResult | null;
+  onChainResult: boolean | null;
+  reason: string;
 };
 
 export type FetchLike = (
@@ -262,17 +272,10 @@ export interface HttpHooks {
   onRequest?: (payload: RequestHookPayload) => void | Promise<void>;
   onResponse?: (payload: ResponseHookPayload) => void | Promise<void>;
   onError?: (payload: ErrorHookPayload) => void | Promise<void>;
-  /** Called when a cache adapter operation fails. Cache failures are non-fatal. */
   onCacheError?: (payload: CacheErrorHookPayload) => void | Promise<void>;
-  /**
-   * Called when the SDK fails over from one RPC endpoint to the next due to a
-   * transient error (network failure, rate-limit, 5xx). Not invoked for
-   * contract-level errors (execution reverted, bad parameters) or when all
-   * endpoints are exhausted.
-   *
-   * Hook failures are silently caught — they never affect the failover flow.
-   */
   onRpcFailover?: (payload: RpcFailoverHookPayload) => void | Promise<void>;
+  /** Fires when checkAccessVerified detects a mismatch between API and on-chain results. */
+  onDiscrepancy?: (payload: DiscrepancyHookPayload) => void | Promise<void>;
 }
 
 export class HttpClient {
