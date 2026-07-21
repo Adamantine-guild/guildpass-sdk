@@ -97,6 +97,8 @@ If a hook throws or the hook itself is absent, the error is swallowed silently. 
 
 ### Redis (production-ready)
 
+> **Note:** A complete, runnable project for this Redis adapter — including integration tests — is available in the [`examples/redis-cache-adapter`](../examples/redis-cache-adapter/) directory.
+
 ```typescript
 import { CacheAdapter } from '@guildpass/sdk';
 import { createClient, type RedisClientType } from 'redis';
@@ -111,11 +113,15 @@ export class RedisCacheAdapter implements CacheAdapter {
   }
 
   async connect(): Promise<void> {
-    await this.client.connect();
+    if (!this.client.isOpen) {
+      await this.client.connect();
+    }
   }
 
   async disconnect(): Promise<void> {
-    await this.client.quit();
+    if (this.client.isOpen) {
+      await this.client.quit();
+    }
   }
 
   private prefixed(key: string): string {
@@ -165,14 +171,20 @@ export class RedisCacheAdapter implements CacheAdapter {
   async deleteByPrefix(prefix: string): Promise<void> {
     try {
       const pattern = this.prefixed(prefix) + '*';
-      let cursor = 0;
-      do {
-        const result = await this.client.scan(cursor, { MATCH: pattern, COUNT: 100 });
-        cursor = result.cursor;
-        if (result.keys.length > 0) {
-          await this.client.del(result.keys);
+      const batchSize = 100;
+      let keysToDelete: string[] = [];
+
+      for await (const key of this.client.scanIterator({ MATCH: pattern, COUNT: batchSize })) {
+        keysToDelete.push(key);
+        if (keysToDelete.length >= batchSize) {
+          await this.client.unlink(keysToDelete);
+          keysToDelete = [];
         }
-      } while (cursor !== 0);
+      }
+
+      if (keysToDelete.length > 0) {
+        await this.client.unlink(keysToDelete);
+      }
     } catch {
       // swallowed by SDK
     }
