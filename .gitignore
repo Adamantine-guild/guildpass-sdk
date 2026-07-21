@@ -36,3 +36,6 @@ pnpm-debug.log*
 
 # Agents
 AGENTS.md
+
+# Package
+package-lock.json
