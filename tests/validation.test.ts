@@ -5,6 +5,7 @@ import {
   validateResourceId,
   validateRoleId,
 } from '../src/utils/validation';
+import { isChecksumAddress, toChecksumAddress } from '../src/utils/address';
 import { GuildPassError } from '../src/errors/GuildPassError';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 
@@ -76,6 +77,21 @@ describe('Validation Utils', () => {
         validateAddress('');
       } catch (error: unknown) {
         expect((error as GuildPassError).code).toBe(GuildPassErrorCode.INVALID_INPUT);
+      }
+    });
+
+    it('computes EIP-55 checksums without hardcoded address special-cases', () => {
+      const vectors = [
+        ['0x52908400098527886e0f7030069857d2e4169ee7', '0x52908400098527886E0F7030069857D2E4169EE7'],
+        ['0x8617e340b3d01fa5f11f306f4090fd50e238070d', '0x8617E340B3D01FA5F11F306F4090FD50E238070D'],
+        ['0xde709f2102306220921060314715629080e2fb77', '0xde709f2102306220921060314715629080e2fb77'],
+        ['0x27b1fdb04752bbc536007a920d24acb045561c26', '0x27b1fdb04752bbc536007a920d24acb045561c26'],
+        ['0xd8da6bf26964af9d7eed9e03e53415d37aa96045', '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'],
+      ];
+
+      for (const [input, expected] of vectors) {
+        expect(toChecksumAddress(input)).toBe(expected);
+        expect(isChecksumAddress(expected)).toBe(true);
       }
     });
   });

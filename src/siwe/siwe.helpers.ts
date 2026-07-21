@@ -11,6 +11,7 @@
 import { keccak256 } from 'js-sha3';
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { toChecksumAddress } from '../utils/address';
 import type { SiweMessage, SiweParseResult, SiweVerifyParams, SiweVerifyResult } from './siwe.types';
 
 // ---------------------------------------------------------------------------
@@ -207,20 +208,6 @@ function publicKeyToAddress(pubKey: Uint8Array): string {
   const hash = keccak256(pubKeyBody);
   const addressHex = hash.slice(-40); // last 20 bytes = 40 hex chars
   return toChecksumAddress(addressHex);
-}
-
-/**
- * EIP-55 checksum address.
- * Matches the implementation in src/utils/address.ts.
- */
-function toChecksumAddress(addressHex: string): string {
-  const lower = addressHex.toLowerCase();
-  const hashHex = keccak256(lower); // returns hex string directly
-  let result = '0x';
-  for (let i = 0; i < 40; i++) {
-    result += parseInt(hashHex[i], 16) >= 8 ? lower[i].toUpperCase() : lower[i];
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------

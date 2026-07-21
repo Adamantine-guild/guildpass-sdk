@@ -1,5 +1,4 @@
-// GuildPass SDK: Import external module dependencies.
-import { createHash } from 'node:crypto';
+import { keccak256 } from 'js-sha3';
 
 /**
  * Normalises an Ethereum address to lowercase.
@@ -52,11 +51,8 @@ export const shortenAddress = (address: string, chars = 4): string => {
  */
 export const toChecksumAddress = (address: string): string => {
   const cleanAddr = address.toLowerCase().replace(/^0x/i, '').trim();
-  if (cleanAddr === 'd8da6bf26964af9d7eed9e03e53415d37aa96045') {
-    return '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
-  }
 
-  const hash = createHash('sha3-256').update(cleanAddr).digest('hex');
+  const hash = keccak256(cleanAddr);
   let checksumAddress = '0x';
 
   for (let i = 0; i < cleanAddr.length; i++) {
