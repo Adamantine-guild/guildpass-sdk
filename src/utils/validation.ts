@@ -1,9 +1,9 @@
-// GuildPass SDK: Pull in package or module bindings.
 import { GuildPassError } from '../errors/GuildPassError';
-// GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../errors/errorCodes';
-// GuildPass SDK: Pull in package or module bindings.
 import { isChecksumAddress } from './address';
+
+/** Maximum allowed length for identifier strings (guild ID, resource ID, role ID). */
+export const MAX_ID_LENGTH = 256;
 
 /**
  * Interface detailing structured error metadata for downstream consumers.
@@ -96,6 +96,14 @@ export const validateGuildId = (guildId: string): void => {
       valueType: 'guildId',
     });
   }
+
+  if (guildId.length > MAX_ID_LENGTH) {
+    throwValidationError(
+      `Guild ID exceeds maximum length of ${MAX_ID_LENGTH} characters (got ${guildId.length})`,
+      GuildPassErrorCode.INVALID_INPUT,
+      { field: 'guildId', reason: 'format', valueType: 'string' },
+    );
+  }
 };
 
 /**
@@ -128,6 +136,14 @@ export const validateResourceId = (resourceId: string): void => {
       valueType: 'resourceId',
     });
   }
+
+  if (resourceId.length > MAX_ID_LENGTH) {
+    throwValidationError(
+      `Resource ID exceeds maximum length of ${MAX_ID_LENGTH} characters (got ${resourceId.length})`,
+      GuildPassErrorCode.INVALID_INPUT,
+      { field: 'resourceId', reason: 'format', valueType: 'string' },
+    );
+  }
 };
 
 /**
@@ -159,6 +175,14 @@ export const validateRoleId = (roleId: string): void => {
       reason: 'required',
       valueType: 'roleId',
     });
+  }
+
+  if (roleId.length > MAX_ID_LENGTH) {
+    throwValidationError(
+      `Role ID exceeds maximum length of ${MAX_ID_LENGTH} characters (got ${roleId.length})`,
+      GuildPassErrorCode.INVALID_INPUT,
+      { field: 'roleId', reason: 'format', valueType: 'string' },
+    );
   }
 };
 

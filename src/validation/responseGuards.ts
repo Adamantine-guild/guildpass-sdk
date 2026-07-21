@@ -4,12 +4,22 @@ import { Membership } from '../membership/membership.types';
 import { GuildRole } from '../roles/roles.types';
 import { Guild, GuildConfig } from '../guilds/guilds.types';
 
+const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isAddress(value: unknown): value is string {
+  return typeof value === 'string' && ADDRESS_REGEX.test(value);
 }
 
 function isOptionalString(value: unknown): boolean {
@@ -28,20 +38,28 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(isString);
 }
 
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
+}
+
 /**
  * Runtime shape guards for the SDK's core public response types. These are
  * intentionally hand-written and dependency-free to keep bundle size
  * minimal, and only check the fields the SDK itself relies on.
+ *
+ * In addition to type checks, the guards perform content-level validation
+ * for well-known formats (Ethereum addresses, non-empty identifiers) to
+ * catch malformed API responses early.
  */
 export function isAccessCheckResult(value: unknown): value is AccessCheckResult {
   return (
     isRecord(value) &&
     isBoolean(value.hasAccess) &&
-    isString(value.walletAddress) &&
-    isString(value.guildId) &&
-    isString(value.resourceId) &&
-    isStringArray(value.requiredRoles) &&
-    isStringArray(value.matchedRoles) &&
+    isAddress(value.walletAddress) &&
+    isNonEmptyString(value.guildId) &&
+    isNonEmptyString(value.resourceId) &&
+    isNonEmptyStringArray(value.requiredRoles) &&
+    isNonEmptyStringArray(value.matchedRoles) &&
     isOptionalString(value.reason)
   );
 }
@@ -49,8 +67,8 @@ export function isAccessCheckResult(value: unknown): value is AccessCheckResult 
 export function isMembership(value: unknown): value is Membership {
   return (
     isRecord(value) &&
-    isString(value.walletAddress) &&
-    isString(value.guildId) &&
+    isAddress(value.walletAddress) &&
+    isNonEmptyString(value.guildId) &&
     isBoolean(value.isActive) &&
     isStringArray(value.roles) &&
     isOptionalString(value.joinedAt) &&
@@ -61,8 +79,8 @@ export function isMembership(value: unknown): value is Membership {
 export function isGuildRole(value: unknown): value is GuildRole {
   return (
     isRecord(value) &&
-    isString(value.id) &&
-    isString(value.name) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name) &&
     isOptionalString(value.description) &&
     (value.requirements === undefined || (Array.isArray(value.requirements) && value.requirements.every(isAccessRequirement)))
   );
@@ -86,10 +104,10 @@ function isAccessRequirement(value: unknown): value is AccessRequirement {
 export function isGuild(value: unknown): value is Guild {
   return (
     isRecord(value) &&
-    isString(value.id) &&
-    isString(value.name) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name) &&
     isOptionalString(value.description) &&
-    isString(value.ownerAddress) &&
+    isAddress(value.ownerAddress) &&
     isOptionalString(value.contractAddress) &&
     isNumber(value.chainId)
   );

@@ -22,6 +22,16 @@ import {
   bigintToBytes32,
 } from '../crypto/secp256k1';
 
+/** Maximum length of a raw SIWE message string (10 KB). */
+export const MAX_SIWE_MESSAGE_LENGTH = 10_240;
+
+/**
+ * Basic domain-name validation regex. Accepts standard domains,
+ * subdomains, and localhost — rejects anything with control
+ * characters or whitespace.
+ */
+const DOMAIN_REGEX = /^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$|^localhost$/;
+
 // ---------------------------------------------------------------------------
 // EIP-4361 message formatting
 // ---------------------------------------------------------------------------
@@ -89,6 +99,12 @@ export function parseSiweMessage(raw: string): SiweParseResult {
     if (raw == null || typeof raw !== 'string') {
       return { success: false, error: 'Message must be a non-null string' };
     }
+    if (raw.length > MAX_SIWE_MESSAGE_LENGTH) {
+      return {
+        success: false,
+        error: `SIWE message exceeds maximum length of ${MAX_SIWE_MESSAGE_LENGTH} characters (got ${raw.length})`,
+      };
+    }
     const lines = raw.split('\n');
     if (lines.length < 2) {
       return { success: false, error: 'Message is too short to be a valid EIP-4361 message' };
@@ -101,6 +117,9 @@ export function parseSiweMessage(raw: string): SiweParseResult {
       return { success: false, error: 'Invalid EIP-4361 header line' };
     }
     const domain = headerMatch[1];
+    if (!DOMAIN_REGEX.test(domain)) {
+      return { success: false, error: `Invalid domain in SIWE message: "${domain}"` };
+    }
 
     // Line 1: Ethereum address
     const address = lines[1];

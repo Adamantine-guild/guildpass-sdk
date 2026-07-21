@@ -13,6 +13,7 @@ import {
   parseSiweMessage,
   verifySiweSignature,
   generateSiweNonce,
+  MAX_SIWE_MESSAGE_LENGTH,
 } from '../src/siwe';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 import type { SiweMessage } from '../src/siwe';
@@ -406,6 +407,45 @@ describe('parseSiweMessage', () => {
     for (const input of weirdInputs) {
       expect(() => parseSiweMessage(input)).not.toThrow();
     }
+  });
+
+  it('returns success:false for a message exceeding the maximum length', () => {
+    const longDomain = 'x'.repeat(MAX_SIWE_MESSAGE_LENGTH + 1);
+    const result = parseSiweMessage(longDomain);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/exceeds maximum length/i);
+  });
+
+  it('returns success:false for a malformed domain in the header', () => {
+    const bad =
+      'has spaces wants you to sign in with your Ethereum account:\n0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\n\nURI: https://example.com\nVersion: 1\nChain ID: 1\nNonce: abc12345\nIssued At: 2024-01-01T00:00:00.000Z';
+    const result = parseSiweMessage(bad);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/domain/i);
+  });
+
+  it('returns success:false for a domain with invalid characters', () => {
+    const bad =
+      '<script>alert(1)</script> wants you to sign in with your Ethereum account:\n0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\n\nURI: https://example.com\nVersion: 1\nChain ID: 1\nNonce: abc12345\nIssued At: 2024-01-01T00:00:00.000Z';
+    const result = parseSiweMessage(bad);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/domain/i);
+  });
+
+  it('accepts localhost as a valid domain', () => {
+    const msg =
+      'localhost wants you to sign in with your Ethereum account:\n0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\n\nURI: https://example.com\nVersion: 1\nChain ID: 1\nNonce: abc12345\nIssued At: 2024-01-01T00:00:00.000Z';
+    const result = parseSiweMessage(msg);
+    expect(result.success).toBe(true);
+    expect(result.data?.domain).toBe('localhost');
+  });
+
+  it('accepts a valid subdomain', () => {
+    const msg =
+      'app.example.com wants you to sign in with your Ethereum account:\n0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266\n\nURI: https://example.com\nVersion: 1\nChain ID: 1\nNonce: abc12345\nIssued At: 2024-01-01T00:00:00.000Z';
+    const result = parseSiweMessage(msg);
+    expect(result.success).toBe(true);
+    expect(result.data?.domain).toBe('app.example.com');
   });
 });
 
