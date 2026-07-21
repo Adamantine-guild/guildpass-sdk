@@ -843,7 +843,7 @@ describe('HttpClient includeMeta', () => {
 
     const result = await client.get('/test', { includeMeta: true });
 
-    expect(result).toHaveProperty('meta.traceparent', traceparentValue);
+    expect(result).toHaveProperty('meta.traceId', traceparentValue);
   });
 
   it('captures x-trace-id header when present', async () => {

@@ -53,7 +53,7 @@ describe('Cache configuration validation (#81)', () => {
       ).toThrow(expect.objectContaining({ code: GuildPassErrorCode.INVALID_CONFIG }));
     });
 
-    it('accepts zero cacheTtl (no expiry)', () => {
+    it('accepts zero cacheTtl (config validation only — does not imply "no expiry")', () => {
       expect(
         () =>
           new GuildPassClient({

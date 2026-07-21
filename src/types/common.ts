@@ -11,6 +11,17 @@ export type ResponseMeta = {
   traceId?: string;
 };
 
+/**
+ * A block tag for historical or confirmed read state:
+ * - A `number` specifies confirmations (N blocks behind `latest`).
+ * - `'safe'` / `'finalized'` are post-Merge named tags supported by
+ *   Ethereum and compatible chains (support varies by client).
+ *
+ * **Caveat:** historical `eth_call` requires an **archive node** on most
+ * public RPC providers. Without archive data the call will revert.
+ */
+export type BlockTag = number | 'safe' | 'finalized';
+
 export type RequestOptions = {
   timeoutMs?: number;
   retry?: RetryConfig;

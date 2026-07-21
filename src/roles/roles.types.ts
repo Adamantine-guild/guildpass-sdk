@@ -4,6 +4,8 @@ import { AccessRequirement } from '../types/common';
 // GuildPass SDK: Core operational type definition.
 export type GetRolesParams = {
   guildId: string;
+  cursor?: string;
+  limit?: number;
   // GuildPass SDK: End of logic containment structure block.
 };
 
@@ -11,6 +13,8 @@ export type GetRolesParams = {
 export type GetUserRolesParams = {
   walletAddress: string;
   guildId: string;
+  cursor?: string;
+  limit?: number;
   // GuildPass SDK: End of logic containment structure block.
 };
 
