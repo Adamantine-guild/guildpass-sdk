@@ -4,6 +4,7 @@ import {
   validateGuildId,
   validateResourceId,
   validateRoleId,
+  MAX_ID_LENGTH,
 } from '../src/utils/validation';
 import { GuildPassError } from '../src/errors/GuildPassError';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
@@ -116,6 +117,20 @@ describe('Validation Utils', () => {
         expect((error as GuildPassError).code).toBe(GuildPassErrorCode.INVALID_INPUT);
       }
     });
+
+    it('should throw INVALID_INPUT for guild ID exceeding max length', () => {
+      const longId = 'a'.repeat(MAX_ID_LENGTH + 1);
+      try {
+        validateGuildId(longId);
+      } catch (error: unknown) {
+        expect((error as GuildPassError).code).toBe(GuildPassErrorCode.INVALID_INPUT);
+        expect((error as GuildPassError).message).toContain('exceeds maximum length');
+      }
+    });
+
+    it('should not throw for guild ID at max length boundary', () => {
+      expect(() => validateGuildId('a'.repeat(MAX_ID_LENGTH))).not.toThrow();
+    });
   });
 
   describe('validateResourceId', () => {
@@ -154,6 +169,20 @@ describe('Validation Utils', () => {
         expect((error as GuildPassError).code).toBe(GuildPassErrorCode.INVALID_INPUT);
       }
     });
+
+    it('should throw INVALID_INPUT for resource ID exceeding max length', () => {
+      const longId = 'b'.repeat(MAX_ID_LENGTH + 1);
+      try {
+        validateResourceId(longId);
+      } catch (error: unknown) {
+        expect((error as GuildPassError).code).toBe(GuildPassErrorCode.INVALID_INPUT);
+        expect((error as GuildPassError).message).toContain('exceeds maximum length');
+      }
+    });
+
+    it('should not throw for resource ID at max length boundary', () => {
+      expect(() => validateResourceId('b'.repeat(MAX_ID_LENGTH))).not.toThrow();
+    });
   });
 
   describe('validateRoleId', () => {
@@ -191,6 +220,20 @@ describe('Validation Utils', () => {
       } catch (error: unknown) {
         expect((error as GuildPassError).code).toBe(GuildPassErrorCode.INVALID_INPUT);
       }
+    });
+
+    it('should throw INVALID_INPUT for role ID exceeding max length', () => {
+      const longId = 'c'.repeat(MAX_ID_LENGTH + 1);
+      try {
+        validateRoleId(longId);
+      } catch (error: unknown) {
+        expect((error as GuildPassError).code).toBe(GuildPassErrorCode.INVALID_INPUT);
+        expect((error as GuildPassError).message).toContain('exceeds maximum length');
+      }
+    });
+
+    it('should not throw for role ID at max length boundary', () => {
+      expect(() => validateRoleId('c'.repeat(MAX_ID_LENGTH))).not.toThrow();
     });
   });
 });

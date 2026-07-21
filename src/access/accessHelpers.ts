@@ -31,3 +31,27 @@ export function getAccessDecision(result: AccessCheckResult): AccessDecision {
   if (result.reason && /inactive|expired/i.test(result.reason)) return { kind: 'denied-inactive' };
   return { kind: 'denied-unknown', reason: result.reason };
 }
+
+/**
+ * Returns a human-readable summary of an access check result.
+ *
+ * @example
+ * ```ts
+ * const summary = getAccessSummary(result);
+ * // "Access granted."
+ * ```
+ */
+export function getAccessSummary(result: AccessCheckResult): string {
+  const decision = getAccessDecision(result);
+
+  switch (decision.kind) {
+    case 'allowed':
+      return 'Access granted.';
+    case 'denied-missing-role':
+      return `Missing required roles: ${decision.missingRoles.join(', ')}.`;
+    case 'denied-inactive':
+      return 'Membership is inactive or expired.';
+    case 'denied-unknown':
+      return decision.reason ? `Access denied: ${decision.reason}` : 'Access denied.';
+  }
+}

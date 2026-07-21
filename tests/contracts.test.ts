@@ -13,6 +13,7 @@ import {
   decodeAddressResult,
   decodeUint256Result,
 } from '../src/contracts/contractClient';
+import { validateAccessRequirement } from '../src/contracts/contractHelpers';
 import contractEncodingFixtures from './fixtures/contract-encoding.json';
 
 const WALLET = '0x1234567890123456789012345678901234567890';
@@ -719,6 +720,15 @@ describe('ContractClient.validateRoleRequirement', () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    it('validateAccessRequirement explicitly rejects WHITELIST with NOT_IMPLEMENTED', async () => {
+      await expect(
+        validateAccessRequirement(walletAddress, { type: 'WHITELIST' }, vi.fn()),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.NOT_IMPLEMENTED,
+        message: expect.stringContaining('WHITELIST'),
+      });
+    });
+
     it('rejects an unrecognised requirement type with a clear error', async () => {
       await expect(
         client.contracts.validateRoleRequirement({
@@ -796,6 +806,177 @@ describe('ContractClient.validateRoleRequirement', () => {
         message: 'execution reverted',
       });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// strictInterfaceChecking: ERC-165 interface validation
+// ---------------------------------------------------------------------------
+describe('strictInterfaceChecking', () => {
+  const strictClient = new GuildPassClient({
+    apiUrl: BASE_URL,
+    rpcUrl: RPC_URL,
+    contractAddress: CONTRACT,
+    strictInterfaceChecking: true,
+  });
+  const nonStrictClient = new GuildPassClient({
+    apiUrl: BASE_URL,
+    rpcUrl: RPC_URL,
+    contractAddress: CONTRACT,
+    strictInterfaceChecking: false,
+  });
+  const NFT_CONTRACT = '0x5555555555555555555555555555555555555555';
+  const ROLE_CONTRACT = '0x6666666666666666666666666666666666666666';
+
+  const hexWord = (hex: string): string => `0x${hex.padStart(64, '0')}`;
+  const addressWord = (address: string): string => hexWord(address.slice(2).toLowerCase());
+  const boolWord = (value: boolean): string => hexWord(value ? '1' : '0');
+
+  const mockRpcResponse = (resultOrError: { result?: string; error?: { code: number; message: string } }) => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: () => Promise.resolve({
+      jsonrpc: '2.0',
+      id: 1,
+      ...(resultOrError.error ? { error: resultOrError.error } : { result: resultOrError.result }),
+    }),
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('default (flag off) makes no ERC-165 calls', async () => {
+    mockFetch().mockResolvedValue(mockRpcResponse({ result: addressWord(WALLET) }));
+
+    await expect(
+      nonStrictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '7' },
+      }),
+    ).resolves.toBe(true);
+
+    // Only 1 RPC call: the ownerOf check
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+    expect(body.params[0].data).toContain('0x6352211e'); // ownerOf selector
+  });
+
+  it('flag ON, ERC-165 contract that supports ERC-721 succeeds', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → true (ERC-165 itself)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // supportsInterface(0x80ac58cd) → true (ERC-721)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // ownerOf(7) → walletAddress
+      .mockResolvedValueOnce(mockRpcResponse({ result: addressWord(WALLET) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '7' },
+      }),
+    ).resolves.toBe(true);
+
+    // 3 calls: 2 ERC-165 checks + 1 ownerOf
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('flag ON, ERC-165 contract that does NOT support ERC-721 fails closed', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → true (ERC-165 itself)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // supportsInterface(0x80ac58cd) → false (NOT ERC-721)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(false) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '7' },
+      }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('does not support the required interface'),
+    });
+
+    // Only 2 ERC-165 calls, never reaches ownerOf
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('flag ON, non-ERC-165 contract (revert) falls through gracefully', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → revert (RPC error)
+      .mockResolvedValueOnce(mockRpcResponse({ error: { code: -32000, message: 'execution reverted' } }))
+      // ownerOf(7) → walletAddress (proceeds normally)
+      .mockResolvedValueOnce(mockRpcResponse({ result: addressWord(WALLET) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '7' },
+      }),
+    ).resolves.toBe(true);
+
+    // 2 calls: 1 ERC-165 (revert) + 1 ownerOf
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('flag ON, non-ERC-165 contract (returns false for ERC-165) falls through', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → false (explicitly denies ERC-165)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(false) }))
+      // ownerOf(7) → walletAddress (proceeds normally)
+      .mockResolvedValueOnce(mockRpcResponse({ result: addressWord(WALLET) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '7' },
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('flag ON, ROLE requirement fails when contract lacks IAccessControl', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → true (ERC-165 itself)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // supportsInterface(0x7965db0b) → false (NOT IAccessControl)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(false) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'ROLE', address: ROLE_CONTRACT, id: 'ADMIN' },
+      }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('does not support the required interface'),
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('flag ON, TOKEN requirement ignores ERC-165 checks (no interface ID)', async () => {
+    mockFetch().mockResolvedValue(mockRpcResponse({ result: hexWord((42).toString(16)) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'TOKEN', address: NFT_CONTRACT, minAmount: '1' },
+      }),
+    ).resolves.toBe(true);
+
+    // Only 1 call: balanceOf — no ERC-165 calls for TOKEN type
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+    expect(body.params[0].data).toContain('0x70a08231'); // balanceOf selector
   });
 });
 
@@ -1589,6 +1770,24 @@ describe('Address Argument Encoding', () => {
       expect(encoded).toBe(fixture.calldata);
     }
   });
+
+  it('throws INVALID_INPUT for a non-address string', () => {
+    expect(() => encodeAddressArgument('not-an-address')).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
+
+  it('throws INVALID_INPUT for a short hex string', () => {
+    expect(() => encodeAddressArgument('0x1234')).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
+
+  it('throws INVALID_INPUT for an empty string', () => {
+    expect(() => encodeAddressArgument('')).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
 });
 
 describe('Guild ID Encoding', () => {
@@ -1611,6 +1810,18 @@ describe('Guild ID Encoding', () => {
     expect(() => encodeGuildId(longString)).toThrow(
       expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
     );
+  });
+
+  it('rejects guild IDs exceeding MAX_BYTES32_INPUT_LENGTH to prevent memory DoS', () => {
+    const veryLongString = 'x'.repeat(300);
+    expect(() => encodeGuildId(veryLongString)).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
+
+  it('accepts guild ID at the MAX_BYTES32_INPUT_LENGTH boundary in UTF-8 mode', () => {
+    const boundaryString = 'x'.repeat(32);
+    expect(() => encodeGuildId(boundaryString)).not.toThrow();
   });
 
   it('produces consistent full calldata for getGuildOwner calls', () => {

@@ -11,6 +11,7 @@ import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Pull in package or module bindings.
 import { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from './roles.types';
 import type { AccessService } from '../access/access.service';
+import { PaginatedResult } from '../utils/pagination';
 
 // GuildPass SDK: Exposed interface structure.
 export class RolesService {
@@ -25,50 +26,52 @@ export class RolesService {
    * Fetches all roles available in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getRoles(params: GetRolesParams): Promise<GuildRole[]>;
+  public async getRoles(params: GetRolesParams & ({ cursor: string } | { limit: number }), options: RequestOptions & { includeMeta: true }): Promise<{ data: PaginatedResult<GuildRole>; meta: ResponseMetadata }>;
+  public async getRoles(params: GetRolesParams & ({ cursor: string } | { limit: number }), options?: RequestOptions): Promise<PaginatedResult<GuildRole>>;
   public async getRoles(params: GetRolesParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: GuildRole[]; meta: ResponseMetadata }>;
-  public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<GuildRole[] | { data: GuildRole[]; meta: ResponseMetadata }> {
-    // GuildPass SDK: Variable binding initialization.
-    const { guildId } = params;
+  public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
+  public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<any> {
+    const { guildId, cursor, limit } = params;
     validateGuildId(guildId);
 
-    // GuildPass SDK: Return evaluated output value.
     const path = `/guilds/${encodePathSegment(guildId)}/roles`;
-    const result = await this.http.get<GuildRole[]>(path, options);
-    return this.validateResponses
-      ? assertValidResponse(result as GuildRole[], isGuildRoleArray, 'GuildRole[]')
-      : (result as GuildRole[]);
-    // GuildPass SDK: End of logic containment structure block.
+    
+    const reqOptions: any = { ...options };
+    if (cursor !== undefined || limit !== undefined) {
+      reqOptions.params = { ...reqOptions.params, ...(cursor !== undefined && { cursor }), ...(limit !== undefined && { limit }) };
+    }
+
+    const result = await this.http.get<any>(path, reqOptions);
+    const hasPagination = cursor !== undefined || limit !== undefined;
+    
+    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]');
   }
 
   /**
    * Fetches roles assigned to a specific wallet in a guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getUserRoles<T extends RequestOptions | undefined = undefined>(
-    params: GetUserRolesParams,
-  ): Promise<GuildRole[]>;
-  public async getUserRoles(
-    params: GetUserRolesParams,
-    options: RequestOptions & { includeMeta: true },
-  ): Promise<{ data: GuildRole[]; meta: ResponseMetadata }>;
-  public async getUserRoles(
-    params: GetUserRolesParams,
-    options?: RequestOptions,
-  ): Promise<GuildRole[] | { data: GuildRole[]; meta: ResponseMetadata }> {
-    // GuildPass SDK: Local block-scoped constant reference.
-    const { walletAddress, guildId } = params;
+  public async getUserRoles(params: GetUserRolesParams & ({ cursor: string } | { limit: number }), options: RequestOptions & { includeMeta: true }): Promise<{ data: PaginatedResult<GuildRole>; meta: ResponseMetadata }>;
+  public async getUserRoles(params: GetUserRolesParams & ({ cursor: string } | { limit: number }), options?: RequestOptions): Promise<PaginatedResult<GuildRole>>;
+  public async getUserRoles(params: GetUserRolesParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: GuildRole[]; meta: ResponseMetadata }>;
+  public async getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
+  public async getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<any> {
+    const { walletAddress, guildId, cursor, limit } = params;
 
     validateAddress(walletAddress);
     validateGuildId(guildId);
 
-    // GuildPass SDK: Terminate function block execution and return.
     const path = `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/roles`;
-    const result = await this.http.get<GuildRole[]>(path, options);
-    return this.validateResponses
-      ? assertValidResponse(result as GuildRole[], isGuildRoleArray, 'GuildRole[]')
-      : (result as GuildRole[]);
-    // GuildPass SDK: End of logic containment structure block.
+    
+    const reqOptions: any = { ...options };
+    if (cursor !== undefined || limit !== undefined) {
+      reqOptions.params = { ...reqOptions.params, ...(cursor !== undefined && { cursor }), ...(limit !== undefined && { limit }) };
+    }
+
+    const result = await this.http.get<any>(path, reqOptions);
+    const hasPagination = cursor !== undefined || limit !== undefined;
+    
+    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]');
   }
 
   /**
@@ -94,7 +97,47 @@ export class RolesService {
           'Use GuildPassClient to obtain a properly configured RolesService.',
       );
     }
-    return this.access.checkRoleAccess(params, options);
+    return this.access.checkRoleAccess(params, options as any) as any;
+  }
+
+  private handlePaginatedResponse<T>(
+    result: any,
+    options: RequestOptions | undefined,
+    hasPaginationParams: boolean,
+    guard: (val: unknown) => val is T[],
+    typeName: string
+  ): any {
+    const responseData = options?.includeMeta ? result.data : result;
+    const meta = options?.includeMeta ? result.meta : undefined;
+
+    let finalData;
+
+    if (hasPaginationParams) {
+      if (Array.isArray(responseData)) {
+        finalData = { items: responseData, hasMore: false };
+      } else {
+        finalData = responseData;
+      }
+      if (this.validateResponses) {
+        assertValidResponse(finalData.items, guard, typeName);
+      }
+    } else {
+      if (Array.isArray(responseData)) {
+        finalData = responseData;
+      } else if (responseData && Array.isArray(responseData.items)) {
+        finalData = responseData.items;
+      } else {
+        finalData = responseData;
+      }
+      if (this.validateResponses) {
+        assertValidResponse(finalData, guard, typeName);
+      }
+    }
+
+    if (options?.includeMeta) {
+      return { data: finalData, meta };
+    }
+    return finalData;
   }
   // GuildPass SDK: End of logic containment structure block.
 }

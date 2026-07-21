@@ -16,16 +16,51 @@ export const ERC721_OWNER_OF_SELECTOR = '0x6352211e';
 /** OpenZeppelin AccessControl `hasRole(bytes32,address)`. */
 export const HAS_ROLE_SELECTOR = '0x91d14854';
 export const DECIMALS_SELECTOR = '0x313ce567'; // 4-byte signature for decimals()
+/** ERC-165 `supportsInterface(bytes4)`. */
+export const SUPPORTS_INTERFACE_SELECTOR = '0x01ffc9a7';
+
+// ---------------------------------------------------------------------------
+// ERC-165 interface IDs
+// ---------------------------------------------------------------------------
+
+/** ERC-165 itself (`supportsInterface(bytes4)`). */
+export const ERC165_INTERFACE_ID = '0x01ffc9a7';
+/** ERC-721 (NFT) standard. */
+export const ERC721_INTERFACE_ID = '0x80ac58cd';
+/** ERC-1155 multi-token standard. */
+export const ERC1155_INTERFACE_ID = '0xd9b67a26';
+/** OpenZeppelin IAccessControl. */
+export const ACCESS_CONTROL_INTERFACE_ID = '0x7965db0b';
+
+/**
+ * Maps requirement type strings to their expected ERC-165 interface ID.
+ * TOKEN is intentionally omitted — ERC-20 predates ERC-165 and has no
+ * universally-adopted interface ID.
+ */
+export const REQUIREMENT_TYPE_INTERFACE_IDS: Record<string, string | undefined> = {
+  NFT: ERC721_INTERFACE_ID,
+  ROLE: ACCESS_CONTROL_INTERFACE_ID,
+};
 
 export const HEX_32_BYTES_LENGTH = 64;
 
+/** Maximum byte length for the pre-encode check in `encodeBytes32`. */
+export const MAX_BYTES32_INPUT_LENGTH = 256;
+
 const HEX_WORD_REGEX = /^0x[a-fA-F0-9]{64}$/;
+const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
 // ---------------------------------------------------------------------------
 // Pure ABI argument encoders
 // ---------------------------------------------------------------------------
 
 export const encodeAddressArgument = (address: string): string => {
+  if (!ADDRESS_REGEX.test(address)) {
+    throw new GuildPassError(
+      `Invalid address for ABI encoding: "${address}"`,
+      GuildPassErrorCode.INVALID_INPUT,
+    );
+  }
   return address.slice(2).toLowerCase().padStart(HEX_32_BYTES_LENGTH, '0');
 };
 
@@ -76,6 +111,14 @@ export const encodeBytes32 = (value: string, label: string): string => {
   }
 
   // ── Mode 3: UTF-8 right-zero-padded to 32 bytes ───────────────────────────
+  // Pre-check input length to avoid excessive memory allocation in
+  // TextEncoder().encode() before the post-encode 32-byte limit check.
+  if (trimmed.length > MAX_BYTES32_INPUT_LENGTH) {
+    throw new GuildPassError(
+      `${label} exceeds maximum bytes32 input length of ${MAX_BYTES32_INPUT_LENGTH} characters (got ${trimmed.length})`,
+      GuildPassErrorCode.INVALID_INPUT,
+    );
+  }
   const bytes = new TextEncoder().encode(trimmed);
   if (bytes.length > 32) {
     throw new GuildPassError(
@@ -92,7 +135,13 @@ export const encodeBytes32 = (value: string, label: string): string => {
 
 export const encodeGuildId = (guildId: string): string => encodeBytes32(guildId, 'guildId');
 
-/** Encodes a non-negative decimal integer string as a 32-byte uint256 argument. */
+/**
+ * Encodes a 4-byte interface ID as a 32-byte ABI argument for
+ * `supportsInterface(bytes4)`.
+ */
+export const encodeInterfaceId = (interfaceId: string): string =>
+  interfaceId.slice(2).padStart(HEX_32_BYTES_LENGTH, '0');
+
 export const encodeUint256Argument = (value: string, label = 'value'): string => {
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed)) {
@@ -144,6 +193,56 @@ export const decodeBoolResult = (result: unknown): boolean => {
 };
 
 // ---------------------------------------------------------------------------
+// ERC-165 interface detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Checks whether a contract supports a given ERC-165 interface ID.
+ *
+ * Returns:
+ * - `true`  — contract supports both ERC-165 *and* the requested interface
+ * - `false` — contract supports ERC-165 but reports it does NOT support the
+ *             requested interface
+ * - `null`  — contract does NOT implement ERC-165 (call reverted, returned
+ *             unexpected data, or explicitly denied ERC-165 support)
+ */
+async function supportsErc165Interface(
+  ethCall: EthCallFn,
+  contractAddress: string,
+  interfaceId: string,
+): Promise<boolean | null> {
+  try {
+    // Step 1: Check if the contract implements ERC-165 itself
+    const erc165Result = await ethCall(
+      contractAddress,
+      `${SUPPORTS_INTERFACE_SELECTOR}${encodeInterfaceId(ERC165_INTERFACE_ID)}`,
+    );
+
+    if (typeof erc165Result !== 'string' || !HEX_WORD_REGEX.test(erc165Result)) {
+      return null;
+    }
+    if (BigInt(erc165Result) === 0n) {
+      return null; // Contract exists but explicitly denies ERC-165 support
+    }
+
+    // Step 2: Check if the contract supports the requested interface
+    const ifaceResult = await ethCall(
+      contractAddress,
+      `${SUPPORTS_INTERFACE_SELECTOR}${encodeInterfaceId(interfaceId)}`,
+    );
+
+    if (typeof ifaceResult !== 'string' || !HEX_WORD_REGEX.test(ifaceResult)) {
+      return null;
+    }
+
+    return BigInt(ifaceResult) !== 0n;
+  } catch {
+    // Call reverted or network error → contract is not ERC-165-aware
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // On-chain role requirement validation
 // ---------------------------------------------------------------------------
 
@@ -177,6 +276,7 @@ async function validateTokenRequirement(
   walletAddress: string,
   requirement: AccessRequirement,
   ethCall: EthCallFn,
+  _strictInterfaceChecking?: boolean,
 ): Promise<boolean> {
   const tokenAddress = requireField(requirement.address, 'TOKEN requirement "address"');
   validateAddress(tokenAddress);
@@ -191,9 +291,24 @@ async function validateNftRequirement(
   walletAddress: string,
   requirement: AccessRequirement,
   ethCall: EthCallFn,
+  strictInterfaceChecking?: boolean,
 ): Promise<boolean> {
   const nftAddress = requireField(requirement.address, 'NFT requirement "address"');
   validateAddress(nftAddress);
+
+  if (strictInterfaceChecking) {
+    const interfaceId = REQUIREMENT_TYPE_INTERFACE_IDS['NFT'];
+    if (interfaceId) {
+      const supported = await supportsErc165Interface(ethCall, nftAddress, interfaceId);
+      if (supported === false) {
+        throw new GuildPassError(
+          `NFT contract ${nftAddress} does not support the required interface (${interfaceId}). ` +
+          'This may indicate a misconfigured requirement type.',
+          GuildPassErrorCode.INVALID_CONFIG,
+        );
+      }
+    }
+  }
 
   // A specific token ID means "does this wallet own this exact NFT?" (ERC-721 ownerOf).
   if (requirement.id !== undefined) {
@@ -213,10 +328,25 @@ async function validateOnChainRoleRequirement(
   walletAddress: string,
   requirement: AccessRequirement,
   ethCall: EthCallFn,
+  strictInterfaceChecking?: boolean,
 ): Promise<boolean> {
   const roleContract = requireField(requirement.address, 'ROLE requirement "address"');
   const roleId = requireField(requirement.id, 'ROLE requirement "id"');
   validateAddress(roleContract);
+
+  if (strictInterfaceChecking) {
+    const interfaceId = REQUIREMENT_TYPE_INTERFACE_IDS['ROLE'];
+    if (interfaceId) {
+      const supported = await supportsErc165Interface(ethCall, roleContract, interfaceId);
+      if (supported === false) {
+        throw new GuildPassError(
+          `ROLE contract ${roleContract} does not support the required interface (${interfaceId}). ` +
+          'This may indicate a misconfigured requirement type.',
+          GuildPassErrorCode.INVALID_CONFIG,
+        );
+      }
+    }
+  }
 
   const data = `${HAS_ROLE_SELECTOR}${encodeBytes32(roleId, 'ROLE requirement "id"')}${encodeAddressArgument(walletAddress)}`;
   return decodeBoolResult(await ethCall(roleContract, data));
@@ -241,16 +371,17 @@ export const validateAccessRequirement = async (
   walletAddress: string,
   requirement: AccessRequirement,
   ethCall: EthCallFn,
+  strictInterfaceChecking?: boolean,
 ): Promise<boolean> => {
   validateAddress(walletAddress);
 
   switch (requirement.type) {
     case 'TOKEN':
-      return validateTokenRequirement(walletAddress, requirement, ethCall);
+      return validateTokenRequirement(walletAddress, requirement, ethCall, strictInterfaceChecking);
     case 'NFT':
-      return validateNftRequirement(walletAddress, requirement, ethCall);
+      return validateNftRequirement(walletAddress, requirement, ethCall, strictInterfaceChecking);
     case 'ROLE':
-      return validateOnChainRoleRequirement(walletAddress, requirement, ethCall);
+      return validateOnChainRoleRequirement(walletAddress, requirement, ethCall, strictInterfaceChecking);
     case 'WHITELIST':
       throw new GuildPassError(
         'WHITELIST requirement validation requires an external allow-list (local data or an API) that is not yet available in this SDK.',

@@ -2,7 +2,7 @@
 import { GuildPassError } from '../../errors/GuildPassError';
 import { GuildPassErrorCode } from '../../errors/errorCodes';
 import { HttpClient } from '../../http/httpClient';
-import { RequestOptions } from '../../types/common';
+import { BlockTag, RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
 import { ContractProvider, EthCallRequest } from './provider.types';
 import { HttpHooks, RpcFailoverHookPayload } from '../../http/http.types';
@@ -168,6 +168,7 @@ export class JsonRpcContractProvider implements ContractProvider {
   private async attemptEthCall(
     url: string,
     request: EthCallRequest,
+    blockTag: string,
     options?: RequestOptions,
   ): Promise<unknown> {
     const callOptions = {
@@ -185,7 +186,7 @@ export class JsonRpcContractProvider implements ContractProvider {
         jsonrpc: '2.0',
         id: 1,
         method: 'eth_call',
-        params: [{ to: request.to, data: request.data }, 'latest'],
+        params: [{ to: request.to, data: request.data }, blockTag],
       },
       callOptions,
     );
@@ -209,13 +210,14 @@ export class JsonRpcContractProvider implements ContractProvider {
   private async attemptBatchEthCall(
     url: string,
     requests: EthCallRequest[],
+    blockTag: string,
     options?: RequestOptions,
   ): Promise<BatchItemResult[]> {
     const batchPayload: JsonRpcRequest[] = requests.map((call, idx) => ({
       jsonrpc: '2.0',
       id: idx + 1,
       method: 'eth_call',
-      params: [{ to: call.to, data: call.data }, 'latest'],
+      params: [{ to: call.to, data: call.data }, blockTag],
     }));
 
     const callOptions = {
@@ -285,17 +287,106 @@ export class JsonRpcContractProvider implements ContractProvider {
     return results;
   }
 
-  // ---------------------------------------------------------------------------
-  // ContractProvider interface
-  // ---------------------------------------------------------------------------
+  /**
+   * Issues `eth_blockNumber` against a single RPC endpoint URL.
+   * Returns the current block height as a bigint.
+   */
+  private async attemptEthBlockNumber(url: string, options?: RequestOptions): Promise<bigint> {
+    const callOptions = {
+      retry: {
+        allowMutatingRetry: true,
+        ...options?.retry,
+      },
+      timeoutMs: options?.timeoutMs,
+      signal: options?.signal,
+    };
 
-  public async ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown> {
+    const payload = await this.http.post<JsonRpcSuccess & JsonRpcError, JsonRpcRequest>(
+      url,
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_blockNumber',
+        params: [],
+      },
+      callOptions,
+    );
+
+    if (payload?.error) {
+      throw new GuildPassError(
+        payload.error.message ?? 'RPC provider returned an error',
+        GuildPassErrorCode.HTTP_ERROR,
+        undefined,
+        payload.error,
+      );
+    }
+
+    if (typeof payload?.result !== 'string' || !/^0x[0-9a-fA-F]+$/.test(payload.result)) {
+      throw new GuildPassError(
+        'Invalid eth_blockNumber response',
+        GuildPassErrorCode.INVALID_RESPONSE,
+      );
+    }
+
+    return BigInt(payload.result);
+  }
+
+  /**
+   * Resolves the block tag to use for `eth_call` based on the
+   * `RequestOptions.confirmations` value.
+   *
+   * - `undefined` → `'latest'` (default, backwards compatible).
+   * - `'safe'` / `'finalized'` → returned directly.
+   * - `number` → issues `eth_blockNumber` and computes
+   *   `blockNumber - confirmations` as a hex block tag.
+   *
+   * Throws `INVALID_INPUT` if `confirmations` exceeds the current block height.
+   */
+  private async resolveBlockTag(confirmations: BlockTag | undefined, options?: RequestOptions): Promise<string> {
+    if (confirmations === undefined) return 'latest';
+    if (confirmations === 'safe' || confirmations === 'finalized') return confirmations;
+
     let lastError: unknown;
 
     for (let i = 0; i < this.rpcUrls.length; i++) {
       const url = this.rpcUrls[i];
       try {
-        return await this.attemptEthCall(url, request, options);
+        const blockNumber = await this.attemptEthBlockNumber(url, options);
+        const target = blockNumber - BigInt(confirmations);
+        if (target < 0n) {
+          throw new GuildPassError(
+            `confirmations=${confirmations} exceeds current block height ${blockNumber}`,
+            GuildPassErrorCode.INVALID_INPUT,
+          );
+        }
+        return `0x${target.toString(16)}`;
+      } catch (err) {
+        if (isTransientError(err)) {
+          lastError = err;
+          if (i + 1 < this.rpcUrls.length) {
+            this.notifyFailover(url, this.rpcUrls[i + 1], err);
+          }
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw lastError;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ContractProvider interface
+  // ---------------------------------------------------------------------------
+
+  public async ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown> {
+    const blockTag = await this.resolveBlockTag((options as any)?.confirmations, options);
+    let lastError: unknown;
+
+    for (let i = 0; i < this.rpcUrls.length; i++) {
+      const url = this.rpcUrls[i];
+      try {
+        return await this.attemptEthCall(url, request, blockTag, options);
       } catch (err) {
         if (isTransientError(err)) {
           lastError = err;
@@ -318,12 +409,13 @@ export class JsonRpcContractProvider implements ContractProvider {
     requests: EthCallRequest[],
     options?: RequestOptions,
   ): Promise<BatchItemResult[]> {
+    const blockTag = await this.resolveBlockTag((options as any)?.confirmations, options);
     let lastError: unknown;
 
     for (let i = 0; i < this.rpcUrls.length; i++) {
       const url = this.rpcUrls[i];
       try {
-        return await this.attemptBatchEthCall(url, requests, options);
+        return await this.attemptBatchEthCall(url, requests, blockTag, options);
       } catch (err) {
         if (isTransientError(err)) {
           lastError = err;

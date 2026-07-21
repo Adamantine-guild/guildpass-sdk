@@ -34,14 +34,8 @@ pnpm-debug.log*
 .env.test.local
 .env.production.local
 
-# Excluded files
+# Agents
 AGENTS.md
-update-test.js
-update-test.mjs
-temp/
 
-# Lock files
+# Package
 package-lock.json
-pnpm-lock.yaml
-yarn.lock
-bun.lock

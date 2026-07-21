@@ -15,20 +15,25 @@ interface CacheAdapter {
 ```
 
 ### `get<T>(key)`
+
 - Returns the deserialized value or **`null`** when the key is missing or expired.
 - **Never throw.** Return `null` for any error (malformed data, connection failure) so the SDK falls through to the network.
 
 ### `set<T>(key, value, ttl?)`
+
 - **TTL is in milliseconds.** `undefined` or omitted means the entry should never expire (store until explicitly deleted).
 - The SDK always passes JSON-roundtrippable values. Adapters may store the raw JSON string or apply their own encoding.
 
 ### `delete(key)`
+
 - Remove a single entry. **Must never throw.**
 
 ### `clear()`
+
 - Remove **all** entries. **Must never throw.**
 
 ### `deleteByPrefix(prefix)` (optional)
+
 - Remove all entries whose key starts with `prefix`.
 - **Implement this for efficient invalidation.** Without it:
   - `invalidateGuildCache()` falls back to deleting known exact keys (may miss entries with dynamic suffixes).
@@ -37,11 +42,21 @@ interface CacheAdapter {
 
 ## TTL Semantics
 
-| `ttl` parameter    | Behaviour                                                        |
-| :----------------- | :--------------------------------------------------------------- |
-| `undefined`        | Never expire. Store until explicitly deleted or evicted by LRU.  |
-| `0`                | Never expire (equivalent to `undefined`).                        |
-| `> 0`              | Expire after `ttl` milliseconds.                                 |
+| `ttl` parameter | Behaviour                                                       |
+| :-------------- | :-------------------------------------------------------------- |
+| `undefined`     | Never expire. Store until explicitly deleted or evicted by LRU. |
+| `0`             | Expires immediately — effectively disables caching.             |
+| `> 0`           | Expire after `ttl` milliseconds.                                |
+
+> **Note:** `cacheTtl: 0` is a valid config value (`sdkConfig` accepts any
+> `ttl >= 0`), but it is **not** a "never expire" sentinel — it behaves as a
+> zero-millisecond TTL. Since `expiresAt` is computed as `Date.now() + ttl`,
+> an entry written with `ttl: 0` is already expired by the time the next
+> `get()` checks it. In practice this means **every read becomes a cache
+> miss and triggers a fresh network call**, silently disabling caching
+> without any error. If you intend for entries to never expire, omit
+> `cacheTtl` (or pass `undefined`) — only an _absent_ TTL means "no
+> expiration."
 
 The SDK passes `cacheTtl` (from client config) as the `ttl` argument. Methods that accept a per-call override subtract elapsed time from the deadline before storing.
 
@@ -82,6 +97,8 @@ If a hook throws or the hook itself is absent, the error is swallowed silently. 
 
 ### Redis (production-ready)
 
+> **Note:** A complete, runnable project for this Redis adapter — including integration tests — is available in the [`examples/redis-cache-adapter`](../examples/redis-cache-adapter/) directory.
+
 ```typescript
 import { CacheAdapter } from '@guildpass/sdk';
 import { createClient, type RedisClientType } from 'redis';
@@ -96,11 +113,15 @@ export class RedisCacheAdapter implements CacheAdapter {
   }
 
   async connect(): Promise<void> {
-    await this.client.connect();
+    if (!this.client.isOpen) {
+      await this.client.connect();
+    }
   }
 
   async disconnect(): Promise<void> {
-    await this.client.quit();
+    if (this.client.isOpen) {
+      await this.client.quit();
+    }
   }
 
   private prefixed(key: string): string {
@@ -150,14 +171,20 @@ export class RedisCacheAdapter implements CacheAdapter {
   async deleteByPrefix(prefix: string): Promise<void> {
     try {
       const pattern = this.prefixed(prefix) + '*';
-      let cursor = 0;
-      do {
-        const result = await this.client.scan(cursor, { MATCH: pattern, COUNT: 100 });
-        cursor = result.cursor;
-        if (result.keys.length > 0) {
-          await this.client.del(result.keys);
+      const batchSize = 100;
+      let keysToDelete: string[] = [];
+
+      for await (const key of this.client.scanIterator({ MATCH: pattern, COUNT: batchSize })) {
+        keysToDelete.push(key);
+        if (keysToDelete.length >= batchSize) {
+          await this.client.unlink(keysToDelete);
+          keysToDelete = [];
         }
-      } while (cursor !== 0);
+      }
+
+      if (keysToDelete.length > 0) {
+        await this.client.unlink(keysToDelete);
+      }
     } catch {
       // swallowed by SDK
     }

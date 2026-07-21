@@ -221,6 +221,11 @@ client.contracts.getChainConfig(42161);
 
 The existing single-chain config (`rpcUrl` + `contractAddress` at the top level) remains fully backwards-compatible and is used as a fallback when no `chains` map is set.
 
+## On-chain Validation Limitations
+
+> [!NOTE]
+> **Known limitations:** On-chain validation for `WHITELIST` access requirements is currently not supported and will throw a `NOT_IMPLEMENTED` error. For whitelist-style gating, we recommend using the SIWE-based or off-chain `client.access.checkAccess()` API instead.
+
 ## On-chain Guild Ownership
 
 `client.contracts.getGuildOwner` queries the resolved chain contract through JSON-RPC:

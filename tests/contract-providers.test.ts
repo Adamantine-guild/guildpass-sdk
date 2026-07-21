@@ -1,8 +1,9 @@
 // GuildPass SDK: Pull in package or module bindings.
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { BlockTag } from '../src/types/common';
 import {
   BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
@@ -601,5 +602,250 @@ describe('chunk concurrency', () => {
         }
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Confirmations / block tag tests
+// ---------------------------------------------------------------------------
+
+describe('confirmations block tag support', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const verifyBlockTag = async (
+    confirmations: BlockTag | undefined,
+    expectedTag: string,
+  ) => {
+    let requestBody: any;
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      requestBody = JSON.parse(String(init.body));
+      if (requestBody.method === 'eth_blockNumber') {
+        return rpcResponse('0x100');
+      }
+      return rpcResponse(BALANCE_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    const opts = confirmations === undefined ? undefined : { confirmations };
+    await client.contracts.getMembershipTokenBalance({ walletAddress: WALLET }, opts);
+    expect(requestBody.params).toEqual([{ to: CONTRACT, data: expect.any(String) }, expectedTag]);
+  };
+
+  it('default (confirmations omitted) sends latest block tag', async () => {
+    let requestBody: any;
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      requestBody = JSON.parse(String(init.body));
+      return rpcResponse(BALANCE_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    await client.contracts.getMembershipTokenBalance({ walletAddress: WALLET });
+    expect(requestBody.params[1]).toBe('latest');
+  });
+
+  it('numeric confirmations computes historical block tag via eth_blockNumber', async () => {
+    let callCount = 0;
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      callCount++;
+      if (body.method === 'eth_blockNumber') {
+        expect(body.params).toEqual([]);
+        return rpcResponse('0x100');
+      }
+      expect(body.params[1]).toBe('0xfa');
+      return rpcResponse(BALANCE_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    const balance = await client.contracts.getMembershipTokenBalance(
+      { walletAddress: WALLET },
+      { confirmations: 6 },
+    );
+
+    expect(balance).toBe('5');
+    expect(callCount).toBe(2);
+  });
+
+  it('safe named tag passed directly to eth_call', () =>
+    verifyBlockTag('safe', 'safe'));
+
+  it('finalized named tag passed directly to eth_call', () =>
+    verifyBlockTag('finalized', 'finalized'));
+
+  it('guild owner call respects numeric confirmations', async () => {
+    let callCount = 0;
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      callCount++;
+      if (body.method === 'eth_blockNumber') {
+        return rpcResponse('0x64');
+      }
+      expect(body.params[1]).toBe('0x5e');
+      return rpcResponse(OWNER_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    const owner = await client.contracts.getGuildOwner(
+      { guildId: 'guild_1' },
+      { confirmations: 6 },
+    );
+
+    expect(owner).toBe(OWNER);
+    expect(callCount).toBe(2);
+  });
+
+  it('batch eth_call respects numeric confirmations', async () => {
+    let callCount = 0;
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      callCount++;
+      if (body.method === 'eth_blockNumber') {
+        return rpcResponse('0x100');
+      }
+      // Batch — body is an array
+      if (Array.isArray(body)) {
+        for (const req of body) {
+          expect(req.params[1]).toBe('0xfa');
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => [{ jsonrpc: '2.0', id: 1, result: BALANCE_RESULT }],
+          text: async () => JSON.stringify([{ jsonrpc: '2.0', id: 1, result: BALANCE_RESULT }]),
+        };
+      }
+      return rpcResponse(BALANCE_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    const results = await client.contracts.getMembershipTokenBalancesBatch(
+      { walletAddresses: [WALLET] },
+      { confirmations: 6 },
+    );
+
+    expect(results).toEqual([{ status: 'success', result: '5' }]);
+    expect(callCount).toBe(2);
+  });
+
+  it('batch guild owners call respects numeric confirmations', async () => {
+    let callCount = 0;
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      callCount++;
+      if (body.method === 'eth_blockNumber') {
+        return rpcResponse('0x100');
+      }
+      if (Array.isArray(body)) {
+        for (const req of body) {
+          expect(req.params[1]).toBe('0xfa');
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => [{ jsonrpc: '2.0', id: 1, result: OWNER_RESULT }],
+          text: async () => JSON.stringify([{ jsonrpc: '2.0', id: 1, result: OWNER_RESULT }]),
+        };
+      }
+      return rpcResponse(OWNER_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    const results = await client.contracts.getGuildOwnersBatch(
+      { guildIds: ['guild_1'] },
+      { confirmations: 6 },
+    );
+
+    expect(results).toEqual([{ status: 'success', result: OWNER }]);
+    expect(callCount).toBe(2);
+  });
+
+  it('throws INVALID_INPUT when confirmations exceeds block height', async () => {
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      if (body.method === 'eth_blockNumber') {
+        return rpcResponse('0x5');
+      }
+      return rpcResponse(BALANCE_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    await expect(
+      client.contracts.getMembershipTokenBalance(
+        { walletAddress: WALLET },
+        { confirmations: 10 },
+      ),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_INPUT,
+      message: expect.stringContaining('confirmations=10 exceeds current block height'),
+    });
+  });
+
+  it('confirmations with getMembershipTokenBalanceFormatted', async () => {
+    let callCount = 0;
+    mockFetch().mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      callCount++;
+      if (body.method === 'eth_blockNumber') {
+        return rpcResponse('0x100');
+      }
+      return rpcResponse(BALANCE_RESULT);
+    });
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
+
+    const result = await client.contracts.getMembershipTokenBalanceFormatted(
+      { walletAddress: WALLET },
+      { confirmations: 6 },
+    );
+
+    expect(result.raw).toBe('5');
+    expect(callCount).toBeGreaterThanOrEqual(2);
   });
 });
