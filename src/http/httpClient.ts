@@ -246,7 +246,7 @@ function extractMeta(response: HttpResponse, durationMs: number): ResponseMetada
   return {
     requestId: safeGet('x-request-id'),
     correlationId: safeGet('x-correlation-id'),
-    traceId: safeGet('traceparent'),
+    traceId: safeGet('traceparent') ?? safeGet('x-trace-id'),
     status: response.status,
     durationMs,
   };
