@@ -12,3 +12,12 @@ describe('GuildPass SDK - Edge Runtime Compatibility', () => {
     expect(typeof client.invalidateGuildCache).toBe('function');
   });
 });
+import { constantTimeEqual } from '../../../src/utils/constantTime';
+
+describe('constantTimeEqual - Edge Runtime Compatibility', () => {
+  it('works under V8 edge constraints', () => {
+    expect(constantTimeEqual('abc', 'abc')).toBe(true);
+    expect(constantTimeEqual('abc', 'abd')).toBe(false);
+    expect(constantTimeEqual('abc', 'abcd')).toBe(false);
+  });
+});
