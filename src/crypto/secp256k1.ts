@@ -10,10 +10,11 @@
  * This module has no dependencies on SIWE types or logic. It depends only on
  * `js-sha3` for keccak256.
  *
- * NOTE: `ecRecover` currently uses Node's `Buffer` to convert the message hash
- * to a bigint. This was moved verbatim from the original implementation to
- * preserve behaviour exactly; a universal (Buffer-free) conversion is a
- * follow-up so the module is fully edge/browser-portable.
+ * WARNING: `scalarMul` uses non-constant-time double-and-add. This is acceptable
+ * for signature **verification** (where all scalars are public) but MUST be
+ * replaced with a constant-time variant (Montgomery ladder, etc.) if this
+ * module is ever extended to support **signing** — a timing side channel on
+ * the secret nonce k would leak the private key.
  */
 import { keccak256 } from 'js-sha3';
 
@@ -68,6 +69,9 @@ export function modInv(a: bigint, p: bigint): bigint {
   return modPow(a, p - BigInt(2), p);
 }
 
+/** EIP-2: reject s values in the upper half of the curve order. */
+const SECP256K1_N_HALF = SECP256K1_N >> BigInt(1);
+
 /** Point doubling on secp256k1. */
 export function pointDouble(P: Point): Point {
   if (!P) return null;
@@ -98,7 +102,14 @@ export function pointAdd(P: Point, Q: Point): Point {
   return { x: x3, y: y3 };
 }
 
-/** Scalar multiplication on secp256k1 (double-and-add). */
+/**
+ * Scalar multiplication on secp256k1 (double-and-add).
+ *
+ * @warning NOT constant-time. Execution time depends on the Hamming weight of
+ * `k`. Safe for signature **verification** where `k` is a public scalar.
+ * **DO NOT USE** with a secret scalar (e.g., a signing nonce) — the timing
+ * side channel would leak the key.
+ */
 export function scalarMul(k: bigint, P: Point): Point {
   if (!P) return null;
   let result: Point = null;
@@ -124,8 +135,11 @@ export function scalarMul(k: bigint, P: Point): Point {
  * @returns        65-byte uncompressed public key (04 || x || y), or null on failure
  */
 export function ecRecover(msgHash: Uint8Array, v: number, r: bigint, s: bigint): Uint8Array | null {
+  if (!msgHash || msgHash.length === 0) return null;
   if (r <= BigInt(0) || r >= SECP256K1_N) return null;
   if (s <= BigInt(0) || s >= SECP256K1_N) return null;
+  // EIP-2: reject malleable signatures (s must be in the lower half of N)
+  if (s > SECP256K1_N_HALF) return null;
   // Candidate x-coordinate for R: r (and optionally r + N, but for Ethereum
   // signatures that second candidate is almost always off-curve, so we skip it).
   const x = r;
@@ -138,8 +152,9 @@ export function ecRecover(msgHash: Uint8Array, v: number, r: bigint, s: bigint):
   // Choose parity of y to match v
   if (Number(y & BigInt(1)) !== v) y = SECP256K1_P - y;
   const R: Point = { x, y };
-  // e = hash as bigint
-  const e = BigInt('0x' + Buffer.from(msgHash).toString('hex'));
+  // e = hash as bigint (pure-JS, no Buffer dependency)
+  // msgHash.length is already checked to be > 0 above
+  const e = BigInt('0x' + Array.from(msgHash).map(b => b.toString(16).padStart(2, '0')).join(''));
   // Q = r⁻¹ · (s·R − e·G)
   const rInv = modInv(r, SECP256K1_N);
   const G: Point = { x: SECP256K1_GX, y: SECP256K1_GY };
@@ -202,8 +217,23 @@ export function hashPersonalMessage(message: string): Uint8Array {
 
 /**
  * Derives the checksummed Ethereum address from a 65-byte uncompressed public key.
+ *
+ * Validates that the key is the correct length, has the 0x04 prefix, and that
+ * the x/y coordinates satisfy the secp256k1 curve equation before hashing.
+ * Returns `null` (rather than a garbage address) when validation fails.
  */
-export function publicKeyToAddress(pubKey: Uint8Array): string {
+export function publicKeyToAddress(pubKey: Uint8Array): string | null {
+  if (pubKey.length !== 65 || pubKey[0] !== 0x04) return null;
+  // Validate the point is on the curve: y² ≡ x³ + 7 (mod P)
+  const x = BigInt(
+    '0x' + Array.from(pubKey.slice(1, 33)).map(b => b.toString(16).padStart(2, '0')).join(''),
+  );
+  const y = BigInt(
+    '0x' + Array.from(pubKey.slice(33, 65)).map(b => b.toString(16).padStart(2, '0')).join(''),
+  );
+  const ySq = (y * y) % SECP256K1_P;
+  const xCubedPlusB = (modPow(x, BigInt(3), SECP256K1_P) + SECP256K1_B) % SECP256K1_P;
+  if (ySq !== xCubedPlusB) return null;
   // Take bytes 1..64 (skip 0x04 prefix), keccak256 them, take last 20 bytes
   const pubKeyBody = pubKey.slice(1); // 64 bytes: x || y
   const hash = keccak256(pubKeyBody);
