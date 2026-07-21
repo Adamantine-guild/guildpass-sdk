@@ -1770,6 +1770,24 @@ describe('Address Argument Encoding', () => {
       expect(encoded).toBe(fixture.calldata);
     }
   });
+
+  it('throws INVALID_INPUT for a non-address string', () => {
+    expect(() => encodeAddressArgument('not-an-address')).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
+
+  it('throws INVALID_INPUT for a short hex string', () => {
+    expect(() => encodeAddressArgument('0x1234')).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
+
+  it('throws INVALID_INPUT for an empty string', () => {
+    expect(() => encodeAddressArgument('')).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
 });
 
 describe('Guild ID Encoding', () => {
@@ -1792,6 +1810,18 @@ describe('Guild ID Encoding', () => {
     expect(() => encodeGuildId(longString)).toThrow(
       expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
     );
+  });
+
+  it('rejects guild IDs exceeding MAX_BYTES32_INPUT_LENGTH to prevent memory DoS', () => {
+    const veryLongString = 'x'.repeat(300);
+    expect(() => encodeGuildId(veryLongString)).toThrow(
+      expect.objectContaining({ code: GuildPassErrorCode.INVALID_INPUT }),
+    );
+  });
+
+  it('accepts guild ID at the MAX_BYTES32_INPUT_LENGTH boundary in UTF-8 mode', () => {
+    const boundaryString = 'x'.repeat(32);
+    expect(() => encodeGuildId(boundaryString)).not.toThrow();
   });
 
   it('produces consistent full calldata for getGuildOwner calls', () => {

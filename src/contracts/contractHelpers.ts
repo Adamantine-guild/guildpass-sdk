@@ -44,13 +44,23 @@ export const REQUIREMENT_TYPE_INTERFACE_IDS: Record<string, string | undefined> 
 
 export const HEX_32_BYTES_LENGTH = 64;
 
+/** Maximum byte length for the pre-encode check in `encodeBytes32`. */
+export const MAX_BYTES32_INPUT_LENGTH = 256;
+
 const HEX_WORD_REGEX = /^0x[a-fA-F0-9]{64}$/;
+const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
 // ---------------------------------------------------------------------------
 // Pure ABI argument encoders
 // ---------------------------------------------------------------------------
 
 export const encodeAddressArgument = (address: string): string => {
+  if (!ADDRESS_REGEX.test(address)) {
+    throw new GuildPassError(
+      `Invalid address for ABI encoding: "${address}"`,
+      GuildPassErrorCode.INVALID_INPUT,
+    );
+  }
   return address.slice(2).toLowerCase().padStart(HEX_32_BYTES_LENGTH, '0');
 };
 
@@ -101,6 +111,14 @@ export const encodeBytes32 = (value: string, label: string): string => {
   }
 
   // ── Mode 3: UTF-8 right-zero-padded to 32 bytes ───────────────────────────
+  // Pre-check input length to avoid excessive memory allocation in
+  // TextEncoder().encode() before the post-encode 32-byte limit check.
+  if (trimmed.length > MAX_BYTES32_INPUT_LENGTH) {
+    throw new GuildPassError(
+      `${label} exceeds maximum bytes32 input length of ${MAX_BYTES32_INPUT_LENGTH} characters (got ${trimmed.length})`,
+      GuildPassErrorCode.INVALID_INPUT,
+    );
+  }
   const bytes = new TextEncoder().encode(trimmed);
   if (bytes.length > 32) {
     throw new GuildPassError(
