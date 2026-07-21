@@ -15,20 +15,25 @@ interface CacheAdapter {
 ```
 
 ### `get<T>(key)`
+
 - Returns the deserialized value or **`null`** when the key is missing or expired.
 - **Never throw.** Return `null` for any error (malformed data, connection failure) so the SDK falls through to the network.
 
 ### `set<T>(key, value, ttl?)`
+
 - **TTL is in milliseconds.** `undefined` or omitted means the entry should never expire (store until explicitly deleted).
 - The SDK always passes JSON-roundtrippable values. Adapters may store the raw JSON string or apply their own encoding.
 
 ### `delete(key)`
+
 - Remove a single entry. **Must never throw.**
 
 ### `clear()`
+
 - Remove **all** entries. **Must never throw.**
 
 ### `deleteByPrefix(prefix)` (optional)
+
 - Remove all entries whose key starts with `prefix`.
 - **Implement this for efficient invalidation.** Without it:
   - `invalidateGuildCache()` falls back to deleting known exact keys (may miss entries with dynamic suffixes).
@@ -37,11 +42,21 @@ interface CacheAdapter {
 
 ## TTL Semantics
 
-| `ttl` parameter    | Behaviour                                                        |
-| :----------------- | :--------------------------------------------------------------- |
-| `undefined`        | Never expire. Store until explicitly deleted or evicted by LRU.  |
-| `0`                | Never expire (equivalent to `undefined`).                        |
-| `> 0`              | Expire after `ttl` milliseconds.                                 |
+| `ttl` parameter | Behaviour                                                       |
+| :-------------- | :-------------------------------------------------------------- |
+| `undefined`     | Never expire. Store until explicitly deleted or evicted by LRU. |
+| `0`             | Expires immediately — effectively disables caching.             |
+| `> 0`           | Expire after `ttl` milliseconds.                                |
+
+> **Note:** `cacheTtl: 0` is a valid config value (`sdkConfig` accepts any
+> `ttl >= 0`), but it is **not** a "never expire" sentinel — it behaves as a
+> zero-millisecond TTL. Since `expiresAt` is computed as `Date.now() + ttl`,
+> an entry written with `ttl: 0` is already expired by the time the next
+> `get()` checks it. In practice this means **every read becomes a cache
+> miss and triggers a fresh network call**, silently disabling caching
+> without any error. If you intend for entries to never expire, omit
+> `cacheTtl` (or pass `undefined`) — only an _absent_ TTL means "no
+> expiration."
 
 The SDK passes `cacheTtl` (from client config) as the `ttl` argument. Methods that accept a per-call override subtract elapsed time from the deadline before storing.
 
