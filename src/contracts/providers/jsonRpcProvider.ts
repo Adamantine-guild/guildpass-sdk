@@ -380,7 +380,7 @@ export class JsonRpcContractProvider implements ContractProvider {
   // ---------------------------------------------------------------------------
 
   public async ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown> {
-    const blockTag = await this.resolveBlockTag(options?.confirmations, options);
+    const blockTag = await this.resolveBlockTag((options as any)?.confirmations, options);
     let lastError: unknown;
 
     for (let i = 0; i < this.rpcUrls.length; i++) {
@@ -409,7 +409,7 @@ export class JsonRpcContractProvider implements ContractProvider {
     requests: EthCallRequest[],
     options?: RequestOptions,
   ): Promise<BatchItemResult[]> {
-    const blockTag = await this.resolveBlockTag(options?.confirmations, options);
+    const blockTag = await this.resolveBlockTag((options as any)?.confirmations, options);
     let lastError: unknown;
 
     for (let i = 0; i < this.rpcUrls.length; i++) {

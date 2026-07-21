@@ -68,16 +68,16 @@ export class MembershipService {
   public async isMember<T extends RequestOptions | undefined = undefined>(
     params: MembershipParams,
     options?: T,
-  ): Promise<T extends { includeMeta: true } ? { data: boolean; meta: ResponseMeta } : boolean> {
+  ): Promise<T extends { includeMeta: true } ? { data: boolean; meta: ResponseMetadata } : boolean> {
     // GuildPass SDK: Define internal reference identifier.
     const result = await this.getMembership(params, options as any);
     const hasMeta = (options as any)?.includeMeta && typeof result === 'object' && 'meta' in result;
     if (hasMeta) {
-      const withMeta = result as { data: Membership; meta: ResponseMeta };
+      const withMeta = result as { data: Membership; meta: ResponseMetadata };
       return { data: withMeta.data.isActive, meta: withMeta.meta } as any;
     }
     // GuildPass SDK: Send back computed results to the caller.
-    return (result as Membership).isActive as any;
+    return (result as any).isActive as any;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.
