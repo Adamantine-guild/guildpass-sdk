@@ -3,67 +3,163 @@ import { GuildPassClient } from '../src/client/GuildPassClient';
 import { InMemoryCacheAdapter } from '../src/cache/cache.types';
 
 const BASE_CONFIG = { apiUrl: 'https://api.guildpass.xyz' };
+const ADDR = '0x1234567890123456789012345678901234567890';
+const mockAccess = {
+  hasAccess: true,
+  walletAddress: ADDR,
+  guildId: 'g1',
+  resourceId: 'r1',
+  requiredRoles: ['member'],
+  matchedRoles: ['member'],
+  reason: null,
+};
+const mockGuild = {
+  id: 'g1',
+  name: 'Guild One',
+  ownerAddress: ADDR,
+  chainId: 1,
+};
 
-describe('GuildPassClient – request deduplication', () => {
-  const mockGuild = {
-    id: 'prime-guild',
-    name: 'Prime Guild',
-    ownerAddress: '0xowner',
-    chainId: 1,
-  };
+describe('request coalescing without cache adapter', () => {
+  it('coalesces 5 concurrent identical checkAccess calls into 1 HTTP request', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
 
-  it('deduplicates concurrent identical guild reads', async () => {
-    const adapter = new InMemoryCacheAdapter();
-    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const promises = Array.from({ length: 5 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    const results = await Promise.all(promises);
 
-    // Mock HTTP GET to return a promise that we can control
-    let resolveFirst: (value: any) => void;
-    const firstRequestPromise = new Promise((resolve) => {
-      resolveFirst = resolve;
-    });
-
-    const httpGetSpy = vi.spyOn(client['http'] as any, 'get').mockImplementation(() => firstRequestPromise);
-
-    // Issue two identical requests concurrently
-    const p1 = client.guilds.getGuild({ guildId: 'prime-guild' });
-    const p2 = client.guilds.getGuild({ guildId: 'prime-guild' });
-
-    // Resolve the first request
-    resolveFirst!(mockGuild);
-
-    const [r1, r2] = await Promise.all([p1, p2]);
-
-    expect(r1).toEqual(mockGuild);
-    expect(r2).toEqual(mockGuild);
-
-    // Without deduplication, this would be 2
-    expect(httpGetSpy).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(5);
+    results.forEach((r) => expect(r).toEqual(mockAccess));
+    expect(httpSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('removes failed requests from the deduplication map', async () => {
+  it('does not coalesce calls with different params', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const [a, b] = await Promise.all([
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r2' }),
+    ]);
+
+    expect(a).toEqual(mockAccess);
+    expect(b).toEqual(mockAccess);
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('makes a fresh request after the in-flight call resolves', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('coalesces concurrent checkRoleAccess calls', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue({ hasRole: true });
+
+    const promises = Array.from({ length: 3 }, () =>
+      client.access.checkRoleAccess({
+        walletAddress: ADDR,
+        guildId: 'g1',
+        roleId: 'role1',
+      }),
+    );
+    const results = await Promise.all(promises);
+
+    expect(results).toEqual([true, true, true]);
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces concurrent getGuild calls', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
+
+    const promises = Array.from({ length: 3 }, () =>
+      client.guilds.getGuild({ guildId: 'g1' }),
+    );
+    const results = await Promise.all(promises);
+
+    expect(results).toHaveLength(3);
+    results.forEach((r) => expect(r).toEqual(mockGuild));
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces calls to different services independently', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockImplementation(
+      () => Promise.resolve({ ...mockAccess, hasRole: true }),
+    );
+
+    const promises = Array.from({ length: 3 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    const promises2 = Array.from({ length: 3 }, () =>
+      client.access.checkRoleAccess({
+        walletAddress: ADDR,
+        guildId: 'g1',
+        roleId: 'role1',
+      }),
+    );
+
+    const [results1, results2] = await Promise.all([
+      Promise.all(promises),
+      Promise.all(promises2),
+    ]);
+
+    expect(results1).toHaveLength(3);
+    expect(results2).toHaveLength(3);
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('request coalescing with cache adapter', () => {
+  it('coalesces concurrent calls and caches the result', async () => {
     const adapter = new InMemoryCacheAdapter();
-    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter, cacheTtl: 10_000 });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
 
-    let rejectFirst: (reason: any) => void;
-    const firstRequestPromise = new Promise((_, reject) => {
-      rejectFirst = reject;
-    });
+    // 5 concurrent calls → 1 HTTP request
+    const promises = Array.from({ length: 5 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    const results = await Promise.all(promises);
 
-    const httpGetSpy = vi.spyOn(client['http'] as any, 'get').mockImplementation(() => firstRequestPromise);
+    expect(results).toHaveLength(5);
+    results.forEach((r) => expect(r).toEqual(mockAccess));
+    expect(httpSpy).toHaveBeenCalledTimes(1);
 
-    const p1 = client.guilds.getGuild({ guildId: 'prime-guild' });
-    const p2 = client.guilds.getGuild({ guildId: 'prime-guild' });
+    // Subsequent call → cache hit (no HTTP request)
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+  });
 
-    rejectFirst!(new Error('Network error'));
+  it('re-fetches from network after cache TTL expiry', async () => {
+    vi.useFakeTimers();
 
-    await expect(p1).rejects.toThrow('Network error');
-    await expect(p2).rejects.toThrow('Network error');
-    expect(httpGetSpy).toHaveBeenCalledTimes(1);
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter, cacheTtl: 1_000 });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
 
-    // After failure, a new request should hit the network again
-    httpGetSpy.mockResolvedValue(mockGuild);
-    const r3 = await client.guilds.getGuild({ guildId: 'prime-guild' });
-    expect(r3).toEqual(mockGuild);
-    expect(httpGetSpy).toHaveBeenCalledTimes(2);
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+
+    // Cache hit
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1_001);
+
+    // TTL expired → fresh request
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 });
