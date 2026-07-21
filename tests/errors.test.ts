@@ -38,6 +38,25 @@ describe('GuildPassError', () => {
     expect(error500.code).toBe(GuildPassErrorCode.SERVER_ERROR);
     // GuildPass SDK: End of logic containment structure block.
   });
+
+  it('preserves unrecognized nested error entries in HTTP error messages', () => {
+    const error = GuildPassError.fromHttpError(422, {
+      errors: [{ field: 'guildId', issue: 'required' }, { message: 'walletAddress is invalid' }],
+    });
+
+    expect(error.code).toBe(GuildPassErrorCode.INVALID_INPUT);
+    expect(error.message).toContain('{"field":"guildId","issue":"required"}');
+    expect(error.message).toContain('walletAddress is invalid');
+  });
+
+  it('caps long unrecognized nested error fallbacks in HTTP error messages', () => {
+    const error = GuildPassError.fromHttpError(422, {
+      errors: [{ issue: 'x'.repeat(600) }],
+    });
+
+    expect(error.message.length).toBeLessThanOrEqual(500);
+    expect(error.message.endsWith('...')).toBe(true);
+  });
   // GuildPass SDK: End of logic containment structure block.
 });
 

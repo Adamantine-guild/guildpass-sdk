@@ -41,9 +41,17 @@ export class GuildPassError extends Error {
       if (typeof d.message === 'string') return d.message;
       if (d.code && typeof d.message === 'string') return d.message;
       if (Array.isArray(d.errors)) {
-        const msgs = d.errors
-          .map((e: any) => (typeof e === 'string' ? e : e && (e.message || e.msg || e.code)))
-          .filter(Boolean);
+        const formatNestedError = (e: any): string | undefined => {
+          const message = typeof e === 'string' ? e : e && (e.message || e.msg || e.code);
+          if (message) return String(message);
+          try {
+            const fallback = JSON.stringify(e);
+            return fallback.length > 500 ? `${fallback.slice(0, 497)}...` : fallback;
+          } catch {
+            return String(e);
+          }
+        };
+        const msgs = d.errors.map(formatNestedError).filter(Boolean);
         if (msgs.length === 1) return msgs[0];
         if (msgs.length > 1) return msgs.join('; ');
       }
