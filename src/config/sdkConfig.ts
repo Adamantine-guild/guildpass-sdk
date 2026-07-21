@@ -44,6 +44,19 @@ export type GuildPassClientConfig = {
   sendClientMetadata?: boolean;
   clientName?: string;
   clientVersion?: string;
+  /**
+   * When enabled, the SDK verifies (via ERC-165 `supportsInterface`) that the
+   * target contract implements the expected interface before evaluating TOKEN,
+   * NFT, or ROLE requirements. If the contract both implements ERC-165 *and*
+   * reports it does NOT support the expected interface, validation fails closed
+   * with an `INVALID_CONFIG` error.
+   *
+   * Non-ERC-165 contracts (e.g. many ERC-20 tokens) are always allowed through
+   * regardless of this flag, preserving backward compatibility.
+   *
+   * @default false
+   */
+  strictInterfaceChecking?: boolean;
 };
 
 /**
@@ -103,6 +116,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.sendClientMetadata !== undefined && typeof config.sendClientMetadata !== 'boolean') {
     throwConfigError('sendClientMetadata must be a boolean', 'sendClientMetadata', 'invalid_type', config.sendClientMetadata);
+  }
+
+  if (config.strictInterfaceChecking !== undefined && typeof config.strictInterfaceChecking !== 'boolean') {
+    throwConfigError('strictInterfaceChecking must be a boolean', 'strictInterfaceChecking', 'invalid_type', config.strictInterfaceChecking);
   }
 
   if (config.clientName !== undefined && typeof config.clientName !== 'string') {

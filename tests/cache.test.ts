@@ -115,9 +115,7 @@ describe('GuildPassClient – cache integration', () => {
     const adapter = new InMemoryCacheAdapter();
     const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter, cacheTtl: 1_000 });
 
-    const httpGet = vi
-      .spyOn(client['http'] as any, 'get')
-      .mockResolvedValue(mockGuild);
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
 
     await client.guilds.getGuild({ guildId: 'prime-guild' });
     expect(httpGet).toHaveBeenCalledTimes(1);
@@ -128,6 +126,19 @@ describe('GuildPassClient – cache integration', () => {
     expect(httpGet).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
+  });
+
+  it('cacheTtl: 0 causes every access check to hit the network (no effective caching)', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter, cacheTtl: 0 });
+
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
+
+    await client.guilds.getGuild({ guildId: 'prime-guild' });
+    await client.guilds.getGuild({ guildId: 'prime-guild' });
+    await client.guilds.getGuild({ guildId: 'prime-guild' });
+
+    expect(httpGet).toHaveBeenCalledTimes(3);
   });
 
   it('caches access checks with the correct composite key (normalised to lowercase)', async () => {
@@ -223,7 +234,9 @@ describe('GuildPassClient – cache integration', () => {
     expect(await adapter.get('access:checkAccess:prime-guild:basic-docs:0xdef')).toBeNull();
     expect(await adapter.get('membership:getMembership:prime-guild:0xabc')).toBeNull();
     // Other guild should NOT be removed
-    expect(await adapter.get('access:checkAccess:other-guild:premium-docs:0xabc')).toEqual({ hasAccess: true });
+    expect(await adapter.get('access:checkAccess:other-guild:premium-docs:0xabc')).toEqual({
+      hasAccess: true,
+    });
     // Unrelated key should NOT be removed
     expect(await adapter.get('unrelated:key')).toBe('keep');
   });
@@ -320,7 +333,7 @@ describe('GuildPassClient – cache integration', () => {
       const client = new GuildPassClient({
         ...BASE_CONFIG,
         cache: adapter,
-        hooks: { onCacheError }
+        hooks: { onCacheError },
       });
 
       const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
@@ -329,11 +342,13 @@ describe('GuildPassClient – cache integration', () => {
 
       expect(result).toEqual(mockGuild);
       expect(httpSpy).toHaveBeenCalledTimes(1);
-      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
-        operation: 'get',
-        key: 'guilds:getGuild:g1',
-        error: expect.any(Error)
-      }));
+      expect(onCacheError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'get',
+          key: 'guilds:getGuild:g1',
+          error: expect.any(Error),
+        }),
+      );
     });
 
     it('still returns response if cache.set() fails', async () => {
@@ -344,7 +359,7 @@ describe('GuildPassClient – cache integration', () => {
       const client = new GuildPassClient({
         ...BASE_CONFIG,
         cache: adapter,
-        hooks: { onCacheError }
+        hooks: { onCacheError },
       });
 
       vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockGuild);
@@ -352,11 +367,13 @@ describe('GuildPassClient – cache integration', () => {
       const result = await client.guilds.getGuild({ guildId: 'g1' });
 
       expect(result).toEqual(mockGuild);
-      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
-        operation: 'set',
-        key: 'guilds:getGuild:g1',
-        error: expect.any(Error)
-      }));
+      expect(onCacheError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'set',
+          key: 'guilds:getGuild:g1',
+          error: expect.any(Error),
+        }),
+      );
     });
 
     it('isolates failures in invalidateGuildCache', async () => {
@@ -367,14 +384,16 @@ describe('GuildPassClient – cache integration', () => {
       const client = new GuildPassClient({
         ...BASE_CONFIG,
         cache: adapter,
-        hooks: { onCacheError }
+        hooks: { onCacheError },
       });
 
       await expect(client.invalidateGuildCache('g1')).resolves.toBeUndefined();
-      expect(onCacheError).toHaveBeenCalledWith(expect.objectContaining({
-        operation: 'delete',
-        error: expect.any(Error)
-      }));
+      expect(onCacheError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'delete',
+          error: expect.any(Error),
+        }),
+      );
     });
   });
 });

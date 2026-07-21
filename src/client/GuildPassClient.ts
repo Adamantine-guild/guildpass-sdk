@@ -219,26 +219,13 @@ export class GuildPassClient {
   // Internal cache-wrapping factories
   // ---------------------------------------------------------------------------
 
-  private async withCache<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    try {
-      const cached = await this.cache!.get<T>(key);
-      if (cached !== null) return cached;
-    } catch (error: any) {
-      this.handleCacheError('get', error, key);
-    }
-
+  private async coalesce<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const inFlight = this.inFlightRequests.get(key);
     if (inFlight) return inFlight;
 
     const promise = (async () => {
       try {
-        const result = await fn();
-        try {
-          await this.cache!.set(key, result, this.cacheTtl);
-        } catch (error: any) {
-          this.handleCacheError('set', error, key);
-        }
-        return result;
+        return await fn();
       } finally {
         this.inFlightRequests.delete(key);
       }
@@ -246,6 +233,29 @@ export class GuildPassClient {
 
     this.inFlightRequests.set(key, promise);
     return promise;
+  }
+
+  private async withCache<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    if (this.cache) {
+      try {
+        const cached = await this.cache.get<T>(key);
+        if (cached !== null) return cached;
+      } catch (error: any) {
+        this.handleCacheError('get', error, key);
+      }
+    }
+
+    return this.coalesce(key, async () => {
+      const result = await fn();
+      if (this.cache) {
+        try {
+          await this.cache.set(key, result, this.cacheTtl);
+        } catch (error: any) {
+          this.handleCacheError('set', error, key);
+        }
+      }
+      return result;
+    });
   }
 
   /**
