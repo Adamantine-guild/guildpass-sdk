@@ -5,3 +5,6 @@
  */
 export type { SiweMessage, SiweVerifyParams, SiweVerifyResult, SiweParseResult } from './siwe.types';
 export { formatSiweMessage, parseSiweMessage, verifySiweSignature, generateSiweNonce } from './siwe.helpers';
+export type { NonceStore } from './nonceStore';
+export { InMemoryNonceStore } from './nonceStore';
+export { verifySiweSignatureWithReplayProtection } from './replayProtection';

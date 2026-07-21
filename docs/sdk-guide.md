@@ -585,3 +585,92 @@ The `requestMeta` property is `undefined` for network errors, timeouts, and canc
 ### Security
 
 Only the safe diagnostic headers (`X-Request-ID`, `X-Correlation-ID`, `Traceparent`) are captured. Sensitive headers like `Authorization`, `X-API-Key`, `Cookie`, and `Set-Cookie` are never exposed in response metadata. The metadata object is intentionally limited to fields useful for diagnostics and support.
+
+## SIWE Replay Protection
+
+`verifySiweSignature` checks a Sign-In With Ethereum (EIP-4361) message's
+signature, domain, nonce, and expiry, but it does not track which nonces have
+already been used. On its own, the exact same valid signed message can be
+re-submitted and re-verified any number of times. The nonce exists to stop
+this, but only if the relying party remembers which nonces it has already
+accepted.
+
+The SDK provides a pluggable `NonceStore` (mirroring the `CacheAdapter`
+pattern), an in-memory reference implementation, and a
+`verifySiweSignatureWithReplayProtection` wrapper that verifies the signature
+and atomically consumes the nonce, rejecting any message whose nonce has
+already been used.
+
+```typescript
+import {
+  InMemoryNonceStore,
+  verifySiweSignatureWithReplayProtection,
+} from '@guildpass/sdk';
+
+const nonceStore = new InMemoryNonceStore();
+
+const result = await verifySiweSignatureWithReplayProtection(
+  { message: rawSiweMessage, signature },
+  nonceStore,
+);
+
+if (result.success) {
+  // First time through: verified and the nonce is now consumed.
+} else {
+  // A second submission of the same message lands here with
+  // result.code === 'SIWE_REPLAY_DETECTED'.
+}
+```
+
+Verification runs first; the nonce is consumed only after the signature and all
+EIP-4361 checks pass. A failed or malformed request therefore never burns a
+nonce, so an attacker cannot grief a legitimate user by pre-consuming it. The
+consumed marker's TTL is aligned with the message's `expirationTime`, so a nonce
+is never pruned while the message it protects is still valid.
+
+### Production Deployments Need a Shared Store
+
+`InMemoryNonceStore` keeps its record in a single process. On a multi-instance
+server (multiple nodes behind a load balancer, or serverless functions), a nonce
+consumed on one instance is unknown to the others, which leaves a replay window
+across the fleet. For those deployments, back the same `NonceStore` interface
+with a shared store such as Redis.
+
+The interface is deliberately small so this is straightforward:
+
+```typescript
+import type { NonceStore } from '@guildpass/sdk';
+import type { Redis } from 'ioredis';
+
+class RedisNonceStore implements NonceStore {
+  constructor(private readonly redis: Redis) {}
+
+  async consume(nonce: string, ttl?: number): Promise<boolean> {
+    // SET key value NX PX <ttl> returns null when the key already exists.
+    // NX makes the check-and-consume atomic in a single round-trip, so two
+    // concurrent verifications of the same nonce cannot both succeed.
+    const key = `siwe:nonce:${nonce}`;
+    const outcome =
+      ttl && ttl > 0
+        ? await this.redis.set(key, '1', 'PX', ttl, 'NX')
+        : await this.redis.set(key, '1', 'NX');
+    return outcome === 'OK';
+  }
+
+  async has(nonce: string): Promise<boolean> {
+    return (await this.redis.exists(`siwe:nonce:${nonce}`)) === 1;
+  }
+}
+```
+
+Redis `SET ... NX` gives the same atomic check-and-consume guarantee as the
+in-memory store, and `PX` applies the TTL so consumed nonces expire on their own
+without unbounded growth.
+
+### Security Note
+
+`consume` is the single authoritative replay gate: it returns `true` only when a
+nonce was previously unused. Unlike the cache layer, a `NonceStore` failure is
+not silently ignored. If the store throws while consuming, the wrapper fails
+closed and rejects verification rather than risk accepting a replay it could not
+rule out.
