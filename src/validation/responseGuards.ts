@@ -1,127 +1,120 @@
-﻿import { AccessRequirement } from '../types/common';
-import { AccessCheckResult } from '../access/access.types';
-import { Membership } from '../membership/membership.types';
-import { GuildRole } from '../roles/roles.types';
-import { Guild, GuildConfig } from '../guilds/guilds.types';
+﻿/**
+ * Runtime shape guards for the SDK's core public response types.
+ *
+ * Built on the composable schema DSL from `schema.ts` — zero runtime
+ * dependencies, minimal bundle footprint. Validates nested object/array
+ * shapes recursively, not just top-level field types.
+ *
+ * Each guard is a type predicate so TypeScript narrows types in branches
+ * that check the guard.
+ */
 
-const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+import {
+  object,
+  string,
+  nonEmptyString,
+  address,
+  boolean,
+  number,
+  optional,
+  array,
+  nonEmptyArray,
+  record,
+  type Validator,
+} from './schema';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import type { AccessCheckResult } from '../access/access.types';
+import type { Membership } from '../membership/membership.types';
+import type { GuildRole } from '../roles/roles.types';
+import type { Guild, GuildConfig } from '../guilds/guilds.types';
+import type { AccessRequirement } from '../types/common';
 
-function isString(value: unknown): value is string {
-  return typeof value === 'string';
-}
+// ---------------------------------------------------------------------------
+// AccessRequirement schema (used inline by isGuildRole)
+// ---------------------------------------------------------------------------
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
+const VALID_REQUIREMENT_TYPES = new Set(['TOKEN', 'NFT', 'ROLE', 'WHITELIST']);
 
-function isAddress(value: unknown): value is string {
-  return typeof value === 'string' && ADDRESS_REGEX.test(value);
-}
+const isAccessRequirement: Validator<AccessRequirement> = object({
+  type: (v): v is AccessRequirement['type'] =>
+    typeof v === 'string' && VALID_REQUIREMENT_TYPES.has(v),
+  address: optional(address()),
+  id: optional(string()),
+  minAmount: optional(string()),
+});
 
-function isOptionalString(value: unknown): boolean {
-  return value === undefined || isString(value);
-}
-
-function isBoolean(value: unknown): value is boolean {
-  return typeof value === 'boolean';
-}
-
-function isNumber(value: unknown): value is number {
-  return typeof value === 'number' && !Number.isNaN(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(isString);
-}
-
-function isNonEmptyStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.length > 0 && value.every(isNonEmptyString);
-}
+// ---------------------------------------------------------------------------
+// Domain response schemas
+// ---------------------------------------------------------------------------
 
 /**
- * Runtime shape guards for the SDK's core public response types. These are
- * intentionally hand-written and dependency-free to keep bundle size
- * minimal, and only check the fields the SDK itself relies on.
+ * Checks whether `value` conforms to the {@link AccessCheckResult} shape.
  *
- * In addition to type checks, the guards perform content-level validation
- * for well-known formats (Ethereum addresses, non-empty identifiers) to
- * catch malformed API responses early.
+ * Validates all fields including nested array content (non-empty strings
+ * for `requiredRoles`/`matchedRoles`) and Ethereum address format.
  */
-export function isAccessCheckResult(value: unknown): value is AccessCheckResult {
-  return (
-    isRecord(value) &&
-    isBoolean(value.hasAccess) &&
-    isAddress(value.walletAddress) &&
-    isNonEmptyString(value.guildId) &&
-    isNonEmptyString(value.resourceId) &&
-    isNonEmptyStringArray(value.requiredRoles) &&
-    isNonEmptyStringArray(value.matchedRoles) &&
-    isOptionalString(value.reason)
-  );
-}
+export const isAccessCheckResult: Validator<AccessCheckResult> = object({
+  hasAccess: boolean(),
+  walletAddress: address(),
+  guildId: nonEmptyString(),
+  resourceId: nonEmptyString(),
+  requiredRoles: nonEmptyArray(nonEmptyString()),
+  matchedRoles: nonEmptyArray(nonEmptyString()),
+  reason: optional(string()),
+});
 
-export function isMembership(value: unknown): value is Membership {
-  return (
-    isRecord(value) &&
-    isAddress(value.walletAddress) &&
-    isNonEmptyString(value.guildId) &&
-    isBoolean(value.isActive) &&
-    isStringArray(value.roles) &&
-    isOptionalString(value.joinedAt) &&
-    isOptionalString(value.expiresAt)
-  );
-}
+/**
+ * Checks whether `value` conforms to the {@link Membership} shape.
+ */
+export const isMembership: Validator<Membership> = object({
+  walletAddress: address(),
+  guildId: nonEmptyString(),
+  isActive: boolean(),
+  roles: array(string()),
+  joinedAt: optional(string()),
+  expiresAt: optional(string()),
+});
 
-export function isGuildRole(value: unknown): value is GuildRole {
-  return (
-    isRecord(value) &&
-    isNonEmptyString(value.id) &&
-    isNonEmptyString(value.name) &&
-    isOptionalString(value.description) &&
-    (value.requirements === undefined || (Array.isArray(value.requirements) && value.requirements.every(isAccessRequirement)))
-  );
-}
+/**
+ * Checks whether `value` conforms to the {@link GuildRole} shape.
+ */
+export const isGuildRole: Validator<GuildRole> = object({
+  id: nonEmptyString(),
+  name: nonEmptyString(),
+  description: optional(string()),
+  requirements: optional(array(isAccessRequirement)),
+});
 
-export function isGuildRoleArray(value: unknown): value is GuildRole[] {
-  return Array.isArray(value) && value.every(isGuildRole);
-}
+/**
+ * Checks whether `value` is an array of {@link GuildRole} objects.
+ */
+export const isGuildRoleArray: Validator<GuildRole[]> = array(isGuildRole);
 
-const VALID_REQUIREMENT_TYPES = new Set(["TOKEN", "NFT", "ROLE", "WHITELIST"]);
+/**
+ * Checks whether `value` conforms to the {@link Guild} shape.
+ */
+export const isGuild: Validator<Guild> = object({
+  id: nonEmptyString(),
+  name: nonEmptyString(),
+  description: optional(string()),
+  ownerAddress: address(),
+  contractAddress: optional(string()),
+  chainId: number(),
+});
 
-function isAccessRequirement(value: unknown): value is AccessRequirement {
-  if (!isRecord(value)) return false;
-  if (!isString(value.type) || !VALID_REQUIREMENT_TYPES.has(value.type)) return false;
-  if (value.address !== undefined && !isString(value.address)) return false;
-  if (value.id !== undefined && !isString(value.id)) return false;
-  if (value.minAmount !== undefined && !isString(value.minAmount)) return false;
-  return true;
-}
-
-export function isGuild(value: unknown): value is Guild {
-  return (
-    isRecord(value) &&
-    isNonEmptyString(value.id) &&
-    isNonEmptyString(value.name) &&
-    isOptionalString(value.description) &&
-    isAddress(value.ownerAddress) &&
-    isOptionalString(value.contractAddress) &&
-    isNumber(value.chainId)
-  );
-}
-
-export function isGuildConfig(value: unknown): value is GuildConfig {
-  return (
-    isRecord(value) &&
-    isString(value.id) &&
-    isOptionalString(value.theme) &&
-    isOptionalString(value.logoUrl) &&
-    isOptionalString(value.bannerUrl) &&
-    (value.socialLinks === undefined || isRecord(value.socialLinks))
-  );
-}
+/**
+ * Checks whether `value` conforms to the {@link GuildConfig} shape.
+ *
+ * Note: `socialLinks` is validated as a `Record<string, string>`, so every
+ * value in the record is checked to be a string — deeper than the original
+ * `isRecord`-only check.
+ */
+export const isGuildConfig: Validator<GuildConfig> = object({
+  id: string(),
+  theme: optional(string()),
+  logoUrl: optional(string()),
+  bannerUrl: optional(string()),
+  socialLinks: optional(record(string())),
+});
 
 
