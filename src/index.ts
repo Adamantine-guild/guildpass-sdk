@@ -26,6 +26,7 @@ export * from './errors/guards';
 export * from './utils/address';
 export * from './utils/validation';
 export * from './utils/formatting';
+export * from './utils/pagination';
 
 // Config
 export * from './config/defaultConfig';
