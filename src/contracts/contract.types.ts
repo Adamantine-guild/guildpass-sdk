@@ -19,6 +19,7 @@ export type ChainConfig = {
    */
   rpcUrls?: string[];
   contractAddress?: string;
+  multicallAddress?: string;
 };
 
 // GuildPass SDK: Exposed interface structure.

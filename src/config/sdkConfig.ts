@@ -29,6 +29,8 @@ export type GuildPassClientConfig = {
    */
   contractProvider?: ContractProvider;
   contractAddress?: string;
+  multicallAddress?: string;
+  batchStrategy?: 'jsonrpc' | 'multicall3';
   /** Per-chain RPC URL and contract address overrides, keyed by chain ID. */
   chains?: Record<number, ChainConfig>;
   apiKey?: string;
@@ -111,6 +113,28 @@ export function validateConfig(config: GuildPassClientConfig): void {
       if (typeof provider[method] !== 'function') {
         throwConfigError(`contractProvider must implement ${method}(): function`, 'contractProvider', 'invalid_type', config.contractProvider);
       }
+    }
+  }
+
+  if (config.batchStrategy !== undefined && config.batchStrategy !== 'jsonrpc' && config.batchStrategy !== 'multicall3') {
+    throwConfigError("batchStrategy must be 'jsonrpc' or 'multicall3'", 'batchStrategy', 'invalid_value', config.batchStrategy);
+  }
+
+  if (config.multicallAddress !== undefined) {
+    try {
+      validateAddress(config.multicallAddress);
+    } catch {
+      throw new GuildPassError(
+        'Invalid multicallAddress: expected a valid EVM address',
+        GuildPassErrorCode.INVALID_CONFIG,
+        undefined,
+        {
+          field: 'multicallAddress',
+          reason: 'format',
+          value: config.multicallAddress,
+          valueType: 'string',
+        }
+      );
     }
   }
 
@@ -270,6 +294,24 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
         );
       }
     }
+
+    if (chainConfig.multicallAddress !== undefined) {
+      try {
+        validateAddress(chainConfig.multicallAddress);
+      } catch (err: any) {
+        throw new GuildPassError(
+          `Invalid chains[${chainIdKey}].multicallAddress: expected a valid EVM address`,
+          GuildPassErrorCode.INVALID_CONFIG,
+          undefined,
+          {
+            field: `chains.${chainIdKey}.multicallAddress`,
+            reason: 'format',
+            value: chainConfig.multicallAddress,
+            valueType: 'string',
+          }
+        );
+      }
+    }
   }
 }
 
@@ -304,5 +346,10 @@ export function resolveChainConfig(config: GuildPassClientConfig, chainId: numbe
       { field: 'chainId', reason: 'NOT_FOUND', value: chainId, valueType: 'number' }
     );
   }
-  return { rpcUrl: config.rpcUrl, rpcUrls: config.rpcUrls, contractAddress: config.contractAddress };
+  return {
+    rpcUrl: config.rpcUrl,
+    rpcUrls: config.rpcUrls,
+    contractAddress: config.contractAddress,
+    multicallAddress: config.multicallAddress,
+  };
 }
