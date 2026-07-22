@@ -3,6 +3,8 @@ import { GuildPassErrorCode } from '../errors/errorCodes';
 import { AccessRequirement } from '../types/common';
 import { validateAddress } from '../utils/validation';
 import { areAddressesEqual } from '../utils/address';
+import { keccak256 } from 'js-sha3';
+import type { AbiFunction } from './contract.types';
 
 // ---------------------------------------------------------------------------
 // Function selectors (first 4 bytes of keccak256(signature))
@@ -43,6 +45,9 @@ export const REQUIREMENT_TYPE_INTERFACE_IDS: Record<string, string | undefined> 
 };
 
 export const HEX_32_BYTES_LENGTH = 64;
+
+/** ERC-1155 `balanceOf(address,uint256)`. */
+export const ERC1155_BALANCE_OF_SELECTOR = '0x00fdd58e';
 
 /** Maximum byte length for the pre-encode check in `encodeBytes32`. */
 export const MAX_BYTES32_INPUT_LENGTH = 256;
@@ -160,6 +165,123 @@ export const encodeUint256Argument = (value: string, label = 'value'): string =>
   }
 
   return hex.padStart(HEX_32_BYTES_LENGTH, '0');
+};
+
+/** A single input or output entry in an ABI function definition. */
+export type AbiParameter = {
+  type: string;
+  name?: string;
+  internalType?: string;
+};
+
+/**
+ * Computes the 4-byte function selector for an ABI function signature string
+ * (e.g. `"balanceOf(address)"` → `"0x70a08231"`).
+ */
+export const getFunctionSelector = (signature: string): string => {
+  const bytes = keccak256(signature);
+  return `0x${bytes.slice(0, 8)}`;
+};
+
+/**
+ * Encodes an array of static ABI parameters into calldata (selector + arguments).
+ * Supports the most common read-only types: address, bool, uint256 (and
+ * fixed-width variants uint8..uint128), int256, bytes32.
+ *
+ * Dynamic types (bytes, string) and tuples are **not** supported; passing one
+ * will throw `INVALID_INPUT`.
+ *
+ * @param selector - The 4-byte function selector (with `0x` prefix).
+ * @param inputs   - The ABI input definitions.
+ * @param args     - The argument values in the same order as `inputs`.
+ * @returns        - The full calldata hex string (selector + encoded args).
+ */
+export const encodeAbiParams = (
+  selector: string,
+  inputs: AbiParameter[],
+  args: unknown[],
+): string => {
+  if (inputs.length !== args.length) {
+    throw new GuildPassError(
+      `ABI encoding: expected ${inputs.length} arguments but got ${args.length}`,
+      GuildPassErrorCode.INVALID_INPUT,
+    );
+  }
+
+  const encodedParts = inputs.map((input, i) => {
+    const arg = args[i];
+    const baseType = input.type.replace(/\[\d*\]$/, ''); // strip array suffix
+
+    switch (baseType) {
+      case 'address':
+        if (typeof arg !== 'string') {
+          throw new GuildPassError(
+            `ABI encoding: argument ${i} ("${input.name ?? input.type}") must be a string`,
+            GuildPassErrorCode.INVALID_INPUT,
+          );
+        }
+        return encodeAddressArgument(arg);
+
+      case 'bool':
+        return arg
+          ? '0000000000000000000000000000000000000000000000000000000000000001'
+          : '0000000000000000000000000000000000000000000000000000000000000000';
+
+      case 'uint256':
+      case 'uint':
+      case 'uint8':
+      case 'uint16':
+      case 'uint32':
+      case 'uint64':
+      case 'uint128':
+      case 'int256':
+      case 'int':
+        if (typeof arg === 'number') {
+          return BigInt(arg).toString(16).padStart(64, '0');
+        }
+        if (typeof arg === 'bigint') {
+          return arg.toString(16).padStart(64, '0');
+        }
+        if (typeof arg === 'string') {
+          return encodeUint256Argument(arg, `argument ${i} ("${input.name ?? input.type}")`);
+        }
+        throw new GuildPassError(
+          `ABI encoding: argument ${i} ("${input.name ?? input.type}") must be a number, bigint, or numeric string`,
+          GuildPassErrorCode.INVALID_INPUT,
+        );
+
+      case 'bytes32':
+        if (typeof arg !== 'string') {
+          throw new GuildPassError(
+            `ABI encoding: argument ${i} ("${input.name ?? input.type}") must be a hex string`,
+            GuildPassErrorCode.INVALID_INPUT,
+          );
+        }
+        // Accept hex strings (with or without 0x) and pad/truncate to 32 bytes
+        if (arg.startsWith('0x')) {
+          return arg.slice(2).toLowerCase().padEnd(64, '0').slice(0, 64);
+        }
+        return arg.toLowerCase().padEnd(64, '0').slice(0, 64);
+
+      default:
+        throw new GuildPassError(
+          `ABI encoding: unsupported type "${input.type}" for argument ${i}` +
+          ` ("${input.name ?? ''}"). Only static types (address, bool, uint*, int*, bytes32) are supported.`,
+          GuildPassErrorCode.INVALID_INPUT,
+        );
+    }
+  });
+
+  return `${selector}${encodedParts.join('')}`;
+};
+
+/**
+ * Builds the canonical function signature from an ABI function fragment
+ * (e.g. `balanceOf(address,uint256)`) for computing its selector.
+ */
+export const buildFunctionSignature = (abi: AbiFunction): string => {
+  const inputs = abi.inputs.map((i) => i.type).join(',');
+  return `${abi.name}(${inputs})`;
 };
 
 // ---------------------------------------------------------------------------

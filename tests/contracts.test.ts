@@ -1894,3 +1894,408 @@ describe('JSON-RPC Error Mapping', () => {
     },
   );
 });
+
+// ---------------------------------------------------------------------------
+// Convenience methods: getERC20Balance, ownsERC721Token, getERC1155Balance
+// ---------------------------------------------------------------------------
+describe('ContractClient convenience methods', () => {
+  const client = new GuildPassClient({
+    apiUrl: BASE_URL,
+    rpcUrl: RPC_URL,
+  });
+
+  const hexWord = (hex: string): string => `0x${hex.padStart(64, '0')}`;
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('getERC20Balance', () => {
+    const TOKEN = '0x4444444444444444444444444444444444444444';
+
+    it('returns the ERC-20 balance for a wallet', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: hexWord((42).toString(16)) }),
+      });
+
+      const balance = await client.contracts.getERC20Balance({
+        walletAddress: WALLET,
+        contractAddress: TOKEN,
+      });
+
+      expect(balance).toBe('42');
+
+      const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+      expect(body.method).toBe('eth_call');
+      expect(body.params[0].to).toBe(TOKEN);
+      expect(body.params[0].data).toBe(`${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}`);
+    });
+
+    it('validates wallet and contract addresses before calling', async () => {
+      await expect(
+        client.contracts.getERC20Balance({
+          walletAddress: 'not-an-address',
+          contractAddress: TOKEN,
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('surfaces RPC errors', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ error: { code: -32000, message: 'execution reverted' } }),
+      });
+
+      await expect(
+        client.contracts.getERC20Balance({ walletAddress: WALLET, contractAddress: TOKEN }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.HTTP_ERROR });
+    });
+
+    it('throws INVALID_CONFIG when rpcUrl is missing', async () => {
+      const noRpc = new GuildPassClient({ apiUrl: BASE_URL });
+      await expect(
+        noRpc.contracts.getERC20Balance({ walletAddress: WALLET, contractAddress: TOKEN }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_CONFIG });
+    });
+  });
+
+  describe('ownsERC721Token', () => {
+    const NFT = '0x5555555555555555555555555555555555555555';
+
+    it('returns true when the wallet owns the token', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 1,
+            result: `0x000000000000000000000000${WALLET.slice(2)}`,
+          }),
+      });
+
+      const result = await client.contracts.ownsERC721Token({
+        walletAddress: WALLET,
+        tokenId: '42',
+        contractAddress: NFT,
+      });
+
+      expect(result).toBe(true);
+
+      const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+      expect(body.params[0].to).toBe(NFT);
+      // ownerOf(uint256) selector + 32-byte token ID
+      expect(body.params[0].data).toBe(
+        '0x6352211e000000000000000000000000000000000000000000000000000000000000002a',
+      );
+    });
+
+    it('returns false when a different wallet owns the token', async () => {
+      const otherWallet = '0x9999999999999999999999999999999999999999';
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () =>
+          Promise.resolve({
+            jsonrpc: '2.0',
+            id: 1,
+            result: `0x000000000000000000000000${otherWallet.slice(2)}`,
+          }),
+      });
+
+      const result = await client.contracts.ownsERC721Token({
+        walletAddress: WALLET,
+        tokenId: '1',
+        contractAddress: NFT,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('validates addresses before calling', async () => {
+      await expect(
+        client.contracts.ownsERC721Token({
+          walletAddress: 'bad',
+          tokenId: '1',
+          contractAddress: NFT,
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('surfaces RPC errors', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ error: { code: -32000, message: 'execution reverted' } }),
+      });
+
+      await expect(
+        client.contracts.ownsERC721Token({ walletAddress: WALLET, tokenId: '1', contractAddress: NFT }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.HTTP_ERROR });
+    });
+  });
+
+  describe('getERC1155Balance', () => {
+    const ERC1155 = '0x6666666666666666666666666666666666666666';
+
+    it('returns the ERC-1155 balance for a wallet and token ID', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: hexWord((7).toString(16)) }),
+      });
+
+      const balance = await client.contracts.getERC1155Balance({
+        walletAddress: WALLET,
+        tokenId: '99',
+        contractAddress: ERC1155,
+      });
+
+      expect(balance).toBe('7');
+
+      const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+      expect(body.params[0].to).toBe(ERC1155);
+      // balanceOf(address,uint256) selector + address + tokenId
+      expect(body.params[0].data).toBe(
+        `0x00fdd58e${encodeAddressArgument(WALLET)}${(99).toString(16).padStart(64, '0')}`,
+      );
+    });
+
+    it('validates addresses before calling', async () => {
+      await expect(
+        client.contracts.getERC1155Balance({
+          walletAddress: 'bad',
+          tokenId: '1',
+          contractAddress: ERC1155,
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('surfaces RPC errors', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ error: { code: -32000, message: 'execution reverted' } }),
+      });
+
+      await expect(
+        client.contracts.getERC1155Balance({
+          walletAddress: WALLET,
+          tokenId: '1',
+          contractAddress: ERC1155,
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.HTTP_ERROR });
+    });
+  });
+
+  describe('readContract (generic escape hatch)', () => {
+    const CUSTOM = '0x7777777777777777777777777777777777777777';
+
+    it('encodes and executes an arbitrary read call', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: hexWord((100).toString(16)) }),
+      });
+
+      const abi = {
+        type: 'function' as const,
+        name: 'balanceOf',
+        inputs: [{ type: 'address', name: 'owner' }],
+        outputs: [{ type: 'uint256', name: 'balance' }],
+      };
+
+      const result = await client.contracts.readContract({
+        contractAddress: CUSTOM,
+        abi,
+        functionName: 'balanceOf',
+        args: [WALLET],
+      });
+
+      expect(typeof result).toBe('string');
+      expect(result).toBe(hexWord((100).toString(16)));
+
+      const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+      expect(body.params[0].to).toBe(CUSTOM);
+      expect(body.params[0].data).toBe(`${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}`);
+    });
+
+    it('encodes multi-argument calls', async () => {
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: hexWord((1).toString(16)) }),
+      });
+
+      const abi = {
+        type: 'function' as const,
+        name: 'balanceOf',
+        inputs: [
+          { type: 'address', name: 'owner' },
+          { type: 'uint256', name: 'id' },
+        ],
+        outputs: [{ type: 'uint256', name: 'balance' }],
+      };
+
+      const result = await client.contracts.readContract({
+        contractAddress: CUSTOM,
+        abi,
+        functionName: 'balanceOf',
+        args: [WALLET, '42'],
+      });
+
+      expect(typeof result).toBe('string');
+      expect(result).toBe(hexWord((1).toString(16)));
+
+      const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+      expect(body.params[0].data).toBe(
+        `0x00fdd58e${encodeAddressArgument(WALLET)}${(42).toString(16).padStart(64, '0')}`,
+      );
+    });
+
+    it('rejects when functionName does not match ABI name', async () => {
+      const abi = {
+        type: 'function' as const,
+        name: 'balanceOf',
+        inputs: [{ type: 'address', name: 'owner' }],
+        outputs: [{ type: 'uint256', name: 'balance' }],
+      };
+
+      await expect(
+        client.contracts.readContract({
+          contractAddress: CUSTOM,
+          abi,
+          functionName: 'totalSupply',
+          args: [WALLET],
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('validates the contract address', async () => {
+      const abi = {
+        type: 'function' as const,
+        name: 'balanceOf',
+        inputs: [{ type: 'address', name: 'owner' }],
+        outputs: [{ type: 'uint256', name: 'balance' }],
+      };
+
+      await expect(
+        client.contracts.readContract({
+          contractAddress: 'bad',
+          abi,
+          functionName: 'balanceOf',
+          args: [WALLET],
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('throws INVALID_CONFIG when rpcUrl is missing', async () => {
+      const noRpc = new GuildPassClient({ apiUrl: BASE_URL });
+      const abi = {
+        type: 'function' as const,
+        name: 'balanceOf',
+        inputs: [{ type: 'address', name: 'owner' }],
+        outputs: [{ type: 'uint256', name: 'balance' }],
+      };
+
+      await expect(
+        noRpc.contracts.readContract({
+          contractAddress: CUSTOM,
+          abi,
+          functionName: 'balanceOf',
+          args: [WALLET],
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_CONFIG });
+    });
+
+    it('rejects unsupported ABI types', async () => {
+      const abi = {
+        type: 'function' as const,
+        name: 'foo',
+        inputs: [{ type: 'string', name: 'bar' }],
+        outputs: [{ type: 'uint256' }],
+      };
+
+      await expect(
+        client.contracts.readContract({
+          contractAddress: CUSTOM,
+          abi,
+          functionName: 'foo',
+          args: ['hello'],
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('chain resolution and failover integration', () => {
+    it('resolves per-chain RPC config for convenience methods', async () => {
+      const chainClient = new GuildPassClient({
+        apiUrl: BASE_URL,
+        chains: {
+          8453: {
+            rpcUrl: 'https://base.rpc',
+            contractAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          },
+        },
+      });
+
+      mockFetch().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, result: hexWord((5).toString(16)) }),
+      });
+
+      const balance = await chainClient.contracts.getERC20Balance({
+        walletAddress: WALLET,
+        chainId: 8453,
+        contractAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      });
+
+      expect(balance).toBe('5');
+      expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/base\.rpc\/?$/), expect.any(Object));
+    });
+
+    it('uses custom contractProvider when configured', async () => {
+      const mockProvider = {
+        ethCall: vi.fn().mockResolvedValue(`0x${(42).toString(16).padStart(64, '0')}`),
+        batchEthCall: vi.fn(),
+      };
+
+      const providerClient = new GuildPassClient({
+        apiUrl: BASE_URL,
+        contractProvider: mockProvider,
+      });
+
+      const balance = await providerClient.contracts.getERC20Balance({
+        walletAddress: WALLET,
+        contractAddress: CONTRACT,
+      });
+
+      expect(balance).toBe('42');
+      expect(mockProvider.ethCall).toHaveBeenCalledOnce();
+    });
+  });
+});

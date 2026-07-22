@@ -11,6 +11,19 @@ The SDK supports tree-shakeable subpath imports. You can import focused modules 
 - `@guildpass/sdk/adapters/viem`: `viemContractProvider` — wrap a viem `PublicClient` as the SDK's contract provider.
 - `@guildpass/sdk/adapters/ethers`: `ethersContractProvider` — wrap an ethers `Provider` as the SDK's contract provider.
 
+ABI encoding helpers and contract decoders are re-exported from the root package:
+
+```typescript
+import {
+  getFunctionSelector,
+  encodeAbiParams,
+  buildFunctionSignature,
+  decodeAddressResult,
+  decodeUint256Result,
+  decodeBoolResult,
+} from '@guildpass/sdk';
+```
+
 You can also import everything from the root `@guildpass/sdk` (the adapter subpaths are intentionally excluded from the root export so they never affect your bundle unless imported).
 
 ## GuildPassClient
@@ -153,6 +166,13 @@ Fetches full guild configuration.
 
 ## Contract Module (`client.contracts`)
 
+The contract module provides typed convenience methods for common token-gating
+patterns (ERC-20 balance, ERC-721 ownership, ERC-1155 balance), plus a generic
+`readContract` escape hatch for any read-only function not covered by the
+built-in methods. All methods participate in the same per-chain resolution
+(issue #1) and multi-RPC failover (issue #14) logic — no duplicate
+chain-selection code.
+
 ### `getGuildOwner(params: GuildOwnerParams)`
 
 Fetches the owner wallet address for a guild through the configured JSON-RPC
@@ -201,6 +221,89 @@ await client.contracts.getMembershipTokenBalance({
 - **Requires**: `rpcUrl` and either `contractAddress` in client config or a per-call override
 - **Contract call**: `eth_call` to `balanceOf(address)`
 - **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config, `INVALID_ADDRESS` for invalid wallet or contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
+
+### `getERC20Balance(params: ERC20BalanceParams)`
+
+Fetches the ERC-20 token balance for a wallet via `balanceOf(address)`.
+
+```typescript
+await client.contracts.getERC20Balance({
+  walletAddress: '0x1234567890123456789012345678901234567890',
+  contractAddress: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
+  chainId: 1, // optional chain override
+});
+```
+
+- **Returns**: `Promise<string>` — the raw balance in base units (decimal string).
+- **Requires**: `contractAddress` (always required — there is no single "membership token" for arbitrary ERC-20 tokens).
+- **Contract call**: `eth_call` to `balanceOf(address)`.
+- **Errors**: throws `INVALID_CONFIG` for missing RPC config, `INVALID_ADDRESS` for invalid wallet/contract addresses, `HTTP_ERROR` for RPC failures, `INVALID_RESPONSE` for malformed return data.
+
+### `ownsERC721Token(params: ERC721TokenParams)`
+
+Checks whether a wallet owns a specific ERC-721 token via `ownerOf(uint256)`.
+
+```typescript
+await client.contracts.ownsERC721Token({
+  walletAddress: '0x1234567890123456789012345678901234567890',
+  tokenId: '42',
+  contractAddress: '0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D', // BAYC
+  chainId: 1, // optional chain override
+});
+```
+
+- **Returns**: `Promise<boolean>` — `true` if the wallet owns the token, `false` otherwise.
+- **Requires**: `contractAddress` and `tokenId`.
+- **Contract call**: `eth_call` to `ownerOf(uint256)`.
+- **Errors**: throws `INVALID_CONFIG` for missing RPC config, `INVALID_ADDRESS` for invalid addresses, `HTTP_ERROR` for RPC failures, `INVALID_RESPONSE` for malformed return data.
+
+### `getERC1155Balance(params: ERC1155BalanceParams)`
+
+Fetches the ERC-1155 token balance for a wallet and token ID via `balanceOf(address,uint256)`.
+
+```typescript
+await client.contracts.getERC1155Balance({
+  walletAddress: '0x1234567890123456789012345678901234567890',
+  tokenId: '1',
+  contractAddress: '0x495f947276749Ce646f68AC8c248420045cb7b5e', // OpenSea Shared Storefront
+  chainId: 1, // optional chain override
+});
+```
+
+- **Returns**: `Promise<string>` — the raw balance in base units (decimal string).
+- **Requires**: `contractAddress` and `tokenId`.
+- **Contract call**: `eth_call` to `balanceOf(address,uint256)`.
+- **Errors**: throws `INVALID_CONFIG` for missing RPC config, `INVALID_ADDRESS` for invalid addresses, `HTTP_ERROR` for RPC failures, `INVALID_RESPONSE` for malformed return data.
+
+### `readContract(params: ReadContractParams)`
+
+Generic escape hatch for arbitrary read-only contract calls. Accepts an ABI fragment, function name, and arguments, then encodes and executes a single `eth_call`.
+
+Use this when the built-in convenience methods (`getERC20Balance`, `ownsERC721Token`, `getERC1155Balance`) do not cover your use case.
+
+```typescript
+const result = await client.contracts.readContract({
+  contractAddress: '0x...',
+  abi: {
+    type: 'function',
+    name: 'totalSupply',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  functionName: 'totalSupply',
+  args: [],
+  chainId: 1, // optional chain override
+});
+// `result` is the raw hex response; decode with the exported helpers:
+import { decodeUint256Result } from '@guildpass/sdk/contracts';
+const supply = decodeUint256Result(result);
+```
+
+- **Returns**: `Promise<string>` — the raw hex result of the `eth_call`. Decode it with the exported helpers (`decodeUint256Result`, `decodeAddressResult`, `decodeBoolResult`).
+- **Supported ABI types**: `address`, `bool`, `uint*` (all fixed-width variants up to `uint256`), `int*`, `bytes32`. Dynamic types (`bytes`, `string`) and tuples are **not** supported. For calls requiring dynamic encoding, use `batchEthCall` with pre-encoded calldata.
+- **Requires**: `contractAddress`, `abi`, `functionName`, and `args` (an empty array for parameterless functions).
+- **Contract call**: `eth_call` using the dynamically encoded selector + arguments from the supplied ABI fragment.
+- **Errors**: throws `INVALID_CONFIG` for missing RPC config, `INVALID_ADDRESS` for invalid contract addresses, `INVALID_INPUT` when `functionName` does not match `abi.name`, when argument count/type mismatches occur, or when an unsupported ABI type is used, `HTTP_ERROR` for RPC failures, `INVALID_RESPONSE` for non-hex results.
 
 ### `getMembershipTokenBalancesBatch(params: TokenBalancesBatchParams)`
 

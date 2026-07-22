@@ -8,9 +8,13 @@ import { validateAddress, validateGuildId } from '../utils/validation';
 import {
   BatchEthCallItem,
   BatchItemResult,
+  ERC20BalanceParams,
+  ERC721TokenParams,
+  ERC1155BalanceParams,
   FormattedTokenBalance,
   GuildOwnerParams,
   GuildOwnersBatchParams,
+  ReadContractParams,
   RoleRequirementParams,
   TokenBalanceParams,
   TokenBalancesBatchParams,
@@ -20,6 +24,8 @@ import {
   BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
   DECIMALS_SELECTOR,
+  ERC721_OWNER_OF_SELECTOR,
+  ERC1155_BALANCE_OF_SELECTOR,
   HEX_32_BYTES_LENGTH,
   SUPPORTS_INTERFACE_SELECTOR,
   ERC165_INTERFACE_ID,
@@ -29,11 +35,17 @@ import {
   REQUIREMENT_TYPE_INTERFACE_IDS,
   decodeAddressResult,
   decodeUint256Result,
+  decodeBoolResult,
   encodeAddressArgument,
   encodeGuildId,
   encodeInterfaceId,
+  encodeUint256Argument,
+  buildFunctionSignature,
+  getFunctionSelector,
+  encodeAbiParams,
   validateAccessRequirement,
 } from './contractHelpers';
+import type { AbiFunction } from './contract.types';
 import { GuildPassClientConfig, resolveChainConfig, mergeRpcUrls } from '../config/sdkConfig';
 import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
@@ -68,6 +80,8 @@ export {
   BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
   DECIMALS_SELECTOR,
+  ERC721_OWNER_OF_SELECTOR,
+  ERC1155_BALANCE_OF_SELECTOR,
   HEX_32_BYTES_LENGTH,
   SUPPORTS_INTERFACE_SELECTOR,
   ERC165_INTERFACE_ID,
@@ -77,9 +91,14 @@ export {
   REQUIREMENT_TYPE_INTERFACE_IDS,
   decodeAddressResult,
   decodeUint256Result,
+  decodeBoolResult,
   encodeAddressArgument,
   encodeGuildId,
   encodeInterfaceId,
+  encodeUint256Argument,
+  buildFunctionSignature,
+  getFunctionSelector,
+  encodeAbiParams,
 };
 
 
@@ -241,6 +260,126 @@ export class ContractClient {
       this.getTokenDecimals(params, options),
     ]);
     return { raw, decimals, formatted: formatUnits(raw, decimals) };
+  }
+
+  /**
+   * Convenience: fetches the ERC-20 token balance for a wallet.
+   * Equivalent to the ERC-20 `balanceOf(address)` call.
+   *
+   * Unlike {@link getMembershipTokenBalance}, this method requires a
+   * `contractAddress` on every call because there is no single "membership
+   * token" concept for arbitrary ERC-20 tokens.
+   */
+  public async getERC20Balance(
+    params: ERC20BalanceParams,
+    options?: RequestOptions,
+  ): Promise<string> {
+    const { walletAddress, chainId, contractAddress } = params;
+    const chainConfig = this.getChainConfig(chainId);
+
+    validateAddress(walletAddress);
+    validateAddress(contractAddress);
+
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
+
+    const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
+    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    return decodeUint256Result(result);
+  }
+
+  /**
+   * Checks whether a wallet owns a specific ERC-721 token.
+   * Calls `ownerOf(uint256)` on the contract and compares the result with
+   * the given wallet address.
+   */
+  public async ownsERC721Token(
+    params: ERC721TokenParams,
+    options?: RequestOptions,
+  ): Promise<boolean> {
+    const { walletAddress, tokenId, chainId, contractAddress } = params;
+    const chainConfig = this.getChainConfig(chainId);
+
+    validateAddress(walletAddress);
+    validateAddress(contractAddress);
+
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
+
+    const data = `${ERC721_OWNER_OF_SELECTOR}${encodeUint256Argument(tokenId, 'tokenId')}`;
+    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    const owner = decodeAddressResult(result);
+    return owner.toLowerCase() === walletAddress.toLowerCase();
+  }
+
+  /**
+   * Fetches the ERC-1155 token balance for a wallet and token ID.
+   * Calls `balanceOf(address,uint256)` on the contract.
+   */
+  public async getERC1155Balance(
+    params: ERC1155BalanceParams,
+    options?: RequestOptions,
+  ): Promise<string> {
+    const { walletAddress, tokenId, chainId, contractAddress } = params;
+    const chainConfig = this.getChainConfig(chainId);
+
+    validateAddress(walletAddress);
+    validateAddress(contractAddress);
+
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
+
+    const data = `${ERC1155_BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}${encodeUint256Argument(tokenId, 'tokenId')}`;
+    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    return decodeUint256Result(result);
+  }
+
+  /**
+   * Generic escape hatch for arbitrary read-only contract calls.
+   *
+   * Accepts an ABI fragment plus arguments, encodes them into an `eth_call`,
+   * and returns the raw decoded hex result as a string.
+   *
+   * Use this when the built-in convenience methods
+   * ({@link getERC20Balance}, {@link ownsERC721Token},
+   * {@link getERC1155Balance}) do not cover your use case.
+   *
+   * Only static ABI types (address, bool, uint*, int*, bytes32) are supported
+   * for argument encoding. For dynamic types (bytes, string) or custom result
+   * decoding, call {@link batchEthCall} with pre-encoded calldata and decode
+   * the result yourself using the exported decoder helpers
+   * (`decodeAddressResult`, `decodeUint256Result`, `decodeBoolResult`).
+   */
+  public async readContract(
+    params: ReadContractParams,
+    options?: RequestOptions,
+  ): Promise<string> {
+    const { contractAddress, abi, functionName, args, chainId } = params;
+    const chainConfig = this.getChainConfig(chainId);
+
+    if (abi.name !== functionName) {
+      throw new GuildPassError(
+        `readContract: functionName "${functionName}" does not match ABI name "${abi.name}"`,
+        GuildPassErrorCode.INVALID_INPUT,
+      );
+    }
+
+    validateAddress(contractAddress);
+
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
+
+    const signature = buildFunctionSignature(abi);
+    const selector = getFunctionSelector(signature);
+    const data = encodeAbiParams(selector, abi.inputs, args);
+
+    const result = await provider.ethCall({ to: contractAddress, data }, options);
+
+    // Return the raw hex result — callers can decode it with
+    // decodeUint256Result, decodeAddressResult, decodeBoolResult, etc.
+    if (typeof result !== 'string') {
+      throw new GuildPassError(
+        'readContract: expected a hex string result',
+        GuildPassErrorCode.INVALID_RESPONSE,
+      );
+    }
+    return result;
   }
 
   /**
