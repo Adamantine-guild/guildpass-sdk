@@ -61,17 +61,20 @@ export function createMockGuildPassClient(overrides?: MockClientOverrides): Guil
   } as Public<RolesService>;
 
   const mockContracts = {
-    getTokenBalance: overrides?.contracts?.getTokenBalance ?? (async () => ({ balance: '1000000000000000000', decimals: 18, formatted: '1.0' } as any)),
+    getChainConfig: overrides?.contracts?.getChainConfig ?? (() => ({ chainId: 1, name: 'Ethereum', rpcUrls: [] } as any)),
+    getMembershipTokenBalance: overrides?.contracts?.getMembershipTokenBalance ?? (async () => '1000000000000000000' as any),
+    getTokenDecimals: overrides?.contracts?.getTokenDecimals ?? (async () => 18 as any),
+    getMembershipTokenBalanceFormatted: overrides?.contracts?.getMembershipTokenBalanceFormatted ?? (async () => ({ balance: '1000000000000000000', decimals: 18, formatted: '1.0' } as any)),
     getERC20Balance: overrides?.contracts?.getERC20Balance ?? (async () => ({ balance: '1000000000000000000', decimals: 18, formatted: '1.0' } as any)),
-    getERC721TokenBalance: overrides?.contracts?.getERC721TokenBalance ?? (async () => '1' as any),
-    getERC721OwnerOf: overrides?.contracts?.getERC721OwnerOf ?? (async () => '0x1234567890123456789012345678901234567890' as any),
+    ownsERC721Token: overrides?.contracts?.ownsERC721Token ?? (async () => true as any),
     getERC1155Balance: overrides?.contracts?.getERC1155Balance ?? (async () => '1' as any),
-    validateRoleRequirement: overrides?.contracts?.validateRoleRequirement ?? (async () => true as any),
-    getGuildOwner: overrides?.contracts?.getGuildOwner ?? (async () => '0x1234567890123456789012345678901234567890' as any),
-    getTokenBalancesBatch: overrides?.contracts?.getTokenBalancesBatch ?? (async () => [] as any),
-    getGuildOwnersBatch: overrides?.contracts?.getGuildOwnersBatch ?? (async () => [] as any),
     readContract: overrides?.contracts?.readContract ?? (async () => '0x' as any),
-  } as Public<ContractClient>;
+    getGuildOwner: overrides?.contracts?.getGuildOwner ?? (async () => '0x1234567890123456789012345678901234567890' as any),
+    validateRoleRequirement: overrides?.contracts?.validateRoleRequirement ?? (async () => true as any),
+    batchEthCall: overrides?.contracts?.batchEthCall ?? (async () => [] as any),
+    getMembershipTokenBalancesBatch: overrides?.contracts?.getMembershipTokenBalancesBatch ?? (async () => [] as any),
+    getGuildOwnersBatch: overrides?.contracts?.getGuildOwnersBatch ?? (async () => [] as any),
+  } as unknown as Public<ContractClient>;
 
   // Construct the object implementing the public interface of GuildPassClient
   const mockClientPublic: Public<GuildPassClient> = {
