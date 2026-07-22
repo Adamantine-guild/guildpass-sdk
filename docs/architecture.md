@@ -163,6 +163,26 @@ the largest group's value iff its size is ≥ `minProviders`. Anything else surf
 listing every disagreeing provider, the raw values each returned, and any per-provider
 failures (network errors, reverts) so operators can attribute the lie.
 
+**Batch reads** (`batchEthCall`, `getMembershipTokenBalancesBatch`,
+`getGuildOwnersBatch`) follow the same precedence chain (custom `contractProvider` →
+consensus → default) and apply the **same consensus logic but per item**. Each index of a
+batch ballots its N raw hex results independently: a successful index returns the
+front-runner value when ≥ `minProviders` agree; otherwise the index becomes
+`{ status: 'error', error: 'Consensus mismatch at batch index i: ...' }` instead of a
+throw. **A batch never throws for item-level disagreement** — only when every provider
+rejected the batch outright (no per-item ballot to attribute) does the SDK surface a
+batch-level `CONSENSUS_MISMATCH`. Chunked batches
+(`getMembershipTokenBalancesBatch({ chunk: true })`) run the per-item quorum on each
+chunk sequentially, so a 200-wallet input at `maxBatchSize=50` produces 4 sequential
+consensus ballots preserving v1's chunked ordering guarantees.
+
+**`validateRoleRequirement`** routes every internal `eth_call` (ERC-165 `supportsInterface`,
+ERC-20 `balanceOf`, ERC-721 `ownerOf`, AccessControl `hasRole`) through the same
+`resolveSingleEthCall` precedence chain used by the convenience methods, so TOKEN/NFT/ROLE
+on-chain requirements benefit from consensus automatically. Each individual call (one
+or more per requirement) holds the quorum; if any of them fails to meet it, the SDK
+surfaces a single-call `CONSENSUS_MISMATCH` so the requirement fails-closed.
+
 **Precedence.** Consensus sits in this order, top wins:
 
 1. `contractProvider` (custom viem/ethers adapter) — bypasses consensus entirely.
@@ -187,10 +207,13 @@ rejected with `REQUEST_CANCELLED` / `ABORTED` is re-thrown immediately rather th
 folded into a generic mismatch — the user explicitly asked to cancel, and the SDK
 respects that before running any consensus math.
 
-**Out of scope for v1.** Batch reads (`batchEthCall`, `getMembershipTokenBalancesBatch`,
-`getGuildOwnersBatch`) and `validateRoleRequirement` (multi-step ERC-165 logic) do not
-currently run through the consensus path. Reach for a custom `contractProvider` or a
-dedicated multilayer check at the application level if you need quorum on those.
+**Multicall3 collision.** Setting `batchStrategy: 'multicall3'` AND
+`contractReadConsensus` together is rejected with `INVALID_CONFIG` at the call site.
+Multicall3 collapses multiple calls into a single on-chain transaction per provider,
+which means an attacker that controls the provider's view of Multicall3 can dictate
+every item's result and defeat cross-provider verification. Disable one of the two —
+the SDK surfaces an error rather than silently picking whichever you probably didn't
+intend.
 
 **Validation.** `contractReadConsensus` is enforced at construction time by
 `validateConfig` in `src/config/sdkConfig.ts`:

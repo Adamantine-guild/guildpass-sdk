@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Four new `GuildPassErrorCode` values: `SIWE_INVALID_SIGNATURE`, `SIWE_EXPIRED`, `SIWE_DOMAIN_MISMATCH`, `SIWE_INVALID_MESSAGE`.
   - All types (`SiweMessage`, `SiweVerifyParams`, `SiweVerifyResult`, `SiweParseResult`) are exported from the root package.
 - Added automated release workflow documentation and npm provenance publishing configuration.
+- **Cross-provider consensus verification for on-chain reads** — resolves [#307](https://github.com/Adamantine-Guild/guildpass-sdk/issues/307). Merged in two parts: PR [#338](https://github.com/Adamantine-Guild/guildpass-sdk/pull/338) (v1) and PR [#339](https://github.com/Adamantine-Guild/guildpass-sdk/pull/339) (followup).
+  - New opt-in `contractReadConsensus` config (`{ providers: string[]; minProviders: number }`). When set, every supported on-chain read is fanned out across the listed RPC endpoints in parallel via `Promise.allSettled` and only returns a value when at least `minProviders` of them agree on the same raw hex result.
+  - Coverage: `getMembershipTokenBalance`, `getERC20Balance`, `ownsERC721Token`, `getERC1155Balance`, `getGuildOwner`, `readContract` (v1) plus `batchEthCall`, `getMembershipTokenBalancesBatch`, `getGuildOwnersBatch` and every internal `eth_call` inside `validateRoleRequirement` (followup).
+  - New error code `CONSENSUS_MISMATCH` — extends `GuildPassError.details` with structured per-provider groups + per-provider failures + quorum metadata so operators can identify the lying provider.
+  - `batchStrategy: "multicall3"` is explicitly incompatible with `contractReadConsensus` and now rejected with `INVALID_CONFIG`. Multicall3 collapses calls into a single on-chain transaction per provider, which defeats cross-provider verification.
+  - Opt-in invariant: when the config is unset, every method falls back to its previous behaviour (single-URL JSON-RPC + failover or Multicall3 — zero behaviour change).
+  - Precedence chain: `contractProvider` > `contractReadConsensus` > default.
+  - Per-item batch quorum: items whose front-runner is below `minProviders` become `{ status: "error", error: "Consensus mismatch at batch index i: ..." }` rather than throwing the whole batch.
 
 ## [0.1.0] - 2026-06-29
 

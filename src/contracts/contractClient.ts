@@ -5,6 +5,7 @@ import { GuildPassErrorCode } from '../errors/errorCodes';
 // GuildPass SDK: Pull in package or module bindings.
 import { validateAddress, validateGuildId } from '../utils/validation';
 // GuildPass SDK: Import external module dependencies.
+// GuildPass SDK: Pull in package or module bindings.
 import {
   BatchEthCallItem,
   BatchItemResult,
@@ -18,6 +19,10 @@ import {
   RoleRequirementParams,
   TokenBalanceParams,
   TokenBalancesBatchParams,
+  ConsensusMismatchDetails,
+  ConsensusMismatchFailure,
+  ConsensusMismatchGroup,
+  ContractReadConsensus,
 } from './contract.types';
 // GuildPass SDK: Pull in package or module bindings.
 import {
@@ -45,8 +50,6 @@ import {
   encodeAbiParams,
   validateAccessRequirement,
 } from './contractHelpers';
-import type { AbiFunction } from './contract.types';
-import type { ConsensusMismatchDetails, ConsensusMismatchFailure, ConsensusMismatchGroup, ContractReadConsensus } from './contract.types';
 import { GuildPassClientConfig, resolveChainConfig, mergeRpcUrls } from '../config/sdkConfig';
 import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
@@ -684,14 +687,218 @@ export class ContractClient {
     const { walletAddress, requirement, chainId } = params;
     const chainConfig = this.getChainConfig(chainId);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
-
+    // Route every internal eth_call (supportsInterface, balanceOf, ownerOf,
+    // hasRole) through resolveSingleEthCall so the precedence
+    // (contractProvider > contractReadConsensus > default) applies uniformly
+    // to the whole access-requirement graph. When consensus is configured,
+    // each underlying call is fanned out across the configured providers and
+    // must reach quorum before the requirement decides to be met.
     return validateAccessRequirement(
       walletAddress,
       requirement,
-      (to, data) => provider.ethCall({ to, data }, options),
+      (to, data) => this.resolveSingleEthCall(
+        chainConfig,
+        'rpcUrl is required for contract calls',
+        { to, data },
+        options,
+        chainId,
+      ),
       this.config.strictInterfaceChecking,
     );
+  }
+
+  /**
+   * Cross-provider consensus verification of a batch `eth_call` request
+   * (issue #307 follow-up).
+   *
+   * Issues the same array of requests to every URL listed in
+   * `consensus.providers` in parallel via `Promise.allSettled`. For each
+   * `requests[i]` the SDK independently ballots the N per-provider responses:
+   *   - Successful raw-hex results are grouped by `normalizeHex`.
+   *   - The largest agreeing group's value wins iff its size is ≥ `minProviders`.
+   *   - Otherwise index `i` becomes `{ status: 'error', error: 'Consensus
+   *     mismatch: ...' }`. The batch never throws for an item-level
+   *     disagreement — that mirrors the existing batch semantics where
+   *     per-item failures are surfaced as results, not rejected promises.
+   *
+   * Whole-batch failure: if every provider rejected the batch outright (no
+   * provider returned a parseable response), the SDK throws `CONSENSUS_MISMATCH`
+   * at the batch level because there is no per-item ballot to attribute.
+   *
+   * Caller-initiated aborts (`REQUEST_CANCELLED` / `ABORTED` errors) are
+   * re-thrown immediately, mirroring the single-call consensus path.
+   *
+   * The block tag is always `latest`; the `confirmations` option is silently
+   * dropped here for the same reason as in {@link consensusEthCall}.
+   */
+  private async consensusBatchEthCall(
+    requests: EthCallRequest[],
+    options: RequestOptions | undefined,
+    consensus: ContractReadConsensus,
+    chainId: number | undefined,
+  ): Promise<BatchItemResult[]> {
+    const { providers, minProviders } = consensus;
+
+    // Drop `confirmations` so every provider reads `latest` in lock-step.
+    const perProviderOptions: RequestOptions | undefined = options
+      ? { ...options }
+      : undefined;
+    if (perProviderOptions) {
+      delete (perProviderOptions as { confirmations?: unknown }).confirmations;
+    }
+
+    const consumptions = providers.map((url) => ({
+      url,
+      provider: new JsonRpcContractProvider(this.http, url, this.config.hooks, chainId),
+    }));
+
+    const settled = await Promise.allSettled(
+      consumptions.map(({ provider }) => provider.batchEthCall(requests, perProviderOptions)),
+    );
+
+    // Honour explicit caller-initiated aborts first.
+    for (const r of settled) {
+      if (r.status === 'rejected') {
+        const reason = r.reason;
+        if (reason instanceof GuildPassError &&
+            (reason.code === GuildPassErrorCode.REQUEST_CANCELLED ||
+             reason.code === GuildPassErrorCode.ABORTED)) {
+          throw reason;
+        }
+      }
+    }
+
+    // Edge case: every provider rejected the entire batch. There is no
+    // per-item ballot to run, so surface the failure at the batch level.
+    const anyProviderSucceeded = settled.some((r) => r.status === 'fulfilled');
+    if (!anyProviderSucceeded && settled.length > 0 && requests.length > 0) {
+      const failures: ConsensusMismatchFailure[] = consumptions.map(({ url }, idx) => {
+        const r = settled[idx];
+        const reason = r.status === 'rejected' ? r.reason : undefined;
+        const code = reason instanceof GuildPassError
+          ? reason.code
+          : GuildPassErrorCode.UNKNOWN_ERROR;
+        const msg = reason instanceof Error ? reason.message : String(reason ?? '');
+        return { url, code, message: msg };
+      });
+      throw new GuildPassError(
+        `Contract batch consensus read failed across all ${providers.length} providers.`,
+        GuildPassErrorCode.CONSENSUS_MISMATCH,
+        undefined,
+        {
+          totalProviders: providers.length,
+          successfulCount: 0,
+          failedCount: providers.length,
+          quorum: minProviders,
+          groups: [],
+          failures,
+        },
+      );
+    }
+
+    // Per-index consensus ballot. Result array preserves the input order.
+    const results: BatchItemResult[] = [];
+
+    for (let i = 0; i < requests.length; i++) {
+      const groupByValue = new Map<string, { value: string; count: number }>();
+      let winningValue: string | undefined;
+      let winningCount = 0;
+
+      for (let j = 0; j < settled.length; j++) {
+        const r = settled[j];
+
+        if (r.status !== 'fulfilled') continue;
+
+        const arr = r.value;
+        if (!Array.isArray(arr) || arr.length !== requests.length) {
+          // Whole-batch response shape mismatch from this provider. Treat
+          // as "this provider contributed nothing" for index i rather than
+          // surfacing the structural issue inline — other providers may
+          // still satisfy the quorum for this index.
+          continue;
+        }
+
+        const item = arr[i];
+        if (!item || item.status !== 'success' || typeof item.result !== 'string') continue;
+
+        let normalized: string;
+        try {
+          normalized = normalizeHex(item.result);
+        } catch {
+          continue;
+        }
+
+        let group = groupByValue.get(normalized);
+        if (!group) {
+          group = { value: item.result, count: 0 };
+          groupByValue.set(normalized, group);
+        }
+        group.count += 1;
+
+        if (group.count > winningCount) {
+          winningCount = group.count;
+          winningValue = item.result;
+        }
+      }
+
+      if (winningCount >= minProviders && winningValue !== undefined) {
+        results.push({ status: 'success', result: winningValue });
+      } else {
+        let totalVotes = 0;
+        for (const g of groupByValue.values()) totalVotes += g.count;
+        results.push({
+          status: 'error',
+          error: `Consensus mismatch at batch index ${i}: largest agreeing group returned ${winningCount} matching value(s) (quorum: ${minProviders}, total successful votes: ${totalVotes}).`,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Routes a batch `eth_call` through the same precedence chain as
+   * {@link resolveSingleEthCall}: `contractProvider` > `contractReadConsensus` >
+   * default. This is the leaf-call resolver shared by {@link batchEthCall} and
+   * {@link batchEthCallInternal} so chunking recursion lands here uniformly.
+   *
+   * Throws `INVALID_CONFIG` if both `contractReadConsensus` and
+   * `batchStrategy === 'multicall3'` are set: Multicall3 aggregates calls
+   * into a single on-chain transaction per provider, so cross-provider
+   * verification cannot be applied when the provider-side aggregator has
+   * already collapsed the calls.
+   */
+  private async resolveBatchEthCall(
+    calls: BatchEthCallItem[],
+    chainConfig: { rpcUrl?: string; rpcUrls?: string[] },
+    options: RequestOptions | undefined,
+    chainId: number | undefined,
+  ): Promise<BatchItemResult[]> {
+    const requests: EthCallRequest[] = calls.map((c) => ({ to: c.to, data: c.data }));
+
+    if (this.config.contractProvider) {
+      return this.config.contractProvider.batchEthCall(requests, options);
+    }
+
+    if (this.config.contractReadConsensus) {
+      if (this.config.batchStrategy === 'multicall3') {
+        throw new GuildPassError(
+          'batchStrategy "multicall3" cannot be used concurrently with contractReadConsensus: ' +
+            'Multicall3 collapses multiple calls into a single on-chain transaction per provider, ' +
+            'which defeats cross-provider verification. Disable one of the two.',
+          GuildPassErrorCode.INVALID_CONFIG,
+        );
+      }
+      return this.consensusBatchEthCall(
+        requests,
+        options,
+        this.config.contractReadConsensus,
+        chainId,
+      );
+    }
+
+    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for batch contract calls', chainId);
+    return provider.batchEthCall(requests, options);
   }
 
   // ---------------------------------------------------------------------------
@@ -710,8 +917,6 @@ export class ContractClient {
     options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean; chunkConcurrency?: number },
     chainId?: number,
   ): Promise<BatchItemResult[]> {
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for batch contract calls', chainId);
-
     const limit = options?.maxBatchSize ?? 100;
     if (calls.length > limit) {
       if (!options?.chunk) {
@@ -749,10 +954,13 @@ export class ContractClient {
       return this.executeChunksConcurrently(chunks, concurrency, chainConfig, options, chainId);
     }
 
-    return provider.batchEthCall(
-      calls.map((call) => ({ to: call.to, data: call.data })),
-      options,
-    );
+    // Leaf path: route through the same precedence chain as single-call reads
+    // (contractProvider > contractReadConsensus > default). Chunked recursion
+    // lands here too, which means large batched consensus reads run their
+    // per-item quorum on each chunk independently — so 200 items at
+    // maxBatchSize=50 + chunkConcurrency=2 produces 4 sequential consensus
+    // ballots, preserving the per-chunk quorum semantics from v1.
+    return this.resolveBatchEthCall(calls, chainConfig, options, chainId);
   }
 
   /**
@@ -840,8 +1048,6 @@ export class ContractClient {
       );
     }
 
-    const provider = this.resolveProvider(rpcUrl, 'rpcUrl is required for batch contract calls');
-
     const limit = options?.maxBatchSize ?? 100;
     if (calls.length > limit) {
       if (!options?.chunk) {
@@ -916,9 +1122,20 @@ export class ContractClient {
       validateAddress(call.to);
     }
 
-    return provider.batchEthCall(
-      calls.map((call) => ({ to: call.to, data: call.data })),
+    // Resolve precedence at the leaf path so chunked recursion also routes
+    // through it. resolveBatchEthCall enforces the same precedence chain as
+    // the single-call reads (contractProvider > contractReadConsensus >
+    // default). When `contractReadConsensus` is configured, the explicit
+    // `rpcUrl` argument is **ignored** — the SDK queries every URL listed in
+    // `consensus.providers` in parallel instead. Pass `rpcUrl` only when
+    // running without consensus (the default behaviour); callers who want to
+    // pick a specific endpoint should configure a custom `contractProvider`
+    // or use the dedicated consensus URLs.
+    return this.resolveBatchEthCall(
+      calls,
+      { rpcUrl: rpcUrl || undefined },
       options,
+      undefined,
     );
   }
 
@@ -954,9 +1171,13 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(chainId);
     const contractAddress = perCallContract ?? chainConfig.contractAddress;
 
-    if (!this.config.contractProvider && mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0) {
+    if (
+      !this.config.contractProvider &&
+      !this.config.contractReadConsensus &&
+      mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0
+    ) {
       throw new GuildPassError(
-        'rpcUrl is required for batch contract calls',
+        'rpcUrl is required for batch contract calls (or configure contractReadConsensus)',
         GuildPassErrorCode.INVALID_CONFIG,
       );
     }
@@ -1033,9 +1254,13 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(chainId);
     const contractAddress = perCallContract ?? chainConfig.contractAddress;
 
-    if (!this.config.contractProvider && mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0) {
+    if (
+      !this.config.contractProvider &&
+      !this.config.contractReadConsensus &&
+      mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0
+    ) {
       throw new GuildPassError(
-        'rpcUrl is required for batch contract calls',
+        'rpcUrl is required for batch contract calls (or configure contractReadConsensus)',
         GuildPassErrorCode.INVALID_CONFIG,
       );
     }
