@@ -154,6 +154,42 @@ pnpm build        # Build must succeed
 We monitor changes to our public API surface closely to prevent accidental breaking changes.
 
 If you modify exported classes, interfaces, or types:
+
 1. Run `pnpm api-report` locally to update the API baseline file (`api-report/guildpass-sdk.api.md`).
 2. Commit the updated `guildpass-sdk.api.md` file alongside your code changes.
 3. Your pull request will display a diff of the API changes for maintainer review.
+
+### Checking semver impact before a release
+
+Maintainers can compare the regenerated API report against the last release tag to decide the correct version bump. This is **local tooling only** — it is not part of the release GitHub Actions workflow.
+
+```bash
+# Regenerate api-report/, diff against the latest v*.*.* tag, print semver guidance
+pnpm check-api-diff
+```
+
+The script:
+
+- Runs `pnpm build` and `pnpm api-report:ci` to refresh `api-report/guildpass-sdk.api.md`
+- Loads the baseline from the **latest semver release tag** (`v*.*.*`)
+- If no tags exist yet, falls back to the last **committed** `api-report/` on `HEAD`
+- Classifies each difference:
+  - **Added export** → non-breaking
+  - **Removed export** or **changed signature** → breaking
+- Recommends a version bump using the project's current stage:
+  - **Pre-1.0** (`0.x.y`): breaking → minor, additive → patch
+  - **Post-1.0**: breaking → major, additive → minor
+- Exits with code `1` when breaking changes are detected
+
+Useful flags:
+
+```bash
+# Skip regeneration when you already ran api-report:ci
+pnpm check-api-diff -- --skip-regenerate
+
+# Compare against a specific tag or file (e.g. in tests)
+pnpm check-api-diff -- --baseline-tag v0.1.0
+pnpm check-api-diff -- --baseline-file /tmp/old.api.md
+```
+
+Before tagging a release, update `package.json` and add a matching `CHANGELOG.md` entry so the tag and package version align (see README → **Versioning and changelog**).
