@@ -5,6 +5,7 @@ import { GuildPassErrorCode } from '../errors/errorCodes';
 // GuildPass SDK: Pull in package or module bindings.
 import { validateAddress, validateGuildId } from '../utils/validation';
 // GuildPass SDK: Import external module dependencies.
+// GuildPass SDK: Pull in package or module bindings.
 import {
   BatchEthCallItem,
   BatchItemResult,
@@ -18,6 +19,10 @@ import {
   RoleRequirementParams,
   TokenBalanceParams,
   TokenBalancesBatchParams,
+  ConsensusMismatchDetails,
+  ConsensusMismatchFailure,
+  ConsensusMismatchGroup,
+  ContractReadConsensus,
 } from './contract.types';
 // GuildPass SDK: Pull in package or module bindings.
 import {
@@ -45,13 +50,6 @@ import {
   encodeAbiParams,
   validateAccessRequirement,
 } from './contractHelpers';
-import type {
-  AbiFunction,
-  ConsensusMismatchDetails,
-  ConsensusMismatchFailure,
-  ConsensusMismatchGroup,
-  ContractReadConsensus,
-} from './contract.types';
 import { GuildPassClientConfig, resolveChainConfig, mergeRpcUrls } from '../config/sdkConfig';
 import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
