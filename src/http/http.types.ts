@@ -118,4 +118,4 @@ export interface HttpHooks {
   /** Fires when checkAccessVerified detects a mismatch between API and on-chain results. */
   onDiscrepancy?: (payload: DiscrepancyHookPayload) => void | Promise<void>;
 }
-
+
