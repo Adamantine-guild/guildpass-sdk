@@ -119,6 +119,72 @@ describe('request coalescing without cache adapter', () => {
   });
 });
 
+describe('request coalescing failure handling', () => {
+  it('rejects all concurrent callers with the same error and does not poison the key', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const networkError = new Error('network down');
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockRejectedValueOnce(networkError)
+      .mockResolvedValueOnce(mockAccess);
+
+    // Several concurrent callers share the single in-flight (failing) request.
+    const promises = Array.from({ length: 5 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    const results = await Promise.allSettled(promises);
+
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+    results.forEach((r) => {
+      expect(r.status).toBe('rejected');
+      expect((r as PromiseRejectedResult).reason).toBe(networkError);
+    });
+
+    // The failed request must not poison the key: a later legitimate retry
+    // hits the network again and succeeds.
+    const retryResult = await client.access.checkAccess({
+      walletAddress: ADDR,
+      guildId: 'g1',
+      resourceId: 'r1',
+    });
+    expect(retryResult).toEqual(mockAccess);
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache a rejected in-flight result', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter, cacheTtl: 10_000 });
+    const networkError = new Error('network down');
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockRejectedValueOnce(networkError)
+      .mockResolvedValueOnce(mockAccess);
+
+    const promises = Array.from({ length: 3 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    const results = await Promise.allSettled(promises);
+
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+    results.forEach((r) => expect(r.status).toBe('rejected'));
+
+    const cachedValue = await adapter.get(`access:checkAccess:g1:r1:${ADDR}`);
+    expect(cachedValue).toBeNull();
+
+    // Later legitimate retry is a fresh network call and gets cached normally.
+    const retryResult = await client.access.checkAccess({
+      walletAddress: ADDR,
+      guildId: 'g1',
+      resourceId: 'r1',
+    });
+    expect(retryResult).toEqual(mockAccess);
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('request coalescing with cache adapter', () => {
   it('coalesces concurrent calls and caches the result', async () => {
     const adapter = new InMemoryCacheAdapter();

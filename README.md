@@ -115,6 +115,8 @@ const client = new GuildPassClient({
 
 Passing a `cache` adapter enables transparent memoization of all read operations (access checks, membership, roles, guild metadata). The public API of every service method is **unchanged** — caching is completely invisible to callers.
 
+Concurrent calls for the same not-yet-cached key are single-flighted: only one network request is made, and every caller — with or without a `cache` adapter configured — shares that request's resolved (or rejected) result. Once the in-flight request settles, the de-duplication entry is cleared, so a failed request never blocks subsequent legitimate retries.
+
 ### Built-in: `InMemoryCacheAdapter`
 
 ```typescript
