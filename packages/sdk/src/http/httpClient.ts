@@ -13,6 +13,7 @@ import {
   RetryConfig,
 } from './http.types';
 import { TokenBucket } from './tokenBucket';
+import { CircuitBreakerManager } from './circuitBreaker';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
@@ -154,6 +155,7 @@ export class HttpClient {
   private readonly fetchTransport?: FetchLike;
   private readonly metadata?: ClientMetadata;
   private readonly tokenBucket?: TokenBucket;
+  private readonly circuitBreakerManager?: CircuitBreakerManager;
 
   constructor(
     baseUrl: string,
@@ -172,6 +174,7 @@ export class HttpClient {
         this.fetchTransport = configOrHooks.fetch;
         this.metadata = configOrHooks.metadata;
         if (configOrHooks.rateLimit) this.tokenBucket = new TokenBucket(configOrHooks.rateLimit);
+        if (configOrHooks.circuitBreaker) this.circuitBreakerManager = new CircuitBreakerManager(configOrHooks.circuitBreaker);
       } else if (isRetryConfig(configOrHooks)) {
         this.globalRetry = configOrHooks;
       } else if (isHooksConfig(configOrHooks)) {
@@ -181,15 +184,41 @@ export class HttpClient {
   }
 
   public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<any> {
-    const response = await this.request<T>(path, { ...options, method: 'GET' });
-    if (options?.includeMeta) return { data: response.data, meta: response.meta };
-    return response.data;
+    const isAbsolute = path.startsWith('http://') || path.startsWith('https://');
+    const url = isAbsolute ? new URL(path) : new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
+    const endpointKey = url.pathname;
+
+    const executeRequest = async () => {
+      const response = await this.request<T>(path, { ...options, method: 'GET' });
+      if (options?.includeMeta) return { data: response.data, meta: response.meta };
+      return response.data;
+    };
+
+    if (this.circuitBreakerManager) {
+      return this.circuitBreakerManager.execute(endpointKey, executeRequest);
+    }
+    return executeRequest();
   }
 
   public async post<T, TBody = unknown>(path: string, body?: TBody, options?: Omit<HttpRequestOptions<TBody>, 'method' | 'body'>): Promise<any> {
-    const response = await this.request<T, TBody>(path, { ...options, method: 'POST', body });
-    if (options?.includeMeta) return { data: response.data, meta: response.meta };
-    return response.data;
+    const isAbsolute = path.startsWith('http://') || path.startsWith('https://');
+    const url = isAbsolute ? new URL(path) : new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
+    const endpointKey = url.pathname;
+
+    const executeRequest = async () => {
+      const response = await this.request<T, TBody>(path, { ...options, method: 'POST', body });
+      if (options?.includeMeta) return { data: response.data, meta: response.meta };
+      return response.data;
+    };
+
+    if (this.circuitBreakerManager) {
+      return this.circuitBreakerManager.execute(endpointKey, executeRequest);
+    }
+    return executeRequest();
+  }
+
+  public getCircuitDiagnostics(): Record<string, import('./http.types').CircuitState> {
+    return this.circuitBreakerManager?.getDiagnostics() ?? {};
   }
 
   private async request<T, TBody = unknown>(

@@ -215,6 +215,15 @@ export class GuildPassClient {
     return safeConfig as Omit<GuildPassClientConfig, 'apiKey'>;
   }
 
+  /**
+   * Returns diagnostic information about the HTTP circuit breakers,
+   * showing the current state of each tracked endpoint.
+   * Useful for building health-check UIs or telemetry.
+   */
+  public getCircuitDiagnostics(): Record<string, import('../http/http.types').CircuitState> {
+    return this.http.getCircuitDiagnostics();
+  }
+
   // ---------------------------------------------------------------------------
   // Internal cache-wrapping factories
   // ---------------------------------------------------------------------------

@@ -19,6 +19,14 @@ export type RetryConfig = {
   allowMutatingRetry?: boolean;
 };
 
+export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+
+export type CircuitBreakerConfig = {
+  failureThreshold?: number;
+  coolDownPeriodMs?: number;
+};
+
+
 export type DiscrepancyHookPayload = {
   params: AccessCheckParams;
   requirement: AccessRequirement;
@@ -45,6 +53,7 @@ export type HttpClientConfig = {
   fetch?: FetchLike;
   metadata?: ClientMetadata;
   rateLimit?: RateLimitConfig;
+  circuitBreaker?: CircuitBreakerConfig;
 };
 
 export type HttpRequestOptions<TBody = unknown> = {

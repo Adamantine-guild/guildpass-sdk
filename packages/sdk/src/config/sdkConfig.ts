@@ -1,5 +1,5 @@
 // GuildPass SDK: Import external module dependencies.
-import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http.types';
+import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig, CircuitBreakerConfig } from '../http/http.types';
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { CacheAdapter } from '../cache/cache.types';
@@ -41,6 +41,7 @@ export type GuildPassClientConfig = {
   validateResponses?: boolean;
   cache?: CacheAdapter;
   cacheTtl?: number;
+  circuitBreaker?: CircuitBreakerConfig;
   sendClientMetadata?: boolean;
   clientName?: string;
   clientVersion?: string;
@@ -171,6 +172,16 @@ export function validateConfig(config: GuildPassClientConfig): void {
         'invalid_range',
         rl.burst,
       );
+    }
+  }
+
+  if (config.circuitBreaker) {
+    const cb = config.circuitBreaker;
+    if (cb.failureThreshold !== undefined && (typeof cb.failureThreshold !== 'number' || cb.failureThreshold < 1 || !Number.isFinite(cb.failureThreshold))) {
+      throwConfigError('circuitBreaker.failureThreshold must be a positive finite number', 'circuitBreaker.failureThreshold', 'invalid_range', cb.failureThreshold);
+    }
+    if (cb.coolDownPeriodMs !== undefined && (typeof cb.coolDownPeriodMs !== 'number' || cb.coolDownPeriodMs < 0 || !Number.isFinite(cb.coolDownPeriodMs))) {
+      throwConfigError('circuitBreaker.coolDownPeriodMs must be a non-negative finite number', 'circuitBreaker.coolDownPeriodMs', 'invalid_range', cb.coolDownPeriodMs);
     }
   }
 
