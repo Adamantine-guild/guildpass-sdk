@@ -3,7 +3,7 @@ import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { CacheAdapter } from '../cache/cache.types';
-import { ChainConfig } from '../contracts/contract.types';
+import { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
 import { ContractProvider } from '../contracts/providers/provider.types';
 import { validateAddress } from '../utils/validation';
 
@@ -72,6 +72,20 @@ export type GuildPassClientConfig = {
    * Must be provided if `verifySignedResponses` is enabled.
    */
   trustedSignerAddress?: string;
+  /**
+   * Opt-in cross-provider consensus verification for read-only contract
+   * calls (see issue #307). When set, single-call contract reads are
+   * issued in parallel against every URL listed in `consensus.providers`,
+   * and only returned when at least `consensus.minProviders` of them
+   * agree on the same raw hex result.
+   *
+   * When NOT set (default), behavior is unchanged: the SDK falls back to
+   * its existing single-RPC-failover path (`rpcUrls` / `chains[].rpcUrls`).
+   * When both this field and `contractProvider` are set, `contractProvider`
+   * takes precedence — callers who want consensus over a custom provider
+   * must layer the verification themselves.
+   */
+  contractReadConsensus?: ContractReadConsensus;
 };
 
 /**
@@ -265,6 +279,8 @@ export function validateConfig(config: GuildPassClientConfig): void {
     }
   }
 
+  validateContractReadConsensus(config.contractReadConsensus);
+
   validateChainsConfig(config.chains);
 
   const transport = config.fetch ?? globalThis.fetch;
@@ -351,6 +367,104 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
         );
       }
     }
+  }
+}
+
+/**
+ * Validates the opt-in `contractReadConsensus` configuration. Called from
+ * {@link validateConfig}; safe to call independently for tests.
+ *
+ * A quorum of one provider is explicitly rejected (`minProviders` must be ≥ 2)
+ * because a single endpoint cannot detect a *responding-but-lying* provider,
+ * which is the precise threat consensus mode is designed to mitigate.
+ *
+ * @internal
+ */
+export function validateContractReadConsensus(
+  consensus: ContractReadConsensus | undefined,
+): void {
+  if (consensus === undefined) return;
+
+  if (
+    !consensus ||
+    typeof consensus !== 'object' ||
+    consensus === null ||
+    Array.isArray(consensus)
+  ) {
+    throwConfigError(
+      'contractReadConsensus must be an object with `providers` and `minProviders`',
+      'contractReadConsensus',
+      'invalid_type',
+      consensus as any,
+    );
+  }
+
+  const { providers, minProviders } = consensus;
+
+  if (!Array.isArray(providers) || providers.length === 0) {
+    throwConfigError(
+      'contractReadConsensus.providers must be a non-empty array of http/https URLs',
+      'contractReadConsensus.providers',
+      'INVALID_FORMAT',
+      providers,
+    );
+  }
+
+  // Reject duplicates so the per-provider attribution in error messages is
+  // unambiguous: a duplicated URL would otherwise inflate the apparent
+  // "agreeing" count from a single physical endpoint.
+  const seen = new Set<string>();
+  for (const [idx, url] of providers.entries()) {
+    if (typeof url !== 'string' || url.length === 0) {
+      throwConfigError(
+        `contractReadConsensus.providers[${idx}] must be a non-empty string`,
+        `contractReadConsensus.providers[${idx}]`,
+        'invalid_type',
+        url,
+      );
+    }
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error();
+    } catch {
+      throwConfigError(
+        `Invalid contractReadConsensus.providers[${idx}]: expected an http or https URL`,
+        `contractReadConsensus.providers[${idx}]`,
+        'INVALID_FORMAT',
+        url,
+      );
+    }
+    if (seen.has(url)) {
+      throwConfigError(
+        `contractReadConsensus.providers[${idx}]: duplicate URL "${url}"`,
+        `contractReadConsensus.providers[${idx}]`,
+        'duplicate',
+        url,
+      );
+    }
+    seen.add(url);
+  }
+
+  if (
+    typeof minProviders !== 'number' ||
+    !Number.isInteger(minProviders) ||
+    minProviders < 2
+  ) {
+    throwConfigError(
+      'contractReadConsensus.minProviders must be an integer >= 2 (a quorum of one cannot detect a lying RPC)',
+      'contractReadConsensus.minProviders',
+      'invalid_range',
+      minProviders,
+    );
+  }
+
+  if (minProviders > providers.length) {
+    throwConfigError(
+      `contractReadConsensus.minProviders (${minProviders}) cannot exceed the number of providers (${providers.length})`,
+      'contractReadConsensus.minProviders',
+      'invalid_range',
+      minProviders,
+    );
   }
 }
 

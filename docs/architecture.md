@@ -125,6 +125,105 @@ method and never `import` viem or ethers. Both libraries are optional peer depen
 only; the core package stays zero-runtime-dependency, and consumers who don't import the
 adapter subpaths see no bundle-size increase.
 
+### 7. Cross-Provider Consensus Verification (issue #307)
+
+The opt-in `contractReadConsensus` config adds a second, complementary guarantee on top
+of `rpcUrls` failover: not just _availability_ (the primary URL answers) but also
+_correctness_ (the answer matches what other independent endpoints reported).
+
+```ts
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  contractAddress: '0x...',
+  contractReadConsensus: {
+    providers: [
+      'https://rpc-a.example',   // independently operated RPCs
+      'https://rpc-b.example',   // (typically run by different infra providers)
+      'https://rpc-c.example',
+    ],
+    minProviders: 2,             // at least 2 must agree
+  },
+});
+```
+
+**Why this matters.** Multi-RPC failover (see `### 5. RPC Failover`) only catches
+_responses that never arrive_, not responses that arrive with a wrong-but-well-formed
+payload. A compromised, misconfigured, or malicious RPC returning a fabricated balance
+_could_ grant (or deny) access without the SDK noticing, because the JSON-RPC reply was
+structurally valid. Consensus mode forces cross-provider agreement on the raw hex
+response before the SDK trusts it.
+
+**Operation.** When `contractReadConsensus` is set, every supported single-call read
+(`getMembershipTokenBalance`, `getERC20Balance`, `ownsERC721Token`,
+`getERC1155Balance`, `getGuildOwner`, `readContract`) is fanned out to every URL in
+`providers` in parallel via `Promise.allSettled`. The successful results are grouped
+by raw-hex equality (case-insensitive, leading-zero-insensitive) and the SDK returns
+the largest group's value iff its size is ≥ `minProviders`. Anything else surfaces as
+`GuildPassError` with `code === CONSENSUS_MISMATCH` and a structured `details` payload
+listing every disagreeing provider, the raw values each returned, and any per-provider
+failures (network errors, reverts) so operators can attribute the lie.
+
+**Precedence.** Consensus sits in this order, top wins:
+
+1. `contractProvider` (custom viem/ethers adapter) — bypasses consensus entirely.
+2. `contractReadConsensus` — fans out across `consensus.providers`.
+3. The default JSON-RPC/Multicall3 + failover path.
+
+So consumers who wrap an existing RPC infrastructure retain their custom transport; consumers
+who only need *correctness* opt in by listing multiple public endpoints. The two features
+are orthogonal — `contractReadConsensus.providers` and the failover `rpcUrls` list are
+deliberately separate arrays so a single endpoint exhaustion in failover cannot mask a
+disagreement in consensus.
+
+**Block tag.** Consensus-mode reads always use `'latest'` — a quorum over historical
+`confirmations`-based reads would require out-of-band block-height agreement across
+providers, which is reserved for a future enhancement. Verify on receipt: the parallel
+providers should observe the same logical head block modulo a few-second chain tip
+differences between providers, which is exactly what we want for fast token-gating
+checks.
+
+**Cancellation.** A caller-provided `AbortSignal` is honoured: any provider that
+rejected with `REQUEST_CANCELLED` / `ABORTED` is re-thrown immediately rather than
+folded into a generic mismatch — the user explicitly asked to cancel, and the SDK
+respects that before running any consensus math.
+
+**Out of scope for v1.** Batch reads (`batchEthCall`, `getMembershipTokenBalancesBatch`,
+`getGuildOwnersBatch`) and `validateRoleRequirement` (multi-step ERC-165 logic) do not
+currently run through the consensus path. Reach for a custom `contractProvider` or a
+dedicated multilayer check at the application level if you need quorum on those.
+
+**Validation.** `contractReadConsensus` is enforced at construction time by
+`validateConfig` in `src/config/sdkConfig.ts`:
+
+- `providers` must be a non-empty array of unique http(s) URLs (duplicates are
+  rejected because they would inflate the apparent agreeing count from one physical
+  endpoint).
+- `minProviders` must be an integer in `[2, providers.length]`. A quorum of 1 has no
+  majority-over-lying-RPC value, so it is explicitly rejected.
+
+**Failure-mode code-style error details.** When the throw happens, the resulting
+`GuildPassError.details` carries:
+
+```ts
+{
+  totalProviders: number,    // length of consensus.providers
+  successfulCount: number,   // providers that returned a usable raw hex
+  failedCount: number,       // providers that errored out
+  quorum: number,            // minProviders the SDK was configured to require
+  groups: [
+    { value: '0x...', urls: ['url1', 'url2'], count: 2 }, // distinct values
+    ...
+  ],
+  failures: [
+    { url: 'urlN', code: 'HTTP_ERROR', message: 'execution reverted' },
+    ...
+  ],
+}
+```
+
+This lets operators identify the lying endpoint at a glance — no forensic
+cross-referencing of logs.
+
 ## Batch Call Strategies
 
 The SDK offers two strategies for executing batch `eth_call` contract reads:
@@ -169,7 +268,7 @@ const client = new GuildPassClient({
 });
 ```
 
-### 7. Caching Layer
+### 8. Caching Layer
 
 The SDK includes a resilient caching layer that wraps service methods.
 

@@ -46,10 +46,11 @@ import {
   validateAccessRequirement,
 } from './contractHelpers';
 import type { AbiFunction } from './contract.types';
+import type { ConsensusMismatchDetails, ConsensusMismatchFailure, ConsensusMismatchGroup, ContractReadConsensus } from './contract.types';
 import { GuildPassClientConfig, resolveChainConfig, mergeRpcUrls } from '../config/sdkConfig';
 import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
-import { ContractProvider } from './providers/provider.types';
+import { ContractProvider, EthCallRequest } from './providers/provider.types';
 import { JsonRpcContractProvider } from './providers/jsonRpcProvider';
 import { Multicall3ContractProvider } from './providers/multicall3Provider';
 import { MULTICALL3_ADDRESS } from './providers/adaptive.types';
@@ -104,6 +105,29 @@ export {
 
 
 // GuildPass SDK: Exported function execution unit.
+/**
+ * Canonicalises a raw hex string so that two providers returning the same
+ * on-chain value compare equal regardless of leading-zero padding or hex
+ * casing. Numbers and zero-padded addresses normalise to the same key.
+ *
+ * @internal
+ */
+const normalizeHex = (raw: unknown): string => {
+  if (typeof raw !== 'string') {
+    throw new GuildPassError(
+      'Consensus path received a non-string provider result',
+      GuildPassErrorCode.INVALID_RESPONSE,
+    );
+  }
+  if (!/^0x[0-9a-fA-F]*$/.test(raw)) {
+    // Anything that is not a hex string is treated as a distinct value and
+    // surfaced in the error details — not silently passed through.
+    return raw.toLowerCase();
+  }
+  const stripped = raw.slice(2).toLowerCase().replace(/^0+/, '');
+  return stripped.length === 0 ? '0x0' : '0x' + stripped;
+};
+
 export class ContractClient {
   // GuildPass SDK: Class member structure property or constructor.
   private readonly config: GuildPassClientConfig;
@@ -181,7 +205,206 @@ export class ContractClient {
   }
 
   /**
+   * Routes a single `eth_call` through either the configured `contractProvider`,
+   * the consensus-verification path (issue #307), or the default single-URL
+   * provider — in that precedence order.
+   *
+   * - **Custom provider**: short-circuits to `this.config.contractProvider`
+   *   (used as-is, no consensus verification — the implementation is opaque
+   *   to us).
+   * - **Consensus**: fans out to all `contractReadConsensus.providers` in
+   *   parallel and requires `minProviders` agreeing values.
+   * - **Default**: falls through to `resolveProvider(...)` which uses the
+   *   existing single-URL JSON-RPC / multicall3 / failover behaviour.
+   *
+   * Single-call read methods (`getMembershipTokenBalance`, `getERC20Balance`,
+   * `ownsERC721Token`, `getERC1155Balance`, `getGuildOwner`, `readContract`)
+   * all funnel through this helper so the precedence and override semantics
+   * stay uniform. Batch helpers are out of scope for v1.
+   */
+  private async resolveSingleEthCall(
+    chainConfig: { rpcUrl?: string; rpcUrls?: string[]; multicallAddress?: string } | string | undefined,
+    requiredMessage: string,
+    request: EthCallRequest,
+    options: RequestOptions | undefined,
+    chainId: number | undefined,
+  ): Promise<unknown> {
+    if (this.config.contractProvider) {
+      return this.config.contractProvider.ethCall(request, options);
+    }
+
+    const consensus = this.config.contractReadConsensus;
+    if (consensus) {
+      return this.consensusEthCall(request, options, consensus, chainId);
+    }
+
+    const provider = this.resolveProvider(chainConfig, requiredMessage, chainId);
+    return provider.ethCall(request, options);
+  }
+
+  /**
+   * Cross-provider consensus verification of a single `eth_call` (issue #307).
+   *
+   * Fans the request out to every URL listed in `consensus.providers` in
+   * parallel via `Promise.allSettled`, groups the successful results by
+   * raw-hex equality (case-insensitive, leading-zero-insensitive), and
+   * returns the first group's value iff its size is ≥ `minProviders`.
+   *
+   * Otherwise throws `GuildPassError(CONSENSUS_MISMATCH)` whose `details`
+   * carries:
+   *   - per-value groups with their URLs,
+   *   - per-provider failures (network / revert / parse errors), and
+   *   - the configured quorum.
+   *
+   * Caller-initiated aborts (`signal` already aborted, or any
+   * `REQUEST_CANCELLED` / `ABORTED` error from a provider) are re-thrown
+   * immediately rather than rolled into a generic mismatch — the user
+   * explicitly asked to cancel, so the SDK honours that intent first.
+   *
+   * Notes:
+   * - The block tag is always `'latest'` — a consensus quorum over
+   *   historical reads (`confirmations`) would require cross-provider
+   *   block-height agreement, which is reserved for a future enhancement.
+   * - Each URL is queried through its own `JsonRpcContractProvider`
+   *   instance, so per-URL retry/timeout/signal configuration from
+   *   `options` is honoured independently.
+   */
+  private async consensusEthCall(
+    request: EthCallRequest,
+    options: RequestOptions | undefined,
+    consensus: ContractReadConsensus,
+    chainId: number | undefined,
+  ): Promise<unknown> {
+    const { providers, minProviders } = consensus;
+
+    // Drop `confirmations` for consensus: every provider reads `'latest'` so
+    // they all observe the same logical block. Historical consensus reads
+    // would require an out-of-band block-height agreement protocol that is
+    // out of scope for v1.
+    const perProviderOptions: RequestOptions | undefined = options
+      ? { ...options }
+      : undefined;
+    if (perProviderOptions) {
+      delete (perProviderOptions as { confirmations?: unknown }).confirmations;
+    }
+
+    // One single-URL provider per consensus URL. Failover is intentionally not
+    // applied here — short-circuiting to a backup URL would defeat the
+    // purpose of independent cross-provider verification.
+    const consumptions = providers.map((url) => ({
+      url,
+      provider: new JsonRpcContractProvider(this.http, url, this.config.hooks, chainId),
+    }));
+
+    const settled = await Promise.allSettled(
+      consumptions.map(({ provider }) => provider.ethCall(request, perProviderOptions)),
+    );
+
+    // Honour explicit caller-initiated aborts before any consensus logic
+    // runs, so a user's `AbortController` is not silently turned into a
+    // "consensus mismatch" error.
+    for (const r of settled) {
+      if (r.status === 'rejected') {
+        const reason = r.reason;
+        if (reason instanceof GuildPassError &&
+            (reason.code === GuildPassErrorCode.REQUEST_CANCELLED ||
+             reason.code === GuildPassErrorCode.ABORTED)) {
+          throw reason;
+        }
+      }
+    }
+
+    const groupByValue = new Map<string, ConsensusMismatchGroup>();
+    const groups: ConsensusMismatchGroup[] = [];
+    const failures: ConsensusMismatchFailure[] = [];
+    let successfulCount = 0;
+
+    for (let i = 0; i < settled.length; i++) {
+      const r = settled[i];
+      const { url } = consumptions[i];
+
+      if (r.status === 'fulfilled') {
+        let normalized: string;
+        try {
+          normalized = normalizeHex(r.value);
+        } catch (err) {
+          // Non-string fulfillment is treated as a per-provider failure so it
+          // is surfaced in the error details rather than crashing the
+          // grouping logic.
+          const code = err instanceof GuildPassError ? err.code : GuildPassErrorCode.INVALID_RESPONSE;
+          const message = err instanceof Error ? err.message : String(err);
+          failures.push({ url, code, message });
+          continue;
+        }
+
+        let group = groupByValue.get(normalized);
+        if (!group) {
+          group = { value: normalized, urls: [], count: 0 };
+          groupByValue.set(normalized, group);
+          groups.push(group);
+        }
+        group.urls.push(url);
+        group.count += 1;
+        successfulCount += 1;
+      } else {
+        const reason = r.reason;
+        const code = reason instanceof GuildPassError
+          ? reason.code
+          : GuildPassErrorCode.UNKNOWN_ERROR;
+        const message = reason instanceof Error ? reason.message : String(reason);
+        failures.push({ url, code, message });
+      }
+    }
+
+    // Sort so callers see the front-runner first in error messages / logs.
+    groups.sort((a, b) => b.count - a.count);
+
+    const frontRunner = groups[0];
+    if (frontRunner && frontRunner.count >= minProviders) {
+      // Return the provider's actual (un-normalized) raw value. For raw
+      // `eth_call` returns this is a hex string; callers like
+      // `decodeUint256Result` only inspect the string shape, so picking any
+      // provider's value from the winning group is equivalent.
+      const winnerIdx = settled.findIndex((r, i) =>
+        r.status === 'fulfilled' && consumptions[i].url === frontRunner.urls[0],
+      );
+      const winnerResult = settled[winnerIdx];
+      if (winnerResult.status === 'fulfilled') {
+        return winnerResult.value;
+      }
+      // Defensive fallback: the group only contains fulfilled entries.
+      return frontRunner.value;
+    }
+
+    const failedCount = providers.length - successfulCount;
+    const details: ConsensusMismatchDetails = {
+      totalProviders: providers.length,
+      successfulCount,
+      failedCount,
+      quorum: minProviders,
+      groups,
+      failures,
+    };
+
+    const frontRunnerCount = frontRunner?.count ?? 0;
+    const message =
+      `Contract read consensus mismatch: ${providers.length} providers queried, ` +
+      `largest agreeing group returned ${frontRunnerCount} matching value(s), ` +
+      `but quorum was ${minProviders}.` +
+      (failedCount > 0
+        ? ` ${failedCount} provider(s) failed outright; the remainder disagreed.`
+        : ' No group of providers agreed.');
+
+    throw new GuildPassError(message, GuildPassErrorCode.CONSENSUS_MISMATCH, undefined, details);
+  }
+
+  /**
    * Fetches the membership token balance for a wallet.
+   *
+   * Honours the opt-in `contractReadConsensus` config (issue #307): when
+   * set, the `balanceOf(address)` call is fanned out across the configured
+   * consensus providers in parallel and only returned when at least
+   * `minProviders` of them agree. When NOT set, behavior is unchanged.
    */
   // GuildPass SDK: Class member structure property or constructor.
   public async getMembershipTokenBalance(
@@ -195,8 +418,6 @@ export class ContractClient {
 
     validateAddress(walletAddress);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
-
     if (!contractAddress) {
       throw new GuildPassError(
         'contractAddress is required for token balance lookup',
@@ -207,7 +428,13 @@ export class ContractClient {
     validateAddress(contractAddress);
 
     const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
-    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    const result = await this.resolveSingleEthCall(
+      chainConfig,
+      'rpcUrl is required for contract calls',
+      { to: contractAddress, data },
+      options,
+      chainId,
+    );
     return decodeUint256Result(result);
     // GuildPass SDK: End of logic containment structure block.
   }
@@ -269,6 +496,10 @@ export class ContractClient {
    * Unlike {@link getMembershipTokenBalance}, this method requires a
    * `contractAddress` on every call because there is no single "membership
    * token" concept for arbitrary ERC-20 tokens.
+   *
+   * Honours the opt-in `contractReadConsensus` config: when set, the
+   * `balanceOf` call is fanned out across consensus providers in parallel
+   * and only returned when at least `minProviders` of them agree.
    */
   public async getERC20Balance(
     params: ERC20BalanceParams,
@@ -280,10 +511,14 @@ export class ContractClient {
     validateAddress(walletAddress);
     validateAddress(contractAddress);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
-
     const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
-    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    const result = await this.resolveSingleEthCall(
+      chainConfig,
+      'rpcUrl is required for contract calls',
+      { to: contractAddress, data },
+      options,
+      chainId,
+    );
     return decodeUint256Result(result);
   }
 
@@ -291,6 +526,10 @@ export class ContractClient {
    * Checks whether a wallet owns a specific ERC-721 token.
    * Calls `ownerOf(uint256)` on the contract and compares the result with
    * the given wallet address.
+   *
+   * Honours the opt-in `contractReadConsensus` config: when set, the
+   * `ownerOf` call is fanned out across consensus providers in parallel
+   * and only returned when at least `minProviders` of them agree.
    */
   public async ownsERC721Token(
     params: ERC721TokenParams,
@@ -302,10 +541,14 @@ export class ContractClient {
     validateAddress(walletAddress);
     validateAddress(contractAddress);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
-
     const data = `${ERC721_OWNER_OF_SELECTOR}${encodeUint256Argument(tokenId, 'tokenId')}`;
-    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    const result = await this.resolveSingleEthCall(
+      chainConfig,
+      'rpcUrl is required for contract calls',
+      { to: contractAddress, data },
+      options,
+      chainId,
+    );
     const owner = decodeAddressResult(result);
     return owner.toLowerCase() === walletAddress.toLowerCase();
   }
@@ -313,6 +556,10 @@ export class ContractClient {
   /**
    * Fetches the ERC-1155 token balance for a wallet and token ID.
    * Calls `balanceOf(address,uint256)` on the contract.
+   *
+   * Honours the opt-in `contractReadConsensus` config: when set, the
+   * `balanceOf` call is fanned out across consensus providers in parallel
+   * and only returned when at least `minProviders` of them agree.
    */
   public async getERC1155Balance(
     params: ERC1155BalanceParams,
@@ -324,10 +571,14 @@ export class ContractClient {
     validateAddress(walletAddress);
     validateAddress(contractAddress);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
-
     const data = `${ERC1155_BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}${encodeUint256Argument(tokenId, 'tokenId')}`;
-    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    const result = await this.resolveSingleEthCall(
+      chainConfig,
+      'rpcUrl is required for contract calls',
+      { to: contractAddress, data },
+      options,
+      chainId,
+    );
     return decodeUint256Result(result);
   }
 
@@ -363,13 +614,17 @@ export class ContractClient {
 
     validateAddress(contractAddress);
 
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
-
     const signature = buildFunctionSignature(abi);
     const selector = getFunctionSelector(signature);
     const data = encodeAbiParams(selector, abi.inputs, args);
 
-    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    const result = await this.resolveSingleEthCall(
+      chainConfig,
+      'rpcUrl is required for contract calls',
+      { to: contractAddress, data },
+      options,
+      chainId,
+    );
 
     // Return the raw hex result — callers can decode it with
     // decodeUint256Result, decodeAddressResult, decodeBoolResult, etc.
@@ -384,6 +639,10 @@ export class ContractClient {
 
   /**
    * Fetches the owner of a guild from the contract.
+   *
+   * Honours the opt-in `contractReadConsensus` config: when set, the
+   * `getGuildOwner` call is fanned out across consensus providers in
+   * parallel and only returned when at least `minProviders` of them agree.
    */
   // GuildPass SDK: Class member structure property or constructor.
   public async getGuildOwner(params: GuildOwnerParams, options?: RequestOptions): Promise<string> {
@@ -391,8 +650,6 @@ export class ContractClient {
     const { guildId, contractAddress = chainConfig.contractAddress } = params;
 
     validateGuildId(guildId);
-
-    const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', params.chainId);
 
     if (!contractAddress) {
       throw new GuildPassError(
@@ -404,7 +661,13 @@ export class ContractClient {
     validateAddress(contractAddress);
     const data = `${GET_GUILD_OWNER_SELECTOR}${encodeGuildId(guildId)}`;
 
-    const result = await provider.ethCall({ to: contractAddress, data }, options);
+    const result = await this.resolveSingleEthCall(
+      chainConfig,
+      'rpcUrl is required for contract calls',
+      { to: contractAddress, data },
+      options,
+      params.chainId,
+    );
     return decodeAddressResult(result);
     // GuildPass SDK: End of logic containment structure block.
   }

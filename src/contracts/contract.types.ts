@@ -215,3 +215,103 @@ export type ReadContractParams = {
   /** Chain override (defaults to the client-level default chain). */
   chainId?: number;
 };
+
+// ---------------------------------------------------------------------------
+// Cross-provider consensus verification (issue #307)
+// ---------------------------------------------------------------------------
+
+/**
+ * Opt-in configuration for cross-provider consensus verification of read-only
+ * contract calls (issue #307).
+ *
+ * Unlike `rpcUrl` / `rpcUrls` (which provide *availability* via failover on
+ * transient RPC errors), consensus mode provides *correctness*: every
+ * supported read is issued independently to every URL listed in `providers`,
+ * and the SDK only returns a value when at least `minProviders` of them
+ * return the same raw hex result. A responding-but-lying RPC endpoint (one
+ * that returns a fabricated but well-formed value) is therefore detected and
+ * surfaced as a distinct `CONSENSUS_MISMATCH` rather than silently corrupting
+ * a token-gating decision.
+ *
+ * Behavior summary:
+ * - `minProviders >= 2` is required when this config is set, because a quorum
+ *   of one provider has no majority-over-lying-RPC value.
+ * - `minProviders` cannot exceed `providers.length`.
+ * - Calls are forwarded in parallel (`Promise.allSettled`); the single
+ *   agreeing value of the largest group whose size meets the quorum wins.
+ * - Disagreement, network failures, or `confirmations`-based historical reads
+ *   throw `GuildPassError` with `code === CONSENSUS_MISMATCH` and a
+ *   structured `details` payload identifying every disagreeing provider, the
+ *   raw values returned, and any provider-side failures.
+ * - When unset, the SDK falls back to its existing single-RPC-failover
+ *   behavior — zero behavior change.
+ * - When `contractProvider` is configured (custom viem/ethers adapter), it
+ *   takes precedence over consensus mode, mirroring the existing precedence
+ *   rule.
+ */
+export type ContractReadConsensus = {
+  /**
+   * Independent RPC endpoint URLs to query in parallel. Each URL must be a
+   * fully-qualified http(s) URL. Order is preserved only for deterministic
+   * error-message labelling; consensus is not priority-based.
+   */
+  providers: string[];
+  /**
+   * Minimum number of providers that must agree on the same raw hex result
+   * for the call to succeed. Must be an integer in `[2, providers.length]`.
+   */
+  minProviders: number;
+};
+
+/**
+ * Per-value group in a `CONSENSUS_MISMATCH` error: every provider that
+ * returned a given raw hex result, plus the count of providers in the group.
+ *
+ * The group with the largest `count` is the "front-runner" — when its size
+ * meets `quorum`, the SDK would have succeeded; when it does not, every
+ * provider's response (group counts and individual failures) is reported
+ * here for caller inspection.
+ */
+export type ConsensusMismatchGroup = {
+  /** The raw hex result these providers returned (e.g. for `balanceOf`). */
+  value: string;
+  /** URLs of every provider that returned `value`. */
+  urls: string[];
+  /** `urls.length` — kept explicitly for clarity. */
+  count: number;
+};
+
+/**
+ * A single provider-side failure surfaced inside a `CONSENSUS_MISMATCH` error:
+ * the RPC URL we attempted, the SDK / JSON-RPC error code, and the message
+ * (typically a network error, execution revert, or parse failure).
+ */
+export type ConsensusMismatchFailure = {
+  url: string;
+  code: string;
+  message: string;
+};
+
+/**
+ * Structured details attached to a `CONSENSUS_MISMATCH` error. The thrown
+ * `GuildPassError.code === CONSENSUS_MISMATCH` and `GuildPassError.details`
+ * carries one of these objects, so callers can identify the disagreeing
+ * provider(s) and the values each one returned.
+ */
+export type ConsensusMismatchDetails = {
+  /** Total number of providers attempted (length of `consensus.providers`). */
+  totalProviders: number;
+  /** Providers that returned a usable (success) result. */
+  successfulCount: number;
+  /** Providers whose call threw or otherwise failed. */
+  failedCount: number;
+  /** The `minProviders` quorum the SDK was configured to require. */
+  quorum: number;
+  /**
+   * One entry per distinct raw hex value returned. `count` of the largest
+   * group is what the SDK compared against `quorum`.
+   */
+  groups: ConsensusMismatchGroup[];
+  /** Per-provider failures (network errors, reverts, parse errors). */
+  failures: ConsensusMismatchFailure[];
+};
