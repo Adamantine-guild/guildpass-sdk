@@ -565,3 +565,121 @@ describe('GuildPassClient – roles pagination cache keys', () => {
     expect(httpGet).toHaveBeenCalledTimes(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// deleteByPrefix-absent cache adapter fallback behaviour
+// ---------------------------------------------------------------------------
+describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
+  /**
+   * MinimalCacheAdapter deliberately omits the optional `deleteByPrefix` method
+   * to exercise the fallback code paths in GuildPassClient.invalidateGuildCache
+   * (line 167-168: exact-key deletion) and invalidateWalletCache
+   * (line 190-191: full clear).
+   */
+  function createMinimalAdapter(): CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn> } {
+    const store = new Map<string, unknown>();
+    const clearSpy = vi.fn(async () => { store.clear(); });
+    const adapter: CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn> } = {
+      _store: store as unknown as Map<string, unknown>,
+      clearSpy,
+      async get<T>(key: string): Promise<T | null> {
+        return (store.get(key) as T | undefined) ?? null;
+      },
+      async set<T>(key: string, value: T, _ttl?: number): Promise<void> {
+        store.set(key, value);
+      },
+      async delete(key: string): Promise<void> {
+        store.delete(key);
+      },
+      async clear(): Promise<void> {
+        clearSpy();
+      },
+    };
+    // Intentionally NO deleteByPrefix — this is the point of the adapter.
+    return adapter;
+  }
+
+  // --- invalidateGuildCache fallback (GuildPassClient.ts L167-168) -----------
+
+  it('invalidateGuildCache falls back to exact-key deletion when adapter lacks deleteByPrefix', async () => {
+    const adapter = createMinimalAdapter();
+    const deleteSpy = vi.spyOn(adapter, 'delete');
+    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0x1', chainId: 1 };
+
+    // Populate exact-prefix keys that the SDK computes
+    await adapter.set('guilds:getGuild:prime-guild', mockGuild);
+    await adapter.set('roles:getRoles:prime-guild', []);
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    await client.invalidateGuildCache('prime-guild');
+
+    // Exact keys should be deleted
+    expect(await adapter.get('guilds:getGuild:prime-guild')).toBeNull();
+    expect(await adapter.get('roles:getRoles:prime-guild')).toBeNull();
+    // delete() was called for each known prefix
+    expect(deleteSpy).toHaveBeenCalled();
+  });
+
+  it('invalidateGuildCache fallback misses composite/nested keys (expected limitation)', async () => {
+    const adapter = createMinimalAdapter();
+    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0x1', chainId: 1 };
+
+    // Composite keys with wallet/resource suffixes
+    await adapter.set('access:checkAccess:prime-guild:premium-docs:0xabc', { hasAccess: true });
+    await adapter.set('membership:getMembership:prime-guild:0xdef', { member: true });
+    // Also store the exact prefix keys
+    await adapter.set('guilds:getGuild:prime-guild', mockGuild);
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    await client.invalidateGuildCache('prime-guild');
+
+    // Exact key removed
+    expect(await adapter.get('guilds:getGuild:prime-guild')).toBeNull();
+    // Composite keys NOT removed — this is the documented limitation of the fallback
+    expect(await adapter.get('access:checkAccess:prime-guild:premium-docs:0xabc')).toEqual({ hasAccess: true });
+    expect(await adapter.get('membership:getMembership:prime-guild:0xdef')).toEqual({ member: true });
+  });
+
+  // --- invalidateWalletCache fallback (GuildPassClient.ts L190-191) ----------
+
+  it('invalidateWalletCache calls clear() when adapter lacks deleteByPrefix', async () => {
+    const adapter = createMinimalAdapter();
+    const addr = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
+
+    await adapter.set(`wallet:${addr}:balance`, 100);
+    await adapter.set(`wallet:${addr}:nonce`, 5);
+    await adapter.set('guilds:getGuild:g1', { id: 'g1' });
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    await client.invalidateWalletCache(addr);
+
+    // clear() was called, so everything is wiped
+    expect(adapter.clearSpy).toHaveBeenCalledTimes(1);
+    expect(await adapter.get(`wallet:${addr}:balance`)).toBeNull();
+    expect(await adapter.get('guilds:getGuild:g1')).toBeNull();
+  });
+
+  it('invalidateWalletCache is a no-op when no adapter is configured', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    await expect(
+      client.invalidateWalletCache('0xd8da6bf26964af9d7eed9e03e53415d37aa96045'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('invalidateWalletCache normalises address before falling back to clear()', async () => {
+    const adapter = createMinimalAdapter();
+    const clearSpy = adapter.clearSpy;
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    // Mixed-case address should be normalised, then clear() is called
+    await client.invalidateWalletCache('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidateWalletCache throws for an invalid address even with minimal adapter', async () => {
+    const adapter = createMinimalAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    await expect(client.invalidateWalletCache('not-an-address')).rejects.toThrow();
+  });
+});
