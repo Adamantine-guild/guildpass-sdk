@@ -126,10 +126,10 @@ export class GuildPassClient {
     const rawRoles = new RolesService(this.http, validateResponses, rawAccess);
     const rawGuilds = new GuildsService(this.http, validateResponses);
 
-    this.access = this.cache ? this.buildCachedAccessService(rawAccess) : rawAccess;
-    this.membership = this.cache ? this.buildCachedMembershipService(rawMembership) : rawMembership;
-    this.roles = this.cache ? this.buildCachedRolesService(rawRoles) : rawRoles;
-    this.guilds = this.cache ? this.buildCachedGuildsService(rawGuilds) : rawGuilds;
+    this.access = this.buildCachedAccessService(rawAccess);
+    this.membership = this.buildCachedMembershipService(rawMembership);
+    this.roles = this.buildCachedRolesService(rawRoles);
+    this.guilds = this.buildCachedGuildsService(rawGuilds);
     this.contracts = rawContracts;
     // GuildPass SDK: End of logic containment structure block.
   }
@@ -295,10 +295,10 @@ export class GuildPassClient {
   private buildCachedAccessService(raw: AccessService): AccessService {
     return Object.create(raw, {
       checkAccess: {
-        value: async (params: AccessCheckParams): Promise<AccessCheckResult> => {
+        value: async (params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkAccess', params.guildId, params.resourceId, wallet);
-          return this.withCache(key, () => raw.checkAccess(params));
+          return this.withCache(key, () => raw.checkAccess(params, options));
         },
       },
       checkAccessBatch: {
@@ -308,10 +308,10 @@ export class GuildPassClient {
         ): Promise<AccessCheckBatchResult[]> => raw.checkAccessBatch(items, options),
       },
       checkRoleAccess: {
-        value: async (params: RoleAccessCheckParams): Promise<boolean> => {
+        value: async (params: RoleAccessCheckParams, options?: RequestOptions): Promise<boolean> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.checkRoleAccess(params));
+          return this.withCache(key, () => raw.checkRoleAccess(params, options));
         },
       },
     });
@@ -320,10 +320,10 @@ export class GuildPassClient {
   private buildCachedMembershipService(raw: MembershipService): MembershipService {
     return Object.create(raw, {
       getMembership: {
-        value: async (params: MembershipParams): Promise<Membership> => {
+        value: async (params: MembershipParams, options?: RequestOptions): Promise<Membership> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('membership', 'getMembership', params.guildId, wallet);
-          return this.withCache(key, () => raw.getMembership(params));
+          return this.withCache(key, () => raw.getMembership(params, options));
         },
       },
       isMember: {
@@ -341,23 +341,23 @@ export class GuildPassClient {
   private buildCachedRolesService(raw: RolesService): RolesService {
     return Object.create(raw, {
       getRoles: {
-        value: async (params: GetRolesParams): Promise<GuildRole[]> => {
+        value: async (params: GetRolesParams, options?: RequestOptions): Promise<GuildRole[]> => {
           const key = buildCacheKey('roles', 'getRoles', params.guildId);
-          return this.withCache(key, () => raw.getRoles(params));
+          return this.withCache(key, () => raw.getRoles(params, options));
         },
       },
       getUserRoles: {
-        value: async (params: GetUserRolesParams): Promise<GuildRole[]> => {
+        value: async (params: GetUserRolesParams, options?: RequestOptions): Promise<GuildRole[]> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('roles', 'getUserRoles', params.guildId, wallet);
-          return this.withCache(key, () => raw.getUserRoles(params));
+          return this.withCache(key, () => raw.getUserRoles(params, options));
         },
       },
       hasRole: {
-        value: async (params: HasRoleParams): Promise<boolean> => {
+        value: async (params: HasRoleParams, options?: RequestOptions): Promise<boolean> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.hasRole(params));
+          return this.withCache(key, () => raw.hasRole(params, options));
         },
       },
     });
@@ -366,15 +366,15 @@ export class GuildPassClient {
   private buildCachedGuildsService(raw: GuildsService): GuildsService {
     return Object.create(raw, {
       getGuild: {
-        value: async (params: GetGuildParams): Promise<Guild> => {
+        value: async (params: GetGuildParams, options?: RequestOptions): Promise<Guild> => {
           const key = buildCacheKey('guilds', 'getGuild', params.guildId);
-          return this.withCache(key, () => raw.getGuild(params));
+          return this.withCache(key, () => raw.getGuild(params, options));
         },
       },
       getGuildConfig: {
-        value: async (params: GetGuildParams): Promise<GuildConfig> => {
+        value: async (params: GetGuildParams, options?: RequestOptions): Promise<GuildConfig> => {
           const key = buildCacheKey('guilds', 'getGuildConfig', params.guildId);
-          return this.withCache(key, () => raw.getGuildConfig(params));
+          return this.withCache(key, () => raw.getGuildConfig(params, options));
         },
       },
     });
