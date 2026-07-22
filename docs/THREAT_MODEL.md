@@ -30,6 +30,8 @@
 
 This document systematically enumerates every trust boundary across the GuildPass SDK, identifies attacker capabilities per boundary, and catalogues the risks introduced by each adversarial input surface. It serves as the reference model for evaluating new features, prioritizing security work, and ensuring no class of attack is overlooked.
 
+> **Configuration-focused summary:** For `apiKey`, `rpcUrl`, and `cache` trust boundaries with integrator guidance, see [`docs/security/threat-model.md`](./security/threat-model.md).
+
 ---
 
 ## Trust Boundaries

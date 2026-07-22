@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import { InMemoryCacheAdapter, CacheAdapter } from '../src/cache/cache.types';
+import { RECOMMENDED_ACCESS_CACHE_TTL_MS } from '../src/config/securityLimits';
 import { runCacheAdapterConformanceTests } from './cacheAdapterConformance';
 
 const BASE_CONFIG = { apiUrl: 'https://api.guildpass.xyz' };
@@ -157,7 +158,7 @@ describe('GuildPassClient – cache integration', () => {
     expect(setSpy).toHaveBeenCalledWith(
       'access:checkAccess:g1:res1:0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
       mockAccess,
-      undefined,
+      RECOMMENDED_ACCESS_CACHE_TTL_MS,
     );
   });
 
