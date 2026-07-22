@@ -256,6 +256,9 @@ pnpm docs
 # Validate package metadata (publint — catches malformed exports, missing files, etc.)
 pnpm validate
 
+# Diff public API against the last release tag (local release prep — not CI)
+pnpm check-api-diff
+
 # Run the same quality gates used by releases
 pnpm release:check
 ```
@@ -280,6 +283,8 @@ The workflow installs dependencies with `pnpm install --frozen-lockfile` and the
 ### Versioning and changelog
 
 Release tags must use the package version prefixed with `v`, for example `v0.1.0` for package version `0.1.0`. Before creating a tag, update `package.json` and add a matching `## [x.y.z]` entry to `CHANGELOG.md`; the workflow fails if the tag and package version do not match or if the changelog entry is missing.
+
+Maintainers can run `pnpm check-api-diff` locally before tagging to compare the regenerated `api-report/` against the previous release and confirm the correct semver bump. This check is intentionally **not** wired into the release workflow.
 
 ### Publishing and provenance
 
