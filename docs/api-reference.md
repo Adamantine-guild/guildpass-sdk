@@ -74,15 +74,41 @@ Quick check for active membership.
 
 ### `getRoles(params: GetRolesParams, options?: RequestOptions)`
 
-Fetches all roles for a guild.
+Fetches roles for a guild.
 
-- **Returns**: `Promise<GuildRole[]>`
+- **Params**: `{ guildId: string; cursor?: string; limit?: number }`
+- **Returns**: `Promise<GuildRole[]>` when `cursor`/`limit` are omitted (matches
+  pre-pagination behavior). `Promise<PaginatedResult<GuildRole>>` (`{ items,
+  nextCursor, hasMore }`) when either `cursor` or `limit` is supplied.
+- **Caching**: when a `cache` adapter is configured, each distinct
+  `cursor`/`limit` combination is cached under its own key, so paging through
+  results never returns a stale/incorrect page from the cache. Calling
+  `client.invalidateGuildCache(guildId)` clears the default page as well as
+  every paginated entry for that guild.
+
+```typescript
+// Page through all roles in a guild.
+let cursor: string | undefined;
+do {
+  const page = await client.roles.getRoles({ guildId: 'prime-guild', cursor, limit: 50 });
+  console.log(page.items);
+  cursor = page.nextCursor;
+} while (cursor);
+
+// Or use the paginateAll helper to iterate every item across all pages:
+import { paginateAll } from '@guildpass/sdk';
+for await (const role of paginateAll((cursor) => client.roles.getRoles({ guildId: 'prime-guild', cursor, limit: 50 }))) {
+  console.log(role.name);
+}
+```
 
 ### `getUserRoles(params: GetUserRolesParams, options?: RequestOptions)`
 
-Fetches roles assigned to a user.
+Fetches roles assigned to a user. Supports the same `cursor`/`limit`
+pagination parameters and caching behavior as `getRoles` above.
 
-- **Returns**: `Promise<GuildRole[]>`
+- **Params**: `{ walletAddress: string; guildId: string; cursor?: string; limit?: number }`
+- **Returns**: `Promise<GuildRole[]>` (or `Promise<PaginatedResult<GuildRole>>` when paginated)
 
 ### `hasRole(params: HasRoleParams, options?: RequestOptions)`
 
