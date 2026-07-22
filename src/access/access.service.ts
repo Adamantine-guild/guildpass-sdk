@@ -1,4 +1,4 @@
-﻿import { HttpClient } from '../http/httpClient';
+import { HttpClient } from '../http/httpClient';
 import {
   validateAddress,
   validateGuildId,
@@ -80,17 +80,17 @@ export class AccessService {
     const { requirement, chainId, throwOnDiscrepancy, ...requestOptions } = options;
 
     const [apiPromise, onChainPromise] = await Promise.allSettled([
-      this.checkAccess(params, requestOptions as RequestOptions),
+      this.checkAccess(params, requestOptions as any),
       this.contracts.validateRoleRequirement({
         walletAddress: params.walletAddress,
         requirement,
         chainId
-      }, requestOptions as RequestOptions)
+      }, requestOptions as any)
     ]);
 
     const apiResultRaw = apiPromise.status === 'fulfilled' ? apiPromise.value : null;
-    const apiResult = apiResultRaw && 'hasAccess' in apiResultRaw 
-      ? (apiResultRaw as AccessCheckResult)
+    const apiResult = apiResultRaw && 'hasAccess' in (apiResultRaw as any)
+      ? (apiResultRaw as any as AccessCheckResult)
       : (apiResultRaw as any)?.data ?? null;
 
     const onChainResult = onChainPromise.status === 'fulfilled' ? onChainPromise.value : null;
@@ -164,8 +164,8 @@ export class AccessService {
           retry: options?.retry,
           signal: options?.signal,
         };
-        const result = await this.checkAccess(item, requestOptions);
-        results[index] = { input: item, status: 'fulfilled', value: result };
+        const result = await this.checkAccess(item, requestOptions as any);
+        results[index] = { input: item, status: 'fulfilled', value: result as any };
       } catch (error) {
         if (failFast) hasFailed = true;
         results[index] = { 

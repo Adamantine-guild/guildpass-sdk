@@ -22,5 +22,6 @@ export enum GuildPassErrorCode {
   SIWE_EXPIRED = 'SIWE_EXPIRED',
   SIWE_DOMAIN_MISMATCH = 'SIWE_DOMAIN_MISMATCH',
   SIWE_INVALID_MESSAGE = 'SIWE_INVALID_MESSAGE',
+  SIWE_REPLAY_DETECTED = 'SIWE_REPLAY_DETECTED',
   // GuildPass SDK: End of logic containment structure block.
 }

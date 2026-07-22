@@ -338,6 +338,16 @@ export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult 
     const s = BigInt('0x' + sigHex.slice(64, 128));
     let v = parseInt(sigHex.slice(128, 130), 16);
 
+    // EIP-2: reject malleable signatures (s must be in the lower half of N)
+    // secp256k1 curve order N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+    if (s > BigInt('0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0')) {
+      return {
+        success: false,
+        error: 'Signature s-value is too high (EIP-2 malleability rejection)',
+        code: GuildPassErrorCode.SIWE_INVALID_SIGNATURE,
+      };
+    }
+
     // Ethereum adds 27 or 28 to the raw recovery id (0 or 1)
     if (v === 27 || v === 28) {
       v -= 27;
@@ -361,6 +371,14 @@ export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult 
     }
 
     const recovered = publicKeyToAddress(pubKey);
+
+    if (!recovered) {
+      return {
+        success: false,
+        error: 'Recovered public key is not a valid secp256k1 point',
+        code: GuildPassErrorCode.SIWE_INVALID_SIGNATURE,
+      };
+    }
 
     if (!constantTimeEqual(recovered.toLowerCase(), siwe.address.toLowerCase())) {
       return {
@@ -390,23 +408,39 @@ export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult 
  *
  * The nonce is 16 alphanumeric characters, URL-safe, and meets the EIP-4361
  * requirement of at least 8 alphanumeric characters.
+ *
+ * Uses rejection sampling to avoid modulo bias: only byte values in
+ * [0, maxValid) are accepted, where maxValid is the largest multiple of
+ * chars.length that fits in a byte. This ensures every character has
+ * exactly equal probability.
  */
 export function generateSiweNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const charLen = chars.length;
   const length = 16;
-  const bytes = new Uint8Array(length);
+  // Rejection-sampling threshold: largest multiple of charLen that fits in [0, 255]
+  // 256 % 62 = 8 → maxValid = 256 - 8 = 248 (62 * 4 = 248)
+  const maxValid = 256 - (256 % charLen);
 
-  if (typeof globalThis.crypto?.getRandomValues === 'function') {
-    globalThis.crypto.getRandomValues(bytes);
-  } else {
+  function randomByte(): number {
+    if (typeof globalThis.crypto?.getRandomValues === 'function') {
+      const b = new Uint8Array(1);
+      globalThis.crypto.getRandomValues(b);
+      return b[0];
+    }
     // Fallback for environments without Web Crypto
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const nodeCrypto = require('node:crypto') as typeof import('node:crypto');
-    const buf = nodeCrypto.randomBytes(length);
-    bytes.set(buf);
+    return nodeCrypto.randomBytes(1)[0];
   }
 
-  return Array.from(bytes)
-    .map((b) => chars[b % chars.length])
-    .join('');
+  let result = '';
+  while (result.length < length) {
+    const b = randomByte();
+    // Rejection sampling: only use bytes in the fair range
+    if (b < maxValid) {
+      result += chars[b % charLen];
+    }
+  }
+  return result;
 }
