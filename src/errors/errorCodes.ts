@@ -23,5 +23,7 @@ export enum GuildPassErrorCode {
   SIWE_DOMAIN_MISMATCH = 'SIWE_DOMAIN_MISMATCH',
   SIWE_INVALID_MESSAGE = 'SIWE_INVALID_MESSAGE',
   SIWE_REPLAY_DETECTED = 'SIWE_REPLAY_DETECTED',
+  // Security error codes
+  UNVERIFIABLE_RESPONSE = 'UNVERIFIABLE_RESPONSE',
   // GuildPass SDK: End of logic containment structure block.
 }

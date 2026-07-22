@@ -9,6 +9,7 @@ import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isAccessCheckResult } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
+import { verifySignedPayload, SignedEnvelope } from '../security';
 import type { ResponseMetadata, DiscrepancyHookPayload } from '../http/http.types';
 import type { ContractClient } from '../contracts/contractClient';
 import { GuildPassError } from '../errors/GuildPassError';
@@ -29,6 +30,8 @@ export class AccessService {
     private readonly validateResponses = false,
     private readonly contracts?: ContractClient,
     private readonly onDiscrepancy?: (payload: DiscrepancyHookPayload) => void | Promise<void>,
+    private readonly verifySignedResponses = false,
+    private readonly trustedSignerAddress?: string
   ) {}
 
   public async checkAccess(params: AccessCheckParams): Promise<AccessCheckResult>;
@@ -40,7 +43,7 @@ export class AccessService {
     validateGuildId(guildId);
     validateResourceId(resourceId);
 
-    const result = await this.http.get<AccessCheckResult>(`/access/check`, {
+    const response = await this.http.get<AccessCheckResult | SignedEnvelope<AccessCheckResult>>(`/access/check`, {
       ...options,
       params: {
         address: normaliseAddress(walletAddress),
@@ -49,13 +52,30 @@ export class AccessService {
       },
     });
 
-    if (options?.includeMeta) {
-      return result as { data: AccessCheckResult; meta: ResponseMetadata };
+    let rawData = response;
+    
+    if (this.verifySignedResponses) {
+      if (!this.trustedSignerAddress) {
+        throw new GuildPassError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
+      }
+      rawData = await verifySignedPayload<AccessCheckResult>(response as SignedEnvelope<AccessCheckResult> | AccessCheckResult, this.trustedSignerAddress);
+    } else {
+      // In case the API returns an envelope anyway, but we didn't opt-in to verify it, we should probably unwrap it if it's an envelope, or just let assertValidResponse fail.
+      // Usually, if verifySignedResponses is false, we expect the raw AccessCheckResult or we can unwrap safely.
+      if (response && typeof response === 'object' && 'data' in response && 'signature' in response && typeof (response as any).signature === 'string') {
+        rawData = (response as SignedEnvelope<AccessCheckResult>).data;
+      }
     }
 
-    return this.validateResponses
-      ? assertValidResponse(result as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult')
-      : (result as AccessCheckResult);
+    const validatedResult = this.validateResponses
+      ? assertValidResponse(rawData as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult')
+      : (rawData as AccessCheckResult);
+
+    if (options?.includeMeta) {
+      return { data: validatedResult, meta: (response as any).meta } as { data: AccessCheckResult; meta: ResponseMetadata };
+    }
+
+    return validatedResult;
   }
 
   /**

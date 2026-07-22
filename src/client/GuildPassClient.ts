@@ -119,15 +119,25 @@ export class GuildPassClient {
     // IMPORTANT: Instantiate Contracts first so we can pass it to Access
     const rawContracts = new ContractClient(this.config, this.http);
 
+    const verifySignedResponses = this.config.verifySignedResponses ?? false;
+    const trustedSignerAddress = this.config.trustedSignerAddress;
+
     const rawAccess = new AccessService(
       this.http, 
       validateResponses, 
       rawContracts, 
-      this.config.hooks?.onDiscrepancy
+      this.config.hooks?.onDiscrepancy,
+      verifySignedResponses,
+      trustedSignerAddress
     );
     const rawMembership = new MembershipService(this.http, validateResponses);
     const rawRoles = new RolesService(this.http, validateResponses, rawAccess);
-    const rawGuilds = new GuildsService(this.http, validateResponses);
+    const rawGuilds = new GuildsService(
+      this.http, 
+      validateResponses,
+      verifySignedResponses,
+      trustedSignerAddress
+    );
 
     this.access = this.buildCachedAccessService(rawAccess);
     this.membership = this.buildCachedMembershipService(rawMembership);

@@ -195,9 +195,25 @@ The SDK includes a resilient caching layer that wraps service methods.
 8. If the request fails, a `GuildPassError` is thrown with a specific `GuildPassErrorCode`.
 9. The typed response is returned to the developer.
 
-## Design Principles
-
 - **Zero External Dependencies**: The SDK relies on native platform features (like `fetch`, `AbortController`, and `WebSocket`) to keep the bundle size small.
+
+## Security
+
+### Signed API Responses
+
+To prevent intermediaries from tampering with access decisions or guild metadata, the SDK provides an opt-in signature verification feature.
+
+When `verifySignedResponses: true` and a `trustedSignerAddress` is configured, the SDK requires API endpoints for access checks and guild configuration to return a cryptographically signed envelope:
+
+```json
+{
+  "data": { ...original payload... },
+  "signature": "0x...",
+  "signer": "0x..."
+}
+```
+
+The SDK canonicalizes the `data` payload via standard JSON stringification and verifies the ECDSA signature against the configured `trustedSignerAddress` using either `viem` or `ethers` (which must be installed if this feature is used). If verification fails, a `GuildPassError` with code `UNVERIFIABLE_RESPONSE` is thrown.
 - **Strong Typing**: Everything is typed with TypeScript for the best developer experience.
 - **Fail Fast**: Input validation happens before network requests.
 - **Environment Agnostic**: Works in Node.js (18+), Browsers, and Edge runtimes.

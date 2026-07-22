@@ -59,6 +59,19 @@ export type GuildPassClientConfig = {
    * @default false
    */
   strictInterfaceChecking?: boolean;
+  /**
+   * When enabled, the SDK verifies that Access Decisions and Guild Configuration
+   * responses from the API are properly signed by the `trustedSignerAddress`.
+   * Requires the API to return a signed envelope.
+   *
+   * @default false
+   */
+  verifySignedResponses?: boolean;
+  /**
+   * The expected Ethereum address of the GuildPass signing key.
+   * Must be provided if `verifySignedResponses` is enabled.
+   */
+  trustedSignerAddress?: string;
 };
 
 /**
@@ -144,6 +157,32 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.strictInterfaceChecking !== undefined && typeof config.strictInterfaceChecking !== 'boolean') {
     throwConfigError('strictInterfaceChecking must be a boolean', 'strictInterfaceChecking', 'invalid_type', config.strictInterfaceChecking);
+  }
+
+  if (config.verifySignedResponses !== undefined && typeof config.verifySignedResponses !== 'boolean') {
+    throwConfigError('verifySignedResponses must be a boolean', 'verifySignedResponses', 'invalid_type', config.verifySignedResponses);
+  }
+
+  if (config.trustedSignerAddress !== undefined) {
+    try {
+      validateAddress(config.trustedSignerAddress);
+    } catch {
+      throw new GuildPassError(
+        'Invalid trustedSignerAddress: expected a valid EVM address',
+        GuildPassErrorCode.INVALID_CONFIG,
+        undefined,
+        {
+          field: 'trustedSignerAddress',
+          reason: 'format',
+          value: config.trustedSignerAddress,
+          valueType: 'string',
+        }
+      );
+    }
+  }
+
+  if (config.verifySignedResponses && !config.trustedSignerAddress) {
+    throwConfigError('trustedSignerAddress must be provided when verifySignedResponses is enabled', 'trustedSignerAddress', 'required', config.trustedSignerAddress);
   }
 
   if (config.clientName !== undefined && typeof config.clientName !== 'string') {
