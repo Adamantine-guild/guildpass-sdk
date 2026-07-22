@@ -39,6 +39,9 @@ import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
 import { ContractProvider } from './providers/provider.types';
 import { JsonRpcContractProvider } from './providers/jsonRpcProvider';
+import { Multicall3ContractProvider } from './providers/multicall3Provider';
+import { MULTICALL3_ADDRESS } from './providers/adaptive.types';
+
 
 // Local pure helper function for exact decimal string shift math
 export const formatUnits = (value: string, decimals: number): string => {
@@ -107,7 +110,12 @@ export class ContractClient {
   public getChainConfig(chainId?: number) {
     const id = chainId ?? this.config.chainId;
     if (id === undefined) {
-      return { rpcUrl: this.config.rpcUrl, contractAddress: this.config.contractAddress };
+      return {
+        rpcUrl: this.config.rpcUrl,
+        rpcUrls: this.config.rpcUrls,
+        contractAddress: this.config.contractAddress,
+        multicallAddress: this.config.multicallAddress,
+      };
     }
     return resolveChainConfig(this.config, id);
   }
@@ -124,7 +132,7 @@ export class ContractClient {
    * failure, rate-limit, 5xx), the next URL is attempted transparently.
    */
   private resolveProvider(
-    chainConfig: { rpcUrl?: string; rpcUrls?: string[] } | string | undefined,
+    chainConfig: { rpcUrl?: string; rpcUrls?: string[]; multicallAddress?: string } | string | undefined,
     requiredMessage: string,
     chainId?: number,
   ): ContractProvider {
@@ -134,7 +142,7 @@ export class ContractClient {
 
     // Support legacy callers that pass a raw string (e.g. batchEthCall passes
     // `rpcUrl` as a plain string). Normalise to a ChainConfig-like object.
-    const cfg: { rpcUrl?: string; rpcUrls?: string[] } =
+    const cfg: { rpcUrl?: string; rpcUrls?: string[]; multicallAddress?: string } =
       typeof chainConfig === 'string'
         ? { rpcUrl: chainConfig || undefined }
         : (chainConfig ?? {});
@@ -143,6 +151,11 @@ export class ContractClient {
 
     if (urls.length === 0) {
       throw new GuildPassError(requiredMessage, GuildPassErrorCode.INVALID_CONFIG);
+    }
+
+    if (this.config.batchStrategy === 'multicall3') {
+      const multicallAddress = cfg.multicallAddress ?? this.config.multicallAddress ?? MULTICALL3_ADDRESS;
+      return new Multicall3ContractProvider(this.http, urls, this.config.hooks, chainId, multicallAddress);
     }
 
     return new JsonRpcContractProvider(this.http, urls, this.config.hooks, chainId);

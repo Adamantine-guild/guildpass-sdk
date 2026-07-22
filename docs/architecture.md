@@ -125,6 +125,50 @@ method and never `import` viem or ethers. Both libraries are optional peer depen
 only; the core package stays zero-runtime-dependency, and consumers who don't import the
 adapter subpaths see no bundle-size increase.
 
+## Batch Call Strategies
+
+The SDK offers two strategies for executing batch `eth_call` contract reads:
+
+1. **JSON-RPC Batching (`'jsonrpc'`)**
+   - **How it works**: Sends a raw JSON-RPC array containing multiple `eth_call` requests inside a single HTTP POST payload.
+   - **Pros**: Simple, does not require any on-chain smart contract deployments (completely client-side aggregation).
+   - **Cons**: Many public or free-tier RPC providers (e.g. Infura on certain tiers, Cloudflare, or local rate-limited endpoints) throttle, disable, or return truncated arrays/single errors for JSON-RPC batch requests.
+   - **When to prefer**: On private or paid RPC endpoints that explicitly support large JSON-RPC array payloads, and where you want to avoid overhead/gas associated with an on-chain read.
+
+2. **Multicall3 Aggregation (`'multicall3'`)**
+   - **How it works**: ABI-encodes the individual batch calls into a single call to `Multicall3.aggregate3(Call3[] calldata calls)` on-chain, targetting the canonical Multicall3 contract (`0xcA11bde05977b3631167028862bE2a173976CA11`). The provider sends this as a single standard `eth_call` request, then decodes the returned `Result[]` back into individual results.
+   - **Pros**: Bypasses HTTP JSON-RPC batch limits/throttles entirely. Guarantees atomic/consistent reads from the same block, and isolates failures on a per-call basis via `allowFailure: true`.
+   - **Cons**: Requires the canonical Multicall3 contract to be deployed on the target chain (which is true for almost all public EVM networks).
+   - **When to prefer**: On public, free, or shared RPC endpoints to prevent silent batch truncation or HTTP throttling failures.
+
+### Configuring the Batch Strategy
+
+The default strategy is `'jsonrpc'` to maintain backwards compatibility. You can opt in globally or override it:
+
+```ts
+const client = new GuildPassClient({
+  apiUrl: '...',
+  rpcUrl: 'https://...',
+  batchStrategy: 'multicall3', // Opt into Multicall3 globally
+});
+```
+
+You can also override the Multicall3 contract address on custom chains:
+
+```ts
+const client = new GuildPassClient({
+  apiUrl: '...',
+  batchStrategy: 'multicall3',
+  chains: {
+    1337: {
+      rpcUrl: 'https://localhost:8545',
+      multicallAddress: '0xCustomMulticallAddress...',
+    }
+  }
+});
+```
+
+
 ### 7. Caching Layer
 
 The SDK includes a resilient caching layer that wraps service methods.

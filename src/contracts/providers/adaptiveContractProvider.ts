@@ -14,6 +14,7 @@ import {
   ReadStrategy,
   UrlCapabilities,
 } from './adaptive.types';
+import { encodeAggregate3, decodeAggregate3 } from './multicall3Provider';
 
 /**
  * Returns `true` when an error is transient (worth trying another URL) rather
@@ -408,110 +409,4 @@ export class AdaptiveContractProvider implements ContractProvider {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Minimal ABI helpers for Multicall3 aggregate3 (no external dependency).
-// ---------------------------------------------------------------------------
 
-/** Strips a leading 0x and returns lowercase hex. */
-function stripHex(value: string): string {
-  return value.startsWith('0x') ? value.slice(2) : value;
-}
-
-/** Left-pads a hex string to a full 32-byte (64-char) word. */
-function padWord(hex: string): string {
-  return hex.padStart(64, '0');
-}
-
-/** Encodes a byte length / offset as a 32-byte word. */
-function word(value: number): string {
-  return padWord(value.toString(16));
-}
-
-/** Right-pads bytes to a multiple of 32 bytes (dynamic-bytes tail padding). */
-function padBytes(hex: string): string {
-  const remainder = hex.length % 64;
-  return remainder === 0 ? hex : hex + '0'.repeat(64 - remainder);
-}
-
-/**
- * ABI-encodes a Multicall3 `aggregate3((address,bool,bytes)[])` call from the
- * SDK's `EthCallRequest[]`. Each call is encoded as `(target, allowFailure=true,
- * callData)` so a single reverting call does not fail the whole aggregate.
- */
-function encodeAggregate3(requests: EthCallRequest[]): string {
-  const count = requests.length;
-  // Head: one 32-byte offset per tuple, relative to the start of the tuple array.
-  const headWords: string[] = [];
-  const tails: string[] = [];
-
-  // Offsets in the tuple array are measured from just after the array length word.
-  let runningOffset = count * 32;
-
-  for (const request of requests) {
-    const target = padWord(stripHex(request.to).toLowerCase());
-    const allowFailure = word(1); // true
-    const callBytes = stripHex(request.data).toLowerCase();
-    const callLen = word(callBytes.length / 2);
-    const callBody = padBytes(callBytes);
-
-    // Tuple layout: target, allowFailure, offset-to-bytes(0x60), len, body.
-    const bytesOffsetWithinTuple = word(0x60);
-    const tuple = target + allowFailure + bytesOffsetWithinTuple + callLen + callBody;
-
-    headWords.push(word(runningOffset));
-    tails.push(tuple);
-    runningOffset += tuple.length / 2;
-  }
-
-  // Outer: selector, offset to the array(0x20), array length, head, tails.
-  const body =
-    word(0x20) + word(count) + headWords.join('') + tails.join('');
-  return MULTICALL3_AGGREGATE3_SELECTOR + body;
-}
-
-/**
- * Decodes the `(bool success, bytes returnData)[]` returned by `aggregate3`
- * into ordered `BatchItemResult[]`. A `success=false` item becomes an error
- * result; a successful item carries its raw hex `returnData`.
- */
-function decodeAggregate3(raw: string, expected: number): BatchItemResult[] {
-  const hex = stripHex(raw);
-  const wordAt = (index: number): string => hex.slice(index * 64, index * 64 + 64);
-  const numAt = (index: number): number => parseInt(wordAt(index) || '0', 16);
-
-  // Word 0: offset to the array. Word at that offset: array length.
-  const arrayOffsetBytes = numAt(0);
-  const arrayStart = arrayOffsetBytes / 32;
-  const length = numAt(arrayStart);
-  const results: BatchItemResult[] = [];
-
-  // Each element is a tuple offset, relative to the first element word.
-  const elementsBase = arrayStart + 1;
-
-  for (let i = 0; i < length && i < expected + length; i += 1) {
-    const tupleOffsetBytes = numAt(elementsBase + i);
-    const tupleStart = elementsBase + tupleOffsetBytes / 32;
-
-    const success = numAt(tupleStart) === 1;
-    const returnDataOffsetBytes = numAt(tupleStart + 1);
-    const returnDataStart = tupleStart + returnDataOffsetBytes / 32;
-    const returnDataLen = numAt(returnDataStart);
-    const dataHex = hex.slice(
-      (returnDataStart + 1) * 64,
-      (returnDataStart + 1) * 64 + returnDataLen * 2,
-    );
-
-    results.push(
-      success
-        ? { status: 'success', result: '0x' + dataHex }
-        : { status: 'error', error: 'Multicall3 item reverted' },
-    );
-  }
-
-  // Defensive: if decoding produced fewer items than expected, pad with errors.
-  while (results.length < expected) {
-    results.push({ status: 'error', error: 'Missing Multicall3 result' });
-  }
-
-  return results.slice(0, expected);
-}
