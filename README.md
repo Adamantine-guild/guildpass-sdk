@@ -98,7 +98,7 @@ The SDK is organized into focused service modules accessible via the main client
 const client = new GuildPassClient({
   apiUrl: string;           // Base API endpoint
   chainId?: number;         // Default chain (default: 1)
-  apiKey?: string;          // Optional API key for restricted access
+  apiKey?: string;          // Optional API key for restricted access (server-side only — see Security)
   validateResponses?: boolean; // Validate response shapes at runtime (default: false)
   cache?: CacheAdapter;         // Optional cache adapter (see Caching section below)
   cacheTtl?: number;            // Default TTL in ms for all cached entries
@@ -164,6 +164,8 @@ const redisAdapter: CacheAdapter = {
 
 For production adapters — including TTL semantics, prefix deletion, error isolation, serialisation expectations, and a full Redis example with `deleteByPrefix` — see the [Cache Adapters Guide](./docs/cache-adapters.md).
 
+**Access decisions vs guild metadata:** The global `cacheTtl` applies to all cached reads, but the SDK **caps access-check entries** (`checkAccess`, `checkRoleAccess`, `hasRole`) at five minutes and recommends **≤ 60 seconds** for production gating. Guild metadata can safely use longer TTLs. Omitting `cacheTtl` while enabling `cache` triggers a constructor warning and defaults access entries to 60 seconds. See [Security — Threat Model](./docs/security/threat-model.md#33-cache--cachettl--poisoned-or-stale-access-grants).
+
 ### Cache invalidation
 
 ```typescript
@@ -196,10 +198,25 @@ const balance = await client.contracts.getMembershipTokenBalance({
 The lookup uses an `eth_call` against `balanceOf(address)` and returns the raw
 token balance as a decimal string.
 
+## 🔒 Security
+
+The SDK runs in **Node.js, browsers, and Edge** — each environment has different trust properties for secrets and backends.
+
+| Concern | Safe pattern |
+|---------|--------------|
+| `apiKey` | Keep on your **backend** only. Browser apps should proxy GuildPass API calls through your server — never embed production keys in client bundles. |
+| `rpcUrl` | Use RPC providers you trust. For high-value gates, use `client.access.checkAccessVerified()` to cross-check API and on-chain state. |
+| `cache` / `cacheTtl` | Use **≤ 60 s** for access decisions; longer TTLs are fine for guild metadata. Call `invalidateGuildCache` / `invalidateWalletCache` after mutations. |
+
+The SDK redacts `apiKey` from `getConfig()` and HTTP hook payloads, omits the key from absolute RPC requests, and emits runtime warnings for risky browser or cache configuration.
+
+Full analysis: [Threat Model](./docs/security/threat-model.md) · [Security Policy](./SECURITY.md)
+
 ## 📚 Documentation
 
 For more detailed guides and API references, check out:
 
+- [Threat Model — Configuration & Trust Boundaries](./docs/security/threat-model.md)
 - [Architecture Overview](./docs/architecture.md)
 - [SDK Usage Guide](./docs/sdk-guide.md)
 - [Full API Reference](./docs/api-reference.md)

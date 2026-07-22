@@ -24,6 +24,8 @@ If you discover a security vulnerability in the GuildPass SDK, **do not** open a
 
 The SDK is a client-side TypeScript library. Security concerns are primarily about how it handles and transmits data.
 
+See [`docs/security/threat-model.md`](./docs/security/threat-model.md) for a consolidated analysis of `apiKey`, RPC, and cache trust boundaries.
+
 **In-scope concerns:**
 
 - Leakage of `apiKey` or other credentials in logs, error messages, or HTTP headers

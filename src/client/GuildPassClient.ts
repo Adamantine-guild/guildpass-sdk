@@ -4,6 +4,7 @@ import { AccessService } from '../access/access.service';
 import { DEFAULT_CONFIG } from '../config/defaultConfig';
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassClientConfig, validateConfig } from '../config/sdkConfig';
+import { emitSecurityConfigWarnings, resolveAccessCacheTtl } from '../config/securityLimits';
 // GuildPass SDK: Import external module dependencies.
 import { ContractClient } from '../contracts/contractClient';
 // GuildPass SDK: Pull in package or module bindings.
@@ -89,6 +90,8 @@ export class GuildPassClient {
       ...config,
       // GuildPass SDK: End of logic containment structure block.
     };
+
+    emitSecurityConfigWarnings(this.config);
 
     this.cache = this.config.cache;
     this.cacheTtl = this.config.cacheTtl;
@@ -236,7 +239,13 @@ export class GuildPassClient {
     return promise;
   }
 
-  private async withCache<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  private async withCache<T>(
+    key: string,
+    fn: () => Promise<T>,
+    ttlOverride?: number,
+  ): Promise<T> {
+    const effectiveTtl = ttlOverride ?? this.cacheTtl;
+
     if (this.cache) {
       try {
         const cached = await this.cache.get<T>(key);
@@ -250,7 +259,7 @@ export class GuildPassClient {
       const result = await fn();
       if (this.cache) {
         try {
-          await this.cache.set(key, result, this.cacheTtl);
+          await this.cache.set(key, result, effectiveTtl);
         } catch (error: any) {
           this.handleCacheError('set', error, key);
         }
@@ -285,12 +294,14 @@ export class GuildPassClient {
   }
 
   private buildCachedAccessService(raw: AccessService): AccessService {
+    const accessCacheTtl = resolveAccessCacheTtl(this.cacheTtl);
+
     return Object.create(raw, {
       checkAccess: {
         value: async (params: AccessCheckParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkAccess', params.guildId, params.resourceId, wallet);
-          return this.withCache(key, () => raw.checkAccess(params, options));
+          return this.withCache(key, () => raw.checkAccess(params, options), accessCacheTtl);
         },
       },
       checkAccessBatch: {
@@ -303,7 +314,7 @@ export class GuildPassClient {
         value: async (params: RoleAccessCheckParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.checkRoleAccess(params, options));
+          return this.withCache(key, () => raw.checkRoleAccess(params, options), accessCacheTtl);
         },
       },
     });
@@ -344,6 +355,8 @@ export class GuildPassClient {
   }
 
   private buildCachedRolesService(raw: RolesService): RolesService {
+    const accessCacheTtl = resolveAccessCacheTtl(this.cacheTtl);
+
     return Object.create(raw, {
       getRoles: {
         value: async (params: GetRolesParams, options?: any): Promise<any> => {
@@ -367,7 +380,7 @@ export class GuildPassClient {
         value: async (params: HasRoleParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.hasRole(params, options));
+          return this.withCache(key, () => raw.hasRole(params, options), accessCacheTtl);
         },
       },
     });
