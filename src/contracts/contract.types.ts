@@ -131,3 +131,87 @@ export type GuildOwnersBatchParams = {
    */
   chunkConcurrency?: number;
 };
+
+// ---------------------------------------------------------------------------
+// Convenience method types (ERC-20 / ERC-721 / ERC-1155)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for an ERC-20 `balanceOf(address)` call.
+ * All parameters are required except `chainId` (which defaults to the
+ * client-level default chain).
+ */
+export type ERC20BalanceParams = {
+  /** Wallet to check the balance of. */
+  walletAddress: string;
+  /** Chain override (defaults to the client-level default chain). */
+  chainId?: number;
+  /** The ERC-20 token contract address. */
+  contractAddress: string;
+};
+
+/**
+ * Parameters for an ERC-721 `ownerOf(uint256)` ownership check.
+ */
+export type ERC721TokenParams = {
+  /** Wallet address expected to own the token. */
+  walletAddress: string;
+  /** The token ID to check ownership of (as a decimal or hex string). */
+  tokenId: string;
+  /** Chain override (defaults to the client-level default chain). */
+  chainId?: number;
+  /** The ERC-721 token contract address. */
+  contractAddress: string;
+};
+
+/**
+ * Parameters for an ERC-1155 `balanceOf(address,uint256)` balance check.
+ */
+export type ERC1155BalanceParams = {
+  /** Wallet to check the balance of. */
+  walletAddress: string;
+  /** The token ID to check the balance of (as a decimal or hex string). */
+  tokenId: string;
+  /** Chain override (defaults to the client-level default chain). */
+  chainId?: number;
+  /** The ERC-1155 token contract address. */
+  contractAddress: string;
+};
+
+// ---------------------------------------------------------------------------
+// Generic readContract escape hatch types
+// ---------------------------------------------------------------------------
+
+/** A single input or output entry in an ABI function definition. */
+export type AbiParameter = {
+  type: string;
+  name?: string;
+  internalType?: string;
+};
+
+/** Minimal ABI fragment describing a read-only function. */
+export type AbiFunction = {
+  type: 'function';
+  name: string;
+  inputs: AbiParameter[];
+  outputs: AbiParameter[];
+  stateMutability?: string;
+};
+
+/**
+ * Parameters for the generic `readContract` escape hatch. Accepts a
+ * caller-supplied ABI fragment so any read-only function can be called
+ * without adding a dedicated method to the SDK.
+ */
+export type ReadContractParams = {
+  /** The contract address to call. */
+  contractAddress: string;
+  /** ABI fragment describing the function being called. */
+  abi: AbiFunction;
+  /** The function name (must match `abi.name`). */
+  functionName: string;
+  /** Arguments for the function call, in the same order as `abi.inputs`. */
+  args: unknown[];
+  /** Chain override (defaults to the client-level default chain). */
+  chainId?: number;
+};
