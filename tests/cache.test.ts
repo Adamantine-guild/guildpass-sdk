@@ -460,3 +460,107 @@ describe('GuildPassClient – cache-key collision resistance', () => {
     expect(httpGet).toHaveBeenCalledTimes(3);
   });
 });
+
+
+describe('GuildPassClient – roles pagination cache keys', () => {
+  const pageOne = { items: [{ id: 'role-1', name: 'Role 1' }], nextCursor: 'cursor-2', hasMore: true };
+  const pageTwo = { items: [{ id: 'role-2', name: 'Role 2' }], nextCursor: undefined, hasMore: false };
+  const wallet = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+  const normalisedWallet = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
+
+  it('caches getRoles(cursor) and getRoles() (no params) under distinct keys', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockResolvedValueOnce([{ id: 'role-1', name: 'Role 1' }]) // unpaginated default call
+      .mockResolvedValueOnce(pageOne); // paginated call
+
+    await client.roles.getRoles({ guildId: 'prime-guild' });
+    await client.roles.getRoles({ guildId: 'prime-guild', cursor: 'cursor-1' });
+
+    // Both hit the network — the paginated call did not reuse the default entry.
+    expect(httpGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches each page of getRoles under its own key (no cross-page collisions)', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    vi.spyOn(client['http'] as any, 'get').mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
+
+    const first = await client.roles.getRoles({ guildId: 'prime-guild', cursor: 'cursor-1', limit: 1 });
+    const second = await client.roles.getRoles({ guildId: 'prime-guild', cursor: 'cursor-2', limit: 1 });
+
+    expect(first).toEqual(pageOne);
+    expect(second).toEqual(pageTwo);
+    expect((first as any).items).not.toEqual((second as any).items);
+
+    // Re-requesting page one must be a cache hit and must still return page one's data.
+    const httpGet = vi.spyOn(client['http'] as any, 'get');
+    const firstAgain = await client.roles.getRoles({ guildId: 'prime-guild', cursor: 'cursor-1', limit: 1 });
+    expect(firstAgain).toEqual(pageOne);
+    expect(httpGet).not.toHaveBeenCalled();
+  });
+
+  it('caches different limit values for getRoles under distinct keys', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const setSpy = vi.spyOn(adapter, 'set');
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    vi.spyOn(client['http'] as any, 'get').mockResolvedValue(pageOne);
+
+    await client.roles.getRoles({ guildId: 'prime-guild', limit: 10 });
+    await client.roles.getRoles({ guildId: 'prime-guild', limit: 50 });
+
+    const keys = setSpy.mock.calls.map((call) => call[0]);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('caches each page of getUserRoles under its own key, scoped by wallet', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    vi.spyOn(client['http'] as any, 'get').mockResolvedValueOnce(pageOne).mockResolvedValueOnce(pageTwo);
+
+    const first = await client.roles.getUserRoles({ walletAddress: wallet, guildId: 'prime-guild', cursor: 'cursor-1' });
+    const second = await client.roles.getUserRoles({ walletAddress: wallet, guildId: 'prime-guild', cursor: 'cursor-2' });
+
+    expect(first).toEqual(pageOne);
+    expect(second).toEqual(pageTwo);
+  });
+
+  it('invalidateGuildCache clears both the default and every paginated getRoles entry', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockResolvedValue([{ id: 'role-1', name: 'Role 1' }]);
+
+    await client.roles.getRoles({ guildId: 'prime-guild' });
+    await client.roles.getRoles({ guildId: 'prime-guild', cursor: 'cursor-1' });
+    await client.roles.getRoles({ guildId: 'prime-guild', limit: 25 });
+    expect(httpGet).toHaveBeenCalledTimes(3);
+
+    await client.invalidateGuildCache('prime-guild');
+
+    await client.roles.getRoles({ guildId: 'prime-guild' });
+    await client.roles.getRoles({ guildId: 'prime-guild', cursor: 'cursor-1' });
+    await client.roles.getRoles({ guildId: 'prime-guild', limit: 25 });
+    expect(httpGet).toHaveBeenCalledTimes(6);
+  });
+
+  it('produces a getUserRoles cache key that normalises wallet casing independently of pagination params', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(pageOne);
+
+    await client.roles.getUserRoles({ walletAddress: wallet, guildId: 'prime-guild', cursor: 'cursor-1' });
+    await client.roles.getUserRoles({
+      walletAddress: normalisedWallet,
+      guildId: 'prime-guild',
+      cursor: 'cursor-1',
+    });
+
+    // Same page, same wallet (different casing) -> cache hit, one network call.
+    expect(httpGet).toHaveBeenCalledTimes(1);
+  });
+});
