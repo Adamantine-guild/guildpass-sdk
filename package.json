@@ -40,6 +40,11 @@
       "types": "./dist/adapters/ethers.d.ts",
       "require": "./dist/adapters/ethers.js",
       "import": "./dist/adapters/ethers.mjs"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "require": "./dist/testing.js",
+      "import": "./dist/testing.mjs"
     }
   },
   "files": [

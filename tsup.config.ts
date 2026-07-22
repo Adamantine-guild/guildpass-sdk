@@ -9,6 +9,7 @@ export default defineConfig({
     types: 'src/types/index.ts',
     'adapters/viem': 'src/adapters/viem.ts',
     'adapters/ethers': 'src/adapters/ethers.ts',
+    testing: 'src/testing/index.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,
