@@ -7,6 +7,9 @@ import { assertValidResponse } from '../validation/assertResponse';
 import { isGuild, isGuildConfig } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
+import { verifySignedPayload, SignedEnvelope } from '../security';
+import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassErrorCode } from '../errors/errorCodes';
 // GuildPass SDK: Import external module dependencies.
 import { GetGuildParams, Guild, GuildConfig } from './guilds.types';
 
@@ -16,6 +19,8 @@ export class GuildsService {
   constructor(
     private readonly http: HttpClient,
     private readonly validateResponses = false,
+    private readonly verifySignedResponses = false,
+    private readonly trustedSignerAddress?: string
   ) {}
 
   /**
@@ -31,8 +36,28 @@ export class GuildsService {
 
     // GuildPass SDK: Endpoint request method.
     const path = `/guilds/${encodePathSegment(guildId)}`;
-    const result = await this.http.get<Guild>(path, options);
-    return this.validateResponses ? assertValidResponse(result, isGuild, 'Guild') : result;
+    const response = await this.http.get<Guild | SignedEnvelope<Guild>>(path, options);
+
+    let rawData = response;
+    
+    if (this.verifySignedResponses) {
+      if (!this.trustedSignerAddress) {
+        throw new GuildPassError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
+      }
+      rawData = await verifySignedPayload<Guild>(response as SignedEnvelope<Guild> | Guild, this.trustedSignerAddress);
+    } else {
+      if (response && typeof response === 'object' && 'data' in response && 'signature' in response && typeof (response as any).signature === 'string') {
+        rawData = (response as SignedEnvelope<Guild>).data;
+      }
+    }
+
+    const validatedResult = this.validateResponses ? assertValidResponse(rawData, isGuild, 'Guild') : rawData;
+
+    if (options?.includeMeta) {
+      return { data: validatedResult as Guild, meta: (response as any).meta } as { data: Guild; meta: ResponseMetadata };
+    }
+
+    return validatedResult as Guild;
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -57,10 +82,30 @@ export class GuildsService {
 
     // GuildPass SDK: Return evaluated output value.
     const path = `/guilds/${encodePathSegment(guildId)}/config`;
-    const result = await this.http.get<GuildConfig>(path, options);
-    return this.validateResponses
-      ? assertValidResponse(result as GuildConfig, isGuildConfig, 'GuildConfig')
-      : (result as GuildConfig);
+    const response = await this.http.get<GuildConfig | SignedEnvelope<GuildConfig>>(path, options);
+    
+    let rawData = response;
+
+    if (this.verifySignedResponses) {
+      if (!this.trustedSignerAddress) {
+        throw new GuildPassError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
+      }
+      rawData = await verifySignedPayload<GuildConfig>(response as SignedEnvelope<GuildConfig> | GuildConfig, this.trustedSignerAddress);
+    } else {
+      if (response && typeof response === 'object' && 'data' in response && 'signature' in response && typeof (response as any).signature === 'string') {
+        rawData = (response as SignedEnvelope<GuildConfig>).data;
+      }
+    }
+
+    const validatedResult = this.validateResponses
+      ? assertValidResponse(rawData as GuildConfig, isGuildConfig, 'GuildConfig')
+      : (rawData as GuildConfig);
+
+    if (options?.includeMeta) {
+      return { data: validatedResult, meta: (response as any).meta } as { data: GuildConfig; meta: ResponseMetadata };
+    }
+
+    return validatedResult;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.
