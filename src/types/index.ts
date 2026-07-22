@@ -1,6 +1,7 @@
 export * from './common';
 export type { ResponseMeta, RequestOptions } from './common';
 export * from '../access/access.types';
+export * from '../rules/rule.types';
 export * from '../membership/membership.types';
 export * from '../roles/roles.types';
 export * from '../guilds/guilds.types';

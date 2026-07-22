@@ -9,6 +9,7 @@ export * from './access/access.service';
 export * from './membership/membership.service';
 export * from './roles/roles.service';
 export * from './guilds/guilds.service';
+export * from './rules';
 export * from './contracts/contractClient';
 export * from './contracts/contract.types';
 export * from './contracts/providers';
