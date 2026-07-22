@@ -226,6 +226,82 @@ The existing single-chain config (`rpcUrl` + `contractAddress` at the top level)
 > [!NOTE]
 > **Known limitations:** On-chain validation for `WHITELIST` access requirements is currently not supported and will throw a `NOT_IMPLEMENTED` error. For whitelist-style gating, we recommend using the SIWE-based or off-chain `client.access.checkAccess()` API instead.
 
+## Client-side Rule Composition
+
+Use `evaluateRule()` when you need to combine multiple independent access conditions on the client — for example, grant access if the backend check passes **or** the wallet holds enough membership tokens on-chain.
+
+Each primitive delegates to the existing SDK service methods (`client.access.checkAccess`, `client.contracts.getMembershipTokenBalance`, `client.roles.hasRole`), so caching, retry, and error handling behave exactly as they do for direct calls. `and` / `or` nodes short-circuit: once the outcome is determined, remaining branches are not evaluated.
+
+```typescript
+import { GuildPassClient, evaluateRule } from '@guildpass/sdk';
+import { InMemoryCacheAdapter } from '@guildpass/sdk';
+
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  rpcUrl: 'https://mainnet.base.org',
+  contractAddress: '0x...',
+  cache: new InMemoryCacheAdapter(),
+  cacheTtl: 60_000,
+});
+
+const { granted } = await evaluateRule(
+  client,
+  {
+    type: 'or',
+    rules: [
+      { type: 'accessCheck', resourceId: 'premium-docs' },
+      { type: 'tokenBalanceAtLeast', minAmount: '1000000000000000000' },
+    ],
+  },
+  {
+    walletAddress: '0x1234...5678',
+    guildId: 'prime-guild',
+  },
+);
+
+if (granted) {
+  // hybrid gate passed
+}
+```
+
+### Rule types
+
+| Type | Delegates to | Notes |
+| :--- | :--- | :--- |
+| `accessCheck` | `client.access.checkAccess` | Requires `resourceId`; inherits `walletAddress` / `guildId` from context |
+| `tokenBalanceAtLeast` | `client.contracts.getMembershipTokenBalance` | `minAmount` is raw base units (decimal string) |
+| `hasRole` | `client.roles.hasRole` | Requires `roleId`; inherits `walletAddress` / `guildId` from context |
+| `and` | recursive | All sub-rules must pass; short-circuits on first denial |
+| `or` | recursive | Any sub-rule may grant; short-circuits on first grant |
+
+Nested trees are supported:
+
+```typescript
+await evaluateRule(client, {
+  type: 'or',
+  rules: [
+    {
+      type: 'and',
+      rules: [
+        { type: 'accessCheck', resourceId: 'staff-tools' },
+        { type: 'hasRole', roleId: 'moderator' },
+      ],
+    },
+    { type: 'tokenBalanceAtLeast', minAmount: '5000000000000000000' },
+  ],
+}, context);
+```
+
+Pass `requestOptions` on the evaluation context to forward timeouts, retry policy, or cancellation signals to every primitive in the tree:
+
+```typescript
+await evaluateRule(client, rule, {
+  walletAddress,
+  guildId,
+  requestOptions: { timeoutMs: 1500, signal: controller.signal },
+});
+```
+
 ## On-chain Guild Ownership
 
 `client.contracts.getGuildOwner` queries the resolved chain contract through JSON-RPC:
