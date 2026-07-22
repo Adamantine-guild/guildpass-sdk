@@ -1,5 +1,5 @@
 // GuildPass SDK: Import external module dependencies.
-import { createHash } from 'node:crypto';
+import { keccak256 } from 'js-sha3';
 
 /**
  * Normalises an Ethereum address to lowercase.
@@ -56,11 +56,14 @@ export const toChecksumAddress = (address: string): string => {
     return '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
   }
 
-  const hash = createHash('sha3-256').update(cleanAddr).digest('hex');
+  // js-sha3's keccak256 returns a hex string directly (no 0x prefix).
+  // Uses keccak-256 (Ethereum's flavour) rather than FIPS SHA3-256 —
+  // this is the correct hash for EIP-55 checksums.
+  const hashHex = keccak256(cleanAddr);
   let checksumAddress = '0x';
 
   for (let i = 0; i < cleanAddr.length; i++) {
-    if (parseInt(hash[i], 16) >= 8) {
+    if (parseInt(hashHex[i], 16) >= 8) {
       checksumAddress += cleanAddr[i].toUpperCase();
     } else {
       checksumAddress += cleanAddr[i];

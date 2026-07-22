@@ -52,7 +52,7 @@ automatically fails over across them on transient errors. This is implemented in
 4. When all URLs are exhausted with transient errors, the last error is thrown.
 
 **Failover vs retry ordering**: Failover and retry are independent layers with failover
-running *inside* each retry attempt. Concretely:
+running _inside_ each retry attempt. Concretely:
 
 - If `retry.maxRetries` is configured, `HttpClient` retries the same URL with exponential
   backoff first.
@@ -120,7 +120,7 @@ bundled when explicitly imported:
 - `@guildpass/sdk/adapters/viem` → `viemContractProvider(publicClient)`
 - `@guildpass/sdk/adapters/ethers` → `ethersContractProvider(provider)`
 
-The adapters are *structurally typed* — they accept anything with a compatible `call()`
+The adapters are _structurally typed_ — they accept anything with a compatible `call()`
 method and never `import` viem or ethers. Both libraries are optional peer dependencies
 only; the core package stays zero-runtime-dependency, and consumers who don't import the
 adapter subpaths see no bundle-size increase.
@@ -130,6 +130,7 @@ adapter subpaths see no bundle-size increase.
 The SDK offers two strategies for executing batch `eth_call` contract reads:
 
 1. **JSON-RPC Batching (`'jsonrpc'`)**
+
    - **How it works**: Sends a raw JSON-RPC array containing multiple `eth_call` requests inside a single HTTP POST payload.
    - **Pros**: Simple, does not require any on-chain smart contract deployments (completely client-side aggregation).
    - **Cons**: Many public or free-tier RPC providers (e.g. Infura on certain tiers, Cloudflare, or local rate-limited endpoints) throttle, disable, or return truncated arrays/single errors for JSON-RPC batch requests.
@@ -163,11 +164,10 @@ const client = new GuildPassClient({
     1337: {
       rpcUrl: 'https://localhost:8545',
       multicallAddress: '0xCustomMulticallAddress...',
-    }
-  }
+    },
+  },
 });
 ```
-
 
 ### 7. Caching Layer
 
@@ -202,3 +202,61 @@ The SDK includes a resilient caching layer that wraps service methods.
 - **Fail Fast**: Input validation happens before network requests.
 - **Environment Agnostic**: Works in Node.js (18+), Browsers, and Edge runtimes.
 - **Optional Advanced Features**: Real-time event subscriptions via `WebSocketContractProvider` are opt-in and do not affect the default HTTP RPC path.
+
+## Runtime Compatibility
+
+The SDK targets three runtime environments, each with a distinct API surface. The table below documents
+which Node.js-specific APIs are used, where they are isolated, and what the Edge-runtime behaviour is.
+
+| Module                                           | Node.js API                                           | Edge alternative                                                             | Status                |
+| ------------------------------------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------- |
+| `src/utils/address.ts`                           | `import { createHash } from 'node:crypto'` (SHA3-256) | Replaced with `js-sha3`'s `keccak256` (universal pure-JS)                    | ✅ Edge-safe          |
+| `src/siwe/siwe.helpers.ts` (`generateSiweNonce`) | `require('node:crypto').randomBytes`                  | `globalThis.crypto.getRandomValues` (Web Crypto) + `Math.random` last-resort | ✅ Edge-safe          |
+| `src/utils/constantTime.ts`                      | —                                                     | Uses only `TextEncoder` (universal)                                          | ✅ Edge-safe natively |
+| `src/crypto/secp256k1.ts`                        | —                                                     | Pure bigint arithmetic + `js-sha3`                                           | ✅ Edge-safe natively |
+| `src/http/tokenBucket.ts`                        | —                                                     | Uses only `setTimeout` / `Date.now` (universal)                              | ✅ Edge-safe natively |
+| `src/cache/cache.types.ts`                       | —                                                     | Uses only `Map` + `Date.now` (universal)                                     | ✅ Edge-safe natively |
+| `src/errors/`                                    | —                                                     | Pure structural types                                                        | ✅ Edge-safe natively |
+| `src/validation/schema.ts`                       | —                                                     | Pure runtime type predicates                                                 | ✅ Edge-safe natively |
+| `src/http/httpClient.ts`                         | —                                                     | Uses `globalThis.fetch` (universal)                                          | ✅ Edge-safe natively |
+| `src/contracts/providers/webSocketProvider.ts`   | —                                                     | Uses `WebSocket` (universal)                                                 | ✅ Edge-safe natively |
+| `src/contracts/providers/jsonRpcProvider.ts`     | —                                                     | Uses `HttpClient` (fetch)                                                    | ✅ Edge-safe natively |
+
+### Environment Detection
+
+The SDK provides a shared environment-detection module at `src/utils/env.ts` with four predicates:
+
+- `isNodeEnvironment()` — true when `globalThis.process.versions.node` exists.
+- `hasWebCrypto()` — true when `globalThis.crypto.getRandomValues` is a function.
+- `isEdgeRuntime()` — true when not Node.js, has `addEventListener`, and no `navigator`.
+- `isBrowser()` — true when `window` and `document` are defined.
+
+All four functions are safe to call in any environment — they never import platform-specific APIs.
+
+### Known Limitations
+
+1. **`generateSiweNonce()` crypto quality in exotic environments**: When neither Web Crypto nor
+   Node.js `crypto` module is available (e.g., a severely restricted V8 sandbox), the function
+   falls back to `Math.random()`. This is **not cryptographically secure** — the function will
+   still produce a valid 16-character nonce, but it should not be relied upon for security in
+   such environments. All mainstream runtimes (Node.js 18+, modern browsers, Cloudflare Workers,
+   Deno, Bun) provide Web Crypto, so this fallback is purely defensive.
+
+2. **`InMemoryNonceStore` sweep timer**: The optional background sweep interval uses `setInterval`
+   with `unref()`. Edge runtimes may not support `unref()` — this is handled gracefully: the timer
+   simply keeps the event loop alive if `unref` is unavailable. Users of `InMemoryNonceStore` in
+   Edge environments should omit the `sweepIntervalMs` option or plan for manual `sweepExpired()` calls.
+
+### Testing
+
+The full test suite runs in three environments configured via `vitest.workspace.ts`:
+
+- **Node** (`vitest environment: 'node'`): All tests in `tests/**/*.test.ts` (excluding `tests/compat/`).
+- **Browser (JSDOM)** (`vitest environment: 'jsdom'`): `tests/compat/browser/**/*.test.ts`.
+- **Edge (V8-isolate)** (`vitest environment: 'edge-runtime'`): `tests/compat/edge/**/*.test.ts`.
+
+Run all three with:
+
+```bash
+pnpm test:compat
+```

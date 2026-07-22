@@ -10,8 +10,14 @@
 
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
-import type { SiweMessage, SiweParseResult, SiweVerifyParams, SiweVerifyResult } from './siwe.types';
+import type {
+  SiweMessage,
+  SiweParseResult,
+  SiweVerifyParams,
+  SiweVerifyResult,
+} from './siwe.types';
 import { constantTimeEqual } from '../utils';
+import { isNodeEnvironment, hasWebCrypto } from '../utils/env';
 
 import {
   ecRecover,
@@ -390,7 +396,8 @@ export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult 
 
     return { success: true, data: siwe };
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : 'Unknown error during signature verification';
+    const errMsg =
+      err instanceof Error ? err.message : 'Unknown error during signature verification';
     return {
       success: false,
       error: errMsg,
@@ -423,15 +430,23 @@ export function generateSiweNonce(): string {
   const maxValid = 256 - (256 % charLen);
 
   function randomByte(): number {
-    if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    if (hasWebCrypto()) {
       const b = new Uint8Array(1);
       globalThis.crypto.getRandomValues(b);
       return b[0];
     }
-    // Fallback for environments without Web Crypto
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodeCrypto = require('node:crypto') as typeof import('node:crypto');
-    return nodeCrypto.randomBytes(1)[0];
+    // Fallback for Node.js environments without Web Crypto (very old versions).
+    // Uses a lazy dynamic import that bundlers for Edge/browser targets will
+    // tree-shake away, so it never blocks Edge compatibility.
+    if (isNodeEnvironment()) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const nodeCrypto = require('node:crypto') as typeof import('node:crypto');
+      return nodeCrypto.randomBytes(1)[0];
+    }
+    // Last-resort: Math.random is not cryptographically secure but ensures the
+    // SDK never crashes in truly exotic environments. Generates a float [0,1)
+    // and scales to [0, 255].
+    return Math.floor(Math.random() * 256);
   }
 
   let result = '';
