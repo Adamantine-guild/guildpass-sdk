@@ -723,3 +723,374 @@ describe('consensus routing: per-method smoke coverage', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Batch consensus (issue #307 follow-up):
+// - getMembershipTokenBalancesBatch / getGuildOwnersBatch / batchEthCall now
+//   route through resolveBatchEthCall which applies the same precedence chain
+//   (contractProvider > contractReadConsensus > default) and runs per-item
+//   consensus when configured.
+// ---------------------------------------------------------------------------
+
+describe('batch consensus (per-item quorum)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Helper: build a JSON-RPC batch response with the provided per-item results.
+  const batchResponse = (
+    items: Array<{ id: number; result?: string; error?: { code: number; message: string } }>,
+  ) => ({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: () => Promise.resolve(items.map((i) => ({ jsonrpc: '2.0', ...i }))),
+  });
+
+  it('all providers agree on every batch item → all items succeed', async () => {
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_42 }]),
+      'rpc-b.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_42 }]),
+      'rpc-c.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_42 }]),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B, RPC_C], minProviders: 2 },
+    });
+
+    const calls = [
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}` },
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')}` },
+    ];
+
+    const results = await client.contracts.batchEthCall(calls);
+
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(r.status).toBe('success');
+      if (r.status === 'success') expect(r.result).toBe(BAL_42);
+    }
+    // 3 parallel batch calls (one per provider), each containing 2 items.
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('one provider disagrees at a single index → only that index becomes an error', async () => {
+    // RPC_A and RPC_C agree on BAL_42 at both indices; RPC_B fabricates
+    // BAL_7 at index 1. With `minProviders: 3` every agreeing group must
+    // reach all 3 providers, so the 2-on-42 front-runner loses and index 1
+    // surfaces the mismatch. Index 0 still succeeds (all 3 agree).
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_42 }]),
+      'rpc-b.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_7 }]),
+      'rpc-c.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_42 }]),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B, RPC_C], minProviders: 3 },
+    });
+
+    const calls = [
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}` },
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')}` },
+    ];
+
+    const results = await client.contracts.batchEthCall(calls);
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe('success');
+    expect(results[1].status).toBe('error');
+    if (results[1].status === 'error') {
+      expect(results[1].error).toMatch(/Consensus mismatch at batch index 1/);
+      expect(results[1].error).toMatch(/quorum: 3/);
+    }
+  });
+
+  it('all providers disagree → every item becomes an error, no throw', async () => {
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => batchResponse([{ id: 1, result: BAL_42 }]),
+      'rpc-b.test.com': () => batchResponse([{ id: 1, result: BAL_7 }]),
+      'rpc-c.test.com': () => batchResponse([{ id: 1, result: BAL_0 }]),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B, RPC_C], minProviders: 2 },
+    });
+
+    const calls = [
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}` },
+    ];
+
+    // Item-level disagreement never throws — every item surfaces an error.
+    const results = await client.contracts.batchEthCall(calls);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('error');
+    if (results[0].status === 'error') {
+      expect(results[0].error).toMatch(/Consensus mismatch at batch index 0/);
+    }
+  });
+
+  it('a single provider failing the whole batch still permits quorum on items from the rest', async () => {
+    // RPC_A fails the batch outright (5xx); B and C agree on BAL_42 for both items.
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => transientHttp(503),
+      'rpc-b.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_42 }]),
+      'rpc-c.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_42 }]),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B, RPC_C], minProviders: 2 },
+    });
+
+    const calls = [
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}` },
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')}` },
+    ];
+
+    const results = await client.contracts.batchEthCall(calls);
+    expect(results).toHaveLength(2);
+    for (const r of results) {
+      expect(r.status).toBe('success');
+    }
+  });
+
+  it('every provider fails the whole batch → throws CONSENSUS_MISMATCH at batch level', async () => {
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => transientHttp(503),
+      'rpc-b.test.com': () => transientHttp(500),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B], minProviders: 2 },
+    });
+
+    const calls = [
+      { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}` },
+    ];
+
+    await expect(client.contracts.batchEthCall(calls)).rejects.toMatchObject({
+      code: GuildPassErrorCode.CONSENSUS_MISMATCH,
+    });
+  });
+
+  it('getMembershipTokenBalancesBatch fans out and decodes agreed balances', async () => {
+    const W2 = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_7 }]),
+      'rpc-b.test.com': () => batchResponse([{ id: 1, result: BAL_42 }, { id: 2, result: BAL_7 }]),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B], minProviders: 2 },
+    });
+
+    const results = await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: [WALLET, W2],
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0]).toEqual({ status: 'success', result: '42' });
+    expect(results[1]).toEqual({ status: 'success', result: '7' });
+  });
+
+  it('consensus batches allow opt-out via missing rpcUrl (rpcUrl not required when consensus is set)', async () => {
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => batchResponse([{ id: 1, result: BAL_42 }]),
+      'rpc-b.test.com': () => batchResponse([{ id: 1, result: BAL_42 }]),
+    }));
+
+    // No rpcUrl / rpcUrls anywhere — only contractReadConsensus.
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B], minProviders: 2 },
+    });
+
+    const results = await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: [WALLET],
+    });
+
+    expect(results[0].status).toBe('success');
+    if (results[0].status === 'success') expect(results[0].result).toBe('42');
+  });
+
+  it('batchStrategy=multicall3 + contractReadConsensus → rejects with INVALID_CONFIG', async () => {
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      batchStrategy: 'multicall3',
+      contractReadConsensus: { providers: [RPC_A, RPC_B], minProviders: 2 },
+    });
+
+    await expect(
+      client.contracts.batchEthCall([
+        { to: CONTRACT, data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)}` },
+      ]),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('multicall3'),
+    });
+  });
+
+  it('chunked batch consensus: large input runs per-item quorum on each chunk independently', async () => {
+    const wallets = Array.from({ length: 6 }, (_, i) => {
+      const hex = (i + 1).toString(16).padStart(40, '0');
+      return `0x${hex}`;
+    });
+
+    // Smart per-URL mock that mirrors the requested batch size — the SDK
+    // sends 2 items per chunk, so each response has 2 results.
+    mockFetch().mockImplementation(
+      async (url: string, init?: RequestInit) => {
+        if (url.includes('rpc-a.test.com') || url.includes('rpc-b.test.com')) {
+          const body = JSON.parse(String(init?.body ?? '[]'));
+          const items = Array.isArray(body) ? body : [body];
+          return batchResponse(
+            items.map((req, idx) => ({
+              id: (req && typeof req.id === 'number') ? req.id : (idx + 1),
+              result: BAL_42,
+            })),
+          );
+        }
+        return transientHttp(500) as any;
+      },
+    );
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B], minProviders: 2 },
+    });
+
+    const results = await client.contracts.getMembershipTokenBalancesBatch({
+      walletAddresses: wallets,
+      maxBatchSize: 2,
+      chunk: true,
+      chunkConcurrency: 1,
+    });
+
+    expect(results).toHaveLength(6);
+    for (const r of results) expect(r.status).toBe('success');
+    // Three sequential consensus ballots (one per chunk of 2 wallets). Two
+    // providers per ballot = 3 chunks × 2 = 6 batch fetches total.
+    expect(fetch).toHaveBeenCalledTimes(6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateRoleRequirement consensus (issue #307 follow-up): all internal
+// eth_calls (supportsInterface, balanceOf, ownerOf, hasRole) route through
+// resolveSingleEthCall so consensus applies uniformly.
+// ---------------------------------------------------------------------------
+
+describe('validateRoleRequirement consensus routing', () => {
+  const TOKEN_CONTRACT = '0x4444444444444444444444444444444444444444';
+  const NFT_CONTRACT = '0x5555555555555555555555555555555555555555';
+  const ROLE_CONTRACT = '0x6666666666666666666666666666666666666666';
+
+  const hexWord = (hex: string): string => `0x${hex.padStart(64, '0')}`;
+  const addressWord = (address: string): string => hexWord(address.slice(2).toLowerCase());
+  const boolWord = (value: boolean): string => hexWord(value ? '1' : '0');
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('TOKEN requirement fans out balanceOf across consensus providers', async () => {
+    const trueBalance = hexWord((42).toString(16));
+
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => jsonRpcOkForUrl(RPC_A, trueBalance),
+      'rpc-b.test.com': () => jsonRpcOkForUrl(RPC_B, trueBalance),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B], minProviders: 2 },
+    });
+
+    await expect(
+      client.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'TOKEN', address: TOKEN_CONTRACT, minAmount: '10' },
+      }),
+    ).resolves.toBe(true);
+    // Two providers × one required internal eth_call (balanceOf) = 2 fetches.
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('NFT requirement then consensus mismatch on ownerOf → throws CONSENSUS_MISMATCH', async () => {
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => jsonRpcOkForUrl(RPC_A, addressWord(WALLET)),
+      'rpc-b.test.com': () => jsonRpcOkForUrl(RPC_B, addressWord(WALLET)),
+      'rpc-c.test.com': () => jsonRpcOkForUrl(RPC_C, addressWord('0xcccccccccccccccccccccccccccccccccccccccc')),
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      contractReadConsensus: { providers: [RPC_A, RPC_B, RPC_C], minProviders: 3 },
+    });
+
+    await expect(
+      client.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '7' },
+      }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.CONSENSUS_MISMATCH,
+    });
+  });
+
+  it('ROLE requirement uses consensus on hasRole + consensus on ERC-165 supportsInterface checks', async () => {
+    // Two providers agree on ERC-165 + ERC-721/IAC results + hasRole(true).
+    const trueResult = jsonRpcOkForUrl(RPC_A, boolWord(true));
+
+    mockFetch().mockImplementation(urlMock({
+      'rpc-a.test.com': () => trueResult,
+      'rpc-b.test.com': () => {
+        // Same answer for every selector from B (used twice for ERC-165 + hasRole).
+        return trueResult;
+      },
+    }));
+
+    const client = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+      strictInterfaceChecking: true,
+      contractReadConsensus: { providers: [RPC_A, RPC_B], minProviders: 2 },
+    });
+
+    await expect(
+      client.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'ROLE', address: ROLE_CONTRACT, id: 'ADMIN' },
+      }),
+    ).resolves.toBe(true);
+    // Two providers × two internal eth_calls (supportsInterface ERC-165 +
+    // supportsInterface("ERC-165") + supportsInterface("IAccessControl") + hasRole
+    // per provider × 2 providers = 6 fetches total.
+    expect(fetch).toHaveBeenCalledTimes(6);
+  });
+});
