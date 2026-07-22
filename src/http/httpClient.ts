@@ -287,7 +287,7 @@ export class HttpClient {
             const retryAfter = getRetryAfterMs(response.headers);
             const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
             this.tokenBucket?.onRateLimited(retryAfter ?? undefined);
-            await delay(retryAfter ?? backoff);
+            // The token bucket's acquire method will now handle the delay based on retryAfter
             attempt++;
             continue;
           }

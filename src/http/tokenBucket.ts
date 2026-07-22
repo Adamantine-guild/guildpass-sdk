@@ -14,6 +14,7 @@ export class TokenBucket {
   private currentRate: number;
   private refillRate: number;
   private lastRefill: number;
+  private retryUntil: number = 0; // Timestamp until which requests are throttled
 
   constructor(config: RateLimitConfig) {
     const { requestsPerSecond, burst } = config;
@@ -36,6 +37,11 @@ export class TokenBucket {
   }
 
   async acquire(): Promise<void> {
+    const now = Date.now();
+    if (now < this.retryUntil) {
+      await delay(this.retryUntil - now);
+    }
+
     this.refill();
     if (this.tokens >= 1) {
       this.tokens -= 1;
@@ -50,6 +56,8 @@ export class TokenBucket {
 
   onRateLimited(retryAfterMs?: number): void {
     if (retryAfterMs && retryAfterMs > 0) {
+      this.retryUntil = Date.now() + retryAfterMs;
+      // Also adjust the rate for future pacing after the hard throttle
       const impliedRate = 1000 / retryAfterMs;
       this.currentRate = Math.min(this.currentRate, impliedRate * 0.8);
     } else {
@@ -65,5 +73,9 @@ export class TokenBucket {
       this.currentRate = Math.min(this.baseRate, this.currentRate * 1.05);
       this.refillRate = this.currentRate / 1000;
     }
+  }
+
+  public getThrottlingUntil(): number {
+    return this.retryUntil;
   }
 }

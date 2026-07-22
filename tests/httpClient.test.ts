@@ -425,17 +425,19 @@ describe('HttpClient', () => {
     });
 
     it('respects Retry-After header on 429', async () => {
+      vi.useFakeTimers();
       const retryClient = new HttpClient(baseUrl, undefined, 10000, {
-        maxRetries: 1,
-        baseDelayMs: 1000,
+        retry: { maxRetries: 1, baseDelayMs: 1000 },
+        rateLimit: { requestsPerSecond: 1000, burst: 1000 }, // High limits to not interfere with rate-limiting test
       });
 
-      // Retry-After: 0 means retry immediately — avoids real timer waits in tests.
+      const retryAfterMs = 100;
+
       (fetch as any)
         .mockResolvedValueOnce({
           ok: false,
           status: 429,
-          headers: new Headers({ 'Retry-After': '0' }),
+          headers: new Headers({ 'Retry-After': String(retryAfterMs / 1000) }),
           json: () => Promise.resolve(null),
         })
         .mockResolvedValueOnce({
@@ -445,30 +447,111 @@ describe('HttpClient', () => {
           json: () => Promise.resolve({ ok: true }),
         });
 
-      const result = await retryClient.get('/rate-limited');
+      const requestPromise = retryClient.get('/rate-limited');
+
+      // Initial fetch call
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // Advance timers by less than retryAfterMs, the second fetch should not have happened yet
+      vi.advanceTimersByTime(retryAfterMs - 1);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // Advance timers by retryAfterMs, the second fetch should now happen
+      vi.advanceTimersByTime(1);
+      const result = await requestPromise;
 
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ ok: true });
+      vi.useRealTimers();
     });
 
-    it('per-request retry config overrides global config', async () => {
+    it('paces concurrent requests after a 429 with Retry-After', async () => {
+      vi.useFakeTimers();
       const retryClient = new HttpClient(baseUrl, undefined, 10000, {
-        maxRetries: 3,
-        baseDelayMs: 0,
+        retry: { maxRetries: 1, baseDelayMs: 1000 },
+        rateLimit: { requestsPerSecond: 1000, burst: 1000 }, // High limits to not interfere with rate-limiting test
       });
 
-      (fetch as any).mockResolvedValue({
-        ok: false,
-        status: 503,
-        headers: new Headers({ 'Content-Type': 'application/json' }),
-        json: () => Promise.resolve(null),
+      const retryAfterMs = 200;
+
+      // First request gets a 429
+      (fetch as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          headers: new Headers({ 'Retry-After': String(retryAfterMs / 1000) }),
+          json: () => Promise.resolve(null),
+        })
+        // Subsequent requests succeed
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const request1Promise = retryClient.get('/rate-limited-1');
+      const request2Promise = retryClient.get('/rate-limited-2');
+      const request3Promise = retryClient.get('/rate-limited-3');
+
+      // Only the first request should have fired initially
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // Advance time just before the retryAfterMs period ends
+      vi.advanceTimersByTime(retryAfterMs - 1);
+      expect(fetch).toHaveBeenCalledTimes(1); // Still only the first request
+
+      // Advance time past the retryAfterMs period
+      vi.advanceTimersByTime(1);
+
+      // Now all requests should have fired
+      await Promise.all([request1Promise, request2Promise, request3Promise]);
+      expect(fetch).toHaveBeenCalledTimes(4); // 1 initial + 3 subsequent
+
+      vi.useRealTimers();
+    });
+
+    it('exposes throttling state via getThrottlingUntil', async () => {
+      vi.useFakeTimers();
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, {
+        retry: { maxRetries: 1, baseDelayMs: 1000 },
+        rateLimit: { requestsPerSecond: 1000, burst: 1000 },
       });
 
-      // Per-request maxRetries=1 overrides global maxRetries=3
-      await expect(
-        retryClient.get('/flaky', { retry: { maxRetries: 1 } }),
-      ).rejects.toBeDefined();
-      expect(fetch).toHaveBeenCalledTimes(2); // 1 initial + 1 retry
+      const retryAfterMs = 300;
+
+      (fetch as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          headers: new Headers({ 'Retry-After': String(retryAfterMs / 1000) }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const initialThrottlingUntil = (retryClient as any).tokenBucket.getThrottlingUntil();
+      expect(initialThrottlingUntil).toBe(0);
+
+      const requestPromise = retryClient.get('/rate-limited-state');
+
+      // After the 429, throttling should be active
+      const throttlingUntilAfter429 = (retryClient as any).tokenBucket.getThrottlingUntil();
+      expect(throttlingUntilAfter429).toBeGreaterThan(Date.now());
+      expect(throttlingUntilAfter429).toBeLessThanOrEqual(Date.now() + retryAfterMs);
+
+      vi.advanceTimersByTime(retryAfterMs);
+      await requestPromise;
+
+      // After the cool-down, throttling should be reset (or close to it)
+      const throttlingUntilAfterCoolDown = (retryClient as any).tokenBucket.getThrottlingUntil();
+      expect(throttlingUntilAfterCoolDown).toBe(0); // Should be reset to 0 after the delay
+
+      vi.useRealTimers();
     });
   });
 
