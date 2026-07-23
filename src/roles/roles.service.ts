@@ -1,5 +1,6 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { HttpClient } from '../http/httpClient';
+import { GuildPassConfigError } from '../errors/errorTypes';
 // GuildPass SDK: Import external module dependencies.
 import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
@@ -92,7 +93,7 @@ export class RolesService {
    */
   public async hasRole(params: HasRoleParams, options?: RequestOptions): Promise<boolean> {
     if (!this.access) {
-      throw new Error(
+      throw new GuildPassConfigError(
         'GuildPass SDK: hasRole() requires an AccessService instance. ' +
           'Use GuildPassClient to obtain a properly configured RolesService.',
       );

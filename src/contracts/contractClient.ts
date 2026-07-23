@@ -1,5 +1,6 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError, GuildPassResponseValidationError } from '../errors/errorTypes';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../errors/errorCodes';
 // GuildPass SDK: Pull in package or module bindings.
@@ -66,12 +67,12 @@ import { MULTICALL3_ADDRESS } from './providers/adaptive.types';
 export const formatUnits = (value: string, decimals: number): string => {
   // Guard against negative decimal counts or non-integers
   if (decimals < 0 || !Number.isInteger(decimals)) {
-    throw new Error('Decimals must be a non-negative integer');
+    throw new GuildPassConfigError('Decimals must be a non-negative integer', GuildPassErrorCode.INVALID_INPUT);
   }
 
   // Guard against invalid base unit numeric strings (letters or pre-existing decimals)
   if (!/^\d+$/.test(value)) {
-    throw new Error('Value must be a valid big integer string containing only digits');
+    throw new GuildPassConfigError('Value must be a valid big integer string containing only digits', GuildPassErrorCode.INVALID_INPUT);
   }
 
   if (value === '0' || !value) return '0';
@@ -120,7 +121,7 @@ export {
  */
 const normalizeHex = (raw: unknown): string => {
   if (typeof raw !== 'string') {
-    throw new GuildPassError(
+    throw new GuildPassResponseValidationError(
       'Consensus path received a non-string provider result',
       GuildPassErrorCode.INVALID_RESPONSE,
     );
@@ -199,7 +200,7 @@ export class ContractClient {
     const urls = mergeRpcUrls(cfg.rpcUrl, cfg.rpcUrls);
 
     if (urls.length === 0) {
-      throw new GuildPassError(requiredMessage, GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassConfigError(requiredMessage, GuildPassErrorCode.INVALID_CONFIG);
     }
 
     if (this.config.batchStrategy === 'multicall3') {
@@ -401,7 +402,7 @@ export class ContractClient {
         ? ` ${failedCount} provider(s) failed outright; the remainder disagreed.`
         : ' No group of providers agreed.');
 
-    throw new GuildPassError(message, GuildPassErrorCode.CONSENSUS_MISMATCH, undefined, details);
+    throw new GuildPassResponseValidationError(message, GuildPassErrorCode.CONSENSUS_MISMATCH, undefined, details);
   }
 
   /**
@@ -425,7 +426,7 @@ export class ContractClient {
     validateAddress(walletAddress);
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for token balance lookup',
         GuildPassErrorCode.INVALID_CONFIG,
       );
@@ -460,7 +461,7 @@ export class ContractClient {
     const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', params.chainId);
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for token decimals lookup',
         GuildPassErrorCode.INVALID_CONFIG,
       );
@@ -471,7 +472,7 @@ export class ContractClient {
 
     const decimals = Number(decodeUint256Result(result));
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
-      throw new GuildPassError(
+      throw new GuildPassResponseValidationError(
         'Token contract returned an invalid decimals value',
         GuildPassErrorCode.INVALID_RESPONSE,
       );
@@ -530,7 +531,7 @@ export class ContractClient {
     }
 
     if (chainIds.length === 0) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'getMembershipTokenBalances requires at least one chain configured via chainId or chains',
         GuildPassErrorCode.INVALID_CONFIG,
       );
@@ -675,7 +676,7 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(chainId);
 
     if (abi.name !== functionName) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         `readContract: functionName "${functionName}" does not match ABI name "${abi.name}"`,
         GuildPassErrorCode.INVALID_INPUT,
       );
@@ -698,7 +699,7 @@ export class ContractClient {
     // Return the raw hex result — callers can decode it with
     // decodeUint256Result, decodeAddressResult, decodeBoolResult, etc.
     if (typeof result !== 'string') {
-      throw new GuildPassError(
+      throw new GuildPassResponseValidationError(
         'readContract: expected a hex string result',
         GuildPassErrorCode.INVALID_RESPONSE,
       );
@@ -721,7 +722,7 @@ export class ContractClient {
     validateGuildId(guildId);
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for guild owner lookup',
         GuildPassErrorCode.INVALID_CONFIG,
       );
@@ -847,7 +848,7 @@ export class ContractClient {
         const msg = reason instanceof Error ? reason.message : String(reason ?? '');
         return { url, code, message: msg };
       });
-      throw new GuildPassError(
+      throw new GuildPassResponseValidationError(
         `Contract batch consensus read failed across all ${providers.length} providers.`,
         GuildPassErrorCode.CONSENSUS_MISMATCH,
         undefined,
@@ -948,7 +949,7 @@ export class ContractClient {
 
     if (this.config.contractReadConsensus) {
       if (this.config.batchStrategy === 'multicall3') {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           'batchStrategy "multicall3" cannot be used concurrently with contractReadConsensus: ' +
             'Multicall3 collapses multiple calls into a single on-chain transaction per provider, ' +
             'which defeats cross-provider verification. Disable one of the two.',
@@ -986,7 +987,7 @@ export class ContractClient {
     const limit = options?.maxBatchSize ?? 100;
     if (calls.length > limit) {
       if (!options?.chunk) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `Batch size ${calls.length} exceeds maxBatchSize ${limit}. Use chunk: true to split requests.`,
           GuildPassErrorCode.INVALID_INPUT,
         );
@@ -1108,7 +1109,7 @@ export class ContractClient {
     options?: RequestOptions & { maxBatchSize?: number; chunk?: boolean; chunkConcurrency?: number },
   ): Promise<BatchItemResult[]> {
     if (!Array.isArray(calls) || calls.length === 0) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'At least one call is required for batchEthCall',
         GuildPassErrorCode.INVALID_INPUT,
       );
@@ -1117,7 +1118,7 @@ export class ContractClient {
     const limit = options?.maxBatchSize ?? 100;
     if (calls.length > limit) {
       if (!options?.chunk) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `Batch size ${calls.length} exceeds maxBatchSize ${limit}. Use chunk: true to split requests.`,
           GuildPassErrorCode.INVALID_INPUT,
         );
@@ -1174,13 +1175,13 @@ export class ContractClient {
     for (let i = 0; i < calls.length; i++) {
       const call = calls[i];
       if (!call.to || typeof call.to !== 'string') {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `batchEthCall item ${i}: 'to' is required`,
           GuildPassErrorCode.INVALID_INPUT,
         );
       }
       if (!call.data || typeof call.data !== 'string') {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `batchEthCall item ${i}: 'data' is required`,
           GuildPassErrorCode.INVALID_INPUT,
         );
@@ -1223,7 +1224,7 @@ export class ContractClient {
     const { walletAddresses, chainId, contractAddress: perCallContract } = params;
 
     if (!Array.isArray(walletAddresses) || walletAddresses.length === 0) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'walletAddresses array is required and must not be empty',
         GuildPassErrorCode.INVALID_INPUT,
       );
@@ -1242,14 +1243,14 @@ export class ContractClient {
       !this.config.contractReadConsensus &&
       mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0
     ) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'rpcUrl is required for batch contract calls (or configure contractReadConsensus)',
         GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for batch token balance lookup',
         GuildPassErrorCode.INVALID_CONFIG,
       );
@@ -1306,7 +1307,7 @@ export class ContractClient {
     const { guildIds, chainId, contractAddress: perCallContract } = params;
 
     if (!Array.isArray(guildIds) || guildIds.length === 0) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'guildIds array is required and must not be empty',
         GuildPassErrorCode.INVALID_INPUT,
       );
@@ -1325,14 +1326,14 @@ export class ContractClient {
       !this.config.contractReadConsensus &&
       mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0
     ) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'rpcUrl is required for batch contract calls (or configure contractReadConsensus)',
         GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for batch guild owner lookup',
         GuildPassErrorCode.INVALID_CONFIG,
       );

@@ -1,4 +1,6 @@
 import { ethers } from 'ethers';
+import { GuildPassConfigError, GuildPassNetworkError, GuildPassApiError } from '../errors/errorTypes';
+import { GuildPassErrorCode } from '../errors/errorCodes';
 
 export interface WhitelistRoot {
   root: string;
@@ -28,7 +30,7 @@ export async function resolveRootOnChain(
       isActive: isActive as boolean,
     };
   } catch (error) {
-    throw new Error(`Failed to resolve root from contract: ${error.message}`);
+    throw new GuildPassNetworkError(`Failed to resolve root from contract: ${error.message}`, GuildPassErrorCode.HTTP_ERROR, error);
   }
 }
 
@@ -39,7 +41,7 @@ export async function resolveRootFromAPI(
   const response = await fetch(`${apiBaseUrl}/guilds/${guildId}/whitelist-root`);
 
   if (!response.ok) {
-    throw new Error(`Failed to resolve root from API: ${response.statusText}`);
+    throw GuildPassApiError.fromHttpError(response.status, response.statusText);
   }
 
   const data = await response.json();
@@ -64,7 +66,7 @@ export async function resolveCurrentRoot(
 
   if (source === 'onchain') {
     if (!options?.contractAddress || !options?.provider) {
-      throw new Error('Contract address and provider required for on-chain resolution');
+      throw new GuildPassConfigError('Contract address and provider required for on-chain resolution', GuildPassErrorCode.INVALID_CONFIG);
     }
     return resolveRootOnChain(options.contractAddress, options.provider);
   }

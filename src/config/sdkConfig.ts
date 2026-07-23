@@ -1,6 +1,6 @@
 // GuildPass SDK: Import external module dependencies.
 import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http.types';
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { CacheAdapter } from '../cache/cache.types';
 import { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
@@ -93,7 +93,7 @@ export type GuildPassClientConfig = {
  */
 const throwConfigError = (message: string, field: string, reason: string, value: any): never => {
   const isSensitive = ['apikey', 'secret', 'privatekey', 'password', 'apiurl'].includes(field.toLowerCase());
-  throw new GuildPassError(message, GuildPassErrorCode.INVALID_CONFIG, undefined, {
+  throw new GuildPassConfigError(message, GuildPassErrorCode.INVALID_CONFIG, undefined, {
     field,
     reason,
     ...(isSensitive ? {} : { value }),
@@ -151,7 +151,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
     try {
       validateAddress(config.multicallAddress);
     } catch {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'Invalid multicallAddress: expected a valid EVM address',
         GuildPassErrorCode.INVALID_CONFIG,
         undefined,
@@ -181,7 +181,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
     try {
       validateAddress(config.trustedSignerAddress);
     } catch {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'Invalid trustedSignerAddress: expected a valid EVM address',
         GuildPassErrorCode.INVALID_CONFIG,
         undefined,
@@ -336,7 +336,7 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
       try {
         validateAddress(chainConfig.contractAddress);
       } catch (err: any) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `Invalid chains[${chainIdKey}].contractAddress: expected a valid EVM address`,
           GuildPassErrorCode.INVALID_CONFIG,
           undefined,
@@ -354,7 +354,7 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
       try {
         validateAddress(chainConfig.multicallAddress);
       } catch (err: any) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `Invalid chains[${chainIdKey}].multicallAddress: expected a valid EVM address`,
           GuildPassErrorCode.INVALID_CONFIG,
           undefined,
@@ -492,7 +492,7 @@ export function resolveChainConfig(config: GuildPassClientConfig, chainId: numbe
     if (Object.prototype.hasOwnProperty.call(config.chains, chainId)) {
       return config.chains[chainId];
     }
-    throw new GuildPassError(
+    throw new GuildPassConfigError(
       `No configuration found for chain ID ${chainId}`,
       GuildPassErrorCode.INVALID_CONFIG,
       undefined,

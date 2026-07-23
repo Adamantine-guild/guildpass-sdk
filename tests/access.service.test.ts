@@ -3,6 +3,7 @@ import { AccessService } from '../src/access/access.service';
 import { getAccessSummary } from '../src/access/accessHelpers';
 import type { AccessCheckResult } from '../src/access/access.types';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
@@ -213,6 +214,18 @@ describe('AccessService', () => {
       }),
     ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it('throws a GuildPassConfigError instance for invalid wallet addresses', async () => {
+    const { service } = createService({});
+
+    await expect(
+      service.checkAccess({
+        walletAddress: 'invalid-address',
+        guildId: 'guild_1',
+        resourceId: 'resource_1',
+      }),
+    ).rejects.toBeInstanceOf(GuildPassConfigError);
   });
 
   it('rejects invalid guild IDs before checking access', async () => {

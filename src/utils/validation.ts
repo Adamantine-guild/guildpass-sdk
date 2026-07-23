@@ -1,4 +1,4 @@
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { isChecksumAddress } from './address';
 
@@ -29,7 +29,7 @@ const throwValidationError = (
     delete details.value;
   }
 
-  throw new GuildPassError(message, code, undefined, details);
+  throw new GuildPassConfigError(message, code, undefined, details);
 };
 
 /**
