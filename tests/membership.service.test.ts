@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MembershipService } from '../src/membership/membership.service';
+import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
@@ -9,6 +10,17 @@ function createService(response: unknown) {
   const http = { get } as unknown as HttpClient;
   return { get, service: new MembershipService(http) };
 }
+
+describe('MembershipService validation errors', () => {
+  it('throws a GuildPassConfigError for an invalid wallet address', async () => {
+    const { get, service } = createService({ isActive: true, roles: [] });
+
+    await expect(
+      service.getMembership({ walletAddress: 'not-an-address', guildId: 'guild_1' }),
+    ).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+});
 
 describe('MembershipService request options forwarding', () => {
   it('forwards timeoutMs option', async () => {

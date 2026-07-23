@@ -3,6 +3,7 @@ import { RolesService } from '../src/roles/roles.service';
 import type { HttpClient } from '../src/http/httpClient';
 import type { AccessService } from '../src/access/access.service';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { GuildPassConfigError } from '../src/errors/errorTypes';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
 
@@ -189,6 +190,14 @@ describe('RolesService.hasRole', () => {
     await expect(
       service.hasRole({ walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' }),
     ).rejects.toThrow('hasRole() requires an AccessService instance');
+  });
+
+  it('throws a GuildPassConfigError instance when no AccessService was injected', async () => {
+    const { service } = createService([]);
+
+    await expect(
+      service.hasRole({ walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' }),
+    ).rejects.toBeInstanceOf(GuildPassConfigError);
   });
 
   it('propagates errors thrown by AccessService.checkRoleAccess', async () => {

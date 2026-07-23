@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { GuildsService } from '../src/guilds/guilds.service';
+import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
 
 function createService(response: unknown) {
@@ -7,6 +8,15 @@ function createService(response: unknown) {
   const http = { get } as unknown as HttpClient;
   return { get, service: new GuildsService(http) };
 }
+
+describe('GuildsService validation errors', () => {
+  it('throws a GuildPassConfigError for an invalid guild ID', async () => {
+    const { get, service } = createService({ id: 'guild_1', name: 'Test Guild' });
+
+    await expect(service.getGuild({ guildId: '' })).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+});
 
 describe('GuildsService request options forwarding', () => {
   it('forwards timeoutMs option to getGuild', async () => {
