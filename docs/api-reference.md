@@ -644,3 +644,91 @@ function buildTree(addresses: string[]): {
 }
 function publishRoot(root: string, version?: number): Promise<void>
 function rotateWhitelist(newRoot: string, version?: number): Promise<void>
+```
+
+## EIP-712 (Typed-Data Signing)
+
+Generic `eth_signTypedData_v4` support — `encodeType` / `hashStruct` /
+`hashTypedData` implemented from scratch per the EIP-712 spec (no extra
+runtime dependency), reusing the SDK's existing secp256k1 `ecRecover` for
+verification (the same primitive `verifySiweSignature` uses). Values are
+signed by the caller's own wallet/library (e.g. viem's `signTypedData`,
+ethers' `signTypedData`, or a raw `eth_signTypedData_v4` RPC call) — this
+module only encodes/hashes/verifies, it never signs.
+
+### Generic primitives
+
+```ts
+function hashTypedData(typedData: EIP712TypedData): Uint8Array
+function hashDomain(domain: EIP712Domain): Uint8Array
+function hashStruct(primaryType: string, data: EIP712Message, types: EIP712Types): Uint8Array
+function encodeType(primaryType: string, types: EIP712Types): string
+function typeHash(primaryType: string, types: EIP712Types): Uint8Array
+
+function verifyTypedDataSignature(
+  domain: EIP712Domain,
+  types: EIP712Types,
+  primaryType: string,
+  message: EIP712Message,
+  signature: string,
+  expectedSigner: string,
+): EIP712VerifyResult
+```
+
+`verifyTypedDataSignature` never throws — failures are reported via
+`EIP712VerifyResult.success === false` with a `code` from
+`GuildPassErrorCode` (`EIP712_INVALID_SIGNATURE`, `EIP712_INVALID_TYPED_DATA`,
+`EIP712_SIGNER_MISMATCH`).
+
+### GuildRoleDelegation (reference schema)
+
+A concrete typed-data schema for delegating a guild role from one wallet to
+another, demonstrating the generic primitives above for a real GuildPass use
+case:
+
+```ts
+interface GuildRoleDelegation {
+  delegator: string; // address
+  delegate: string;  // address
+  guildId: string;   // bytes32
+  roleId: string;    // bytes32
+  expiry: bigint | number; // uint256, unix seconds
+  nonce: bigint | number;  // uint256
+}
+
+function buildGuildRoleDelegationTypedData(
+  domain: EIP712Domain,
+  delegation: GuildRoleDelegation,
+): EIP712TypedData
+
+function verifyGuildRoleDelegationSignature(
+  domain: EIP712Domain,
+  delegation: GuildRoleDelegation,
+  signature: string,
+  options?: { checkExpiry?: boolean }, // default true
+): EIP712VerifyResult
+
+function verifyGuildRoleDelegationWithReplayProtection(
+  domain: EIP712Domain,
+  delegation: GuildRoleDelegation,
+  signature: string,
+  nonceStore: NonceStore,
+  options?: { checkExpiry?: boolean },
+): Promise<EIP712VerifyResult>
+```
+
+`verifyGuildRoleDelegationWithReplayProtection` reuses the same `NonceStore`
+abstraction as SIWE's replay protection (`InMemoryNonceStore` or a
+shared/Redis-backed implementation), consuming a
+`guildId:roleId:delegator:nonce`-scoped key only after signature and expiry
+checks fully succeed — a failed verification never burns a nonce.
+
+> **Security note:** this module has not been through the same external
+> audit as `crypto/secp256k1.ts` (see
+> `docs/cryptographic-audit-secp256k1.md`, Issue #62). It reuses that
+> audited `ecRecover` for the actual signature recovery, and its
+> `hashTypedData` output is cross-checked byte-for-byte against `viem`'s
+> independent implementation in `tests/eip712/eip712.test.ts`, but the
+> EIP-712 encoding/hashing logic itself (`encodeType`, `hashStruct`, value
+> encoding for each Solidity type) is new and should get its own security
+> review before being relied on for anything high-value.
