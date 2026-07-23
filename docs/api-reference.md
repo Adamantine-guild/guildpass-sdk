@@ -572,3 +572,23 @@ When the API contract changes, you must update the fixture (`tests/fixtures/api-
 3. Update the `response.success` object to match the new successful response.
 4. Update the `response.error` object if error formats change.
 5. Run `npm test` to verify your SDK methods conform to the new API schema.
+
+## Merkle-Proof Whitelist
+
+### validateWhitelistRequirement
+
+Validates a whitelist requirement by resolving the current root and verifying the proof.
+
+```ts
+function validateWhitelistRequirement(
+  address: string,
+  proof: string[],
+  options: WhitelistValidationOptions
+): Promise<boolean>
+function buildTree(addresses: string[]): {
+  root: string;
+  getProof: (address: string) => string[];
+  tree: MerkleTree;
+}
+function publishRoot(root: string, version?: number): Promise<void>
+function rotateWhitelist(newRoot: string, version?: number): Promise<void>
