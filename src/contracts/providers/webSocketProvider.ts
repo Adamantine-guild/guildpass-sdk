@@ -1,6 +1,7 @@
 // GuildPass SDK: WebSocket-based contract provider with eth_subscribe support.
-import { GuildPassError } from '../../errors/GuildPassError';
 import { GuildPassErrorCode } from '../../errors/errorCodes';
+import { GuildPassConfigError } from '../../errors/GuildPassConfigError';
+import { GuildPassNetworkError } from '../../errors/GuildPassNetworkError';
 import {
   SubscribableContractProvider,
   TransferCallback,
@@ -130,18 +131,12 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
 
   constructor(config: WebSocketProviderConfig) {
     if (!config.wssUrl) {
-      throw new GuildPassError(
-        'wssUrl is required for WebSocketContractProvider',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
+      throw new GuildPassConfigError('wssUrl is required for WebSocketContractProvider');
     }
 
     const url = new URL(config.wssUrl);
     if (url.protocol !== 'wss:' && url.protocol !== 'ws:') {
-      throw new GuildPassError(
-        `Invalid wssUrl protocol: "${url.protocol}". Expected ws:// or wss://`,
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
+      throw new GuildPassConfigError(`Invalid wssUrl protocol: "${url.protocol}". Expected ws:// or wss://`);
     }
 
     this.wssUrl = config.wssUrl;
@@ -161,10 +156,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
   public request(method: string, params: unknown[]): Promise<unknown> {
     if (this.destroyed) {
       return Promise.reject(
-        new GuildPassError(
-          'WebSocket provider has been destroyed',
-          GuildPassErrorCode.WS_CONNECTION_ERROR,
-        ),
+        new GuildPassNetworkError('WebSocket provider has been destroyed', GuildPassErrorCode.WS_CONNECTION_ERROR),
       );
     }
 
@@ -180,10 +172,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(
-          new GuildPassError(
-            `RPC request "${method}" timed out`,
-            GuildPassErrorCode.TIMEOUT,
-          ),
+          new GuildPassNetworkError(`RPC request "${method}" timed out`, GuildPassErrorCode.TIMEOUT),
         );
       }, 30_000);
 
@@ -214,10 +203,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
     callback: TransferCallback,
   ): () => void {
     if (this.destroyed) {
-      throw new GuildPassError(
-        'WebSocket provider has been destroyed',
-        GuildPassErrorCode.WS_CONNECTION_ERROR,
-      );
+      throw new GuildPassNetworkError('WebSocket provider has been destroyed', GuildPassErrorCode.WS_CONNECTION_ERROR);
     }
 
     const normalizedAddress = contractAddress.toLowerCase();
@@ -351,10 +337,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
     }
 
     // Reject all pending requests.
-    const destroyError = new GuildPassError(
-      'WebSocket provider destroyed',
-      GuildPassErrorCode.WS_CONNECTION_ERROR,
-    );
+    const destroyError = new GuildPassNetworkError('WebSocket provider destroyed', GuildPassErrorCode.WS_CONNECTION_ERROR);
     for (const [, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.reject(destroyError);
@@ -394,12 +377,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
       ws = new WebSocket(this.wssUrl);
     } catch (err) {
       this.handleConnectionFailure(
-        new GuildPassError(
-          'Failed to create WebSocket',
-          GuildPassErrorCode.WS_CONNECTION_ERROR,
-          undefined,
-          err,
-        ),
+        new GuildPassNetworkError('Failed to create WebSocket', GuildPassErrorCode.WS_CONNECTION_ERROR, undefined, err),
       );
       return;
     }
@@ -428,10 +406,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
       this.ws = null;
 
       // Reject any pending requests.
-      const closeError = new GuildPassError(
-        'WebSocket connection closed',
-        GuildPassErrorCode.WS_CONNECTION_ERROR,
-      );
+      const closeError = new GuildPassNetworkError('WebSocket connection closed', GuildPassErrorCode.WS_CONNECTION_ERROR);
       for (const [, entry] of this.pending) {
         clearTimeout(entry.timer);
         entry.reject(closeError);
@@ -524,12 +499,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
       if (payload.error) {
         const err = payload.error as { code?: number; message?: string };
         entry.reject(
-          new GuildPassError(
-            err.message ?? 'JSON-RPC error',
-            GuildPassErrorCode.HTTP_ERROR,
-            err.code,
-            err,
-          ),
+          new GuildPassNetworkError(err.message ?? 'JSON-RPC error', GuildPassErrorCode.HTTP_ERROR, err.code, err),
         );
       } else {
         entry.resolve(payload.result);
@@ -726,10 +696,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
 
   private sendRaw(data: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new GuildPassError(
-        'WebSocket is not connected',
-        GuildPassErrorCode.WS_CONNECTION_ERROR,
-      );
+      throw new GuildPassNetworkError('WebSocket is not connected', GuildPassErrorCode.WS_CONNECTION_ERROR);
     }
     this.ws.send(data);
   }

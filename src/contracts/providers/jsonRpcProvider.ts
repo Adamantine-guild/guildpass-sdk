@@ -1,6 +1,9 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassError } from '../../errors/GuildPassError';
 import { GuildPassErrorCode } from '../../errors/errorCodes';
+import { GuildPassConfigError } from '../../errors/GuildPassConfigError';
+import { GuildPassNetworkError } from '../../errors/GuildPassNetworkError';
+import { GuildPassResponseValidationError } from '../../errors/GuildPassResponseValidationError';
 import { HttpClient } from '../../http/httpClient';
 import { BlockTag, RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
@@ -144,10 +147,7 @@ export class JsonRpcContractProvider implements ContractProvider {
     this.chainId = chainId;
 
     if (this.rpcUrls.length === 0) {
-      throw new GuildPassError(
-        'JsonRpcContractProvider requires at least one RPC URL',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
+      throw new GuildPassConfigError('JsonRpcContractProvider requires at least one RPC URL');
     }
   }
 
@@ -192,7 +192,7 @@ export class JsonRpcContractProvider implements ContractProvider {
     );
 
     if (payload?.error) {
-      throw new GuildPassError(
+      throw new GuildPassNetworkError(
         payload.error.message ?? 'RPC provider returned an error',
         GuildPassErrorCode.HTTP_ERROR,
         undefined,
@@ -236,10 +236,7 @@ export class JsonRpcContractProvider implements ContractProvider {
     );
 
     if (!Array.isArray(payloads)) {
-      throw new GuildPassError(
-        'Batch RPC response is not an array',
-        GuildPassErrorCode.INVALID_RESPONSE,
-      );
+      throw new GuildPassResponseValidationError('Batch RPC response is not an array');
     }
 
     // Map responses back by their JSON-RPC id to preserve input order
@@ -313,7 +310,7 @@ export class JsonRpcContractProvider implements ContractProvider {
     );
 
     if (payload?.error) {
-      throw new GuildPassError(
+      throw new GuildPassNetworkError(
         payload.error.message ?? 'RPC provider returned an error',
         GuildPassErrorCode.HTTP_ERROR,
         undefined,
@@ -322,10 +319,7 @@ export class JsonRpcContractProvider implements ContractProvider {
     }
 
     if (typeof payload?.result !== 'string' || !/^0x[0-9a-fA-F]+$/.test(payload.result)) {
-      throw new GuildPassError(
-        'Invalid eth_blockNumber response',
-        GuildPassErrorCode.INVALID_RESPONSE,
-      );
+      throw new GuildPassResponseValidationError('Invalid eth_blockNumber response');
     }
 
     return BigInt(payload.result);

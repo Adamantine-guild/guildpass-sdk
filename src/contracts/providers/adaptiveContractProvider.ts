@@ -1,6 +1,9 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassError } from '../../errors/GuildPassError';
 import { GuildPassErrorCode } from '../../errors/errorCodes';
+import { GuildPassConfigError } from '../../errors/GuildPassConfigError';
+import { GuildPassNetworkError } from '../../errors/GuildPassNetworkError';
+import { GuildPassResponseValidationError } from '../../errors/GuildPassResponseValidationError';
 import { HttpClient } from '../../http/httpClient';
 import { RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
@@ -91,10 +94,7 @@ export class AdaptiveContractProvider implements ContractProvider {
     this.health = new HealthTracker(options.health);
 
     if (this.urls.length === 0) {
-      throw new GuildPassError(
-        'AdaptiveContractProvider requires at least one RPC URL',
-        GuildPassErrorCode.INVALID_CONFIG,
-      );
+      throw new GuildPassConfigError('AdaptiveContractProvider requires at least one RPC URL');
     }
   }
 
@@ -262,7 +262,7 @@ export class AdaptiveContractProvider implements ContractProvider {
 
     throw lastError instanceof Error
       ? lastError
-      : new GuildPassError(
+      : new GuildPassNetworkError(
           'All RPC URLs failed for eth_call',
           GuildPassErrorCode.HTTP_ERROR,
         );
@@ -318,7 +318,7 @@ export class AdaptiveContractProvider implements ContractProvider {
 
     throw lastError instanceof Error
       ? lastError
-      : new GuildPassError(
+      : new GuildPassNetworkError(
           'All RPC URLs and strategies failed for batchEthCall',
           GuildPassErrorCode.HTTP_ERROR,
         );
@@ -370,10 +370,7 @@ export class AdaptiveContractProvider implements ContractProvider {
       options,
     );
     if (typeof raw !== 'string') {
-      throw new GuildPassError(
-        'Multicall3 returned a non-string result',
-        GuildPassErrorCode.INVALID_RESPONSE,
-      );
+      throw new GuildPassResponseValidationError('Multicall3 returned a non-string result');
     }
     return decodeAggregate3(raw, requests.length);
   }

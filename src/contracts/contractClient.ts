@@ -2,6 +2,8 @@
 import { GuildPassError } from '../errors/GuildPassError';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { GuildPassConfigError } from '../errors/GuildPassConfigError';
+import { GuildPassResponseValidationError } from '../errors/GuildPassResponseValidationError';
 // GuildPass SDK: Pull in package or module bindings.
 import { validateAddress, validateGuildId } from '../utils/validation';
 // GuildPass SDK: Import external module dependencies.
@@ -44,12 +46,12 @@ import { JsonRpcContractProvider } from './providers/jsonRpcProvider';
 export const formatUnits = (value: string, decimals: number): string => {
   // Guard against negative decimal counts or non-integers
   if (decimals < 0 || !Number.isInteger(decimals)) {
-    throw new Error('Decimals must be a non-negative integer');
+    throw new GuildPassError('Decimals must be a non-negative integer', GuildPassErrorCode.INVALID_INPUT);
   }
 
   // Guard against invalid base unit numeric strings (letters or pre-existing decimals)
   if (!/^\d+$/.test(value)) {
-    throw new Error('Value must be a valid big integer string containing only digits');
+    throw new GuildPassError('Value must be a valid big integer string containing only digits', GuildPassErrorCode.INVALID_INPUT);
   }
 
   if (value === '0' || !value) return '0';
@@ -142,7 +144,7 @@ export class ContractClient {
     const urls = mergeRpcUrls(cfg.rpcUrl, cfg.rpcUrls);
 
     if (urls.length === 0) {
-      throw new GuildPassError(requiredMessage, GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassConfigError(requiredMessage);
     }
 
     return new JsonRpcContractProvider(this.http, urls, this.config.hooks, chainId);
@@ -166,9 +168,8 @@ export class ContractClient {
     const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', chainId);
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for token balance lookup',
-        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 
@@ -195,9 +196,8 @@ export class ContractClient {
     const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', params.chainId);
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for token decimals lookup',
-        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
     validateAddress(contractAddress);
@@ -206,9 +206,8 @@ export class ContractClient {
 
     const decimals = Number(decodeUint256Result(result));
     if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
-      throw new GuildPassError(
+      throw new GuildPassResponseValidationError(
         'Token contract returned an invalid decimals value',
-        GuildPassErrorCode.INVALID_RESPONSE,
       );
     }
     return decimals;
@@ -243,9 +242,8 @@ export class ContractClient {
     const provider = this.resolveProvider(chainConfig, 'rpcUrl is required for contract calls', params.chainId);
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for guild owner lookup',
-        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 
@@ -540,16 +538,14 @@ export class ContractClient {
     const contractAddress = perCallContract ?? chainConfig.contractAddress;
 
     if (!this.config.contractProvider && mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'rpcUrl is required for batch contract calls',
-        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for batch token balance lookup',
-        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 
@@ -619,16 +615,14 @@ export class ContractClient {
     const contractAddress = perCallContract ?? chainConfig.contractAddress;
 
     if (!this.config.contractProvider && mergeRpcUrls(chainConfig.rpcUrl, chainConfig.rpcUrls).length === 0) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'rpcUrl is required for batch contract calls',
-        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 
     if (!contractAddress) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'contractAddress is required for batch guild owner lookup',
-        GuildPassErrorCode.INVALID_CONFIG,
       );
     }
 

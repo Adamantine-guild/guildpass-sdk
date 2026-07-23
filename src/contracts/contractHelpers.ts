@@ -1,5 +1,7 @@
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { GuildPassConfigError } from '../errors/GuildPassConfigError';
+import { GuildPassResponseValidationError } from '../errors/GuildPassResponseValidationError';
 import { AccessRequirement } from '../types/common';
 import { validateAddress } from '../utils/validation';
 import { areAddressesEqual } from '../utils/address';
@@ -168,7 +170,7 @@ export const encodeUint256Argument = (value: string, label = 'value'): string =>
 
 export const decodeAddressResult = (result: unknown): string => {
   if (typeof result !== 'string' || !HEX_WORD_REGEX.test(result)) {
-    throw new GuildPassError('Invalid address RPC response', GuildPassErrorCode.INVALID_RESPONSE);
+    throw new GuildPassResponseValidationError('Invalid address RPC response');
   }
 
   const address = `0x${result.slice(-40)}`;
@@ -178,7 +180,7 @@ export const decodeAddressResult = (result: unknown): string => {
 
 export const decodeUint256Result = (result: unknown): string => {
   if (typeof result !== 'string' || !HEX_WORD_REGEX.test(result)) {
-    throw new GuildPassError('Invalid uint256 RPC response', GuildPassErrorCode.INVALID_RESPONSE);
+    throw new GuildPassResponseValidationError('Invalid uint256 RPC response');
   }
 
   return BigInt(result).toString(10);
@@ -186,7 +188,7 @@ export const decodeUint256Result = (result: unknown): string => {
 
 export const decodeBoolResult = (result: unknown): boolean => {
   if (typeof result !== 'string' || !HEX_WORD_REGEX.test(result)) {
-    throw new GuildPassError('Invalid bool RPC response', GuildPassErrorCode.INVALID_RESPONSE);
+    throw new GuildPassResponseValidationError('Invalid bool RPC response');
   }
 
   return BigInt(result) !== 0n;
@@ -301,10 +303,9 @@ async function validateNftRequirement(
     if (interfaceId) {
       const supported = await supportsErc165Interface(ethCall, nftAddress, interfaceId);
       if (supported === false) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `NFT contract ${nftAddress} does not support the required interface (${interfaceId}). ` +
           'This may indicate a misconfigured requirement type.',
-          GuildPassErrorCode.INVALID_CONFIG,
         );
       }
     }
@@ -339,10 +340,9 @@ async function validateOnChainRoleRequirement(
     if (interfaceId) {
       const supported = await supportsErc165Interface(ethCall, roleContract, interfaceId);
       if (supported === false) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `ROLE contract ${roleContract} does not support the required interface (${interfaceId}). ` +
           'This may indicate a misconfigured requirement type.',
-          GuildPassErrorCode.INVALID_CONFIG,
         );
       }
     }

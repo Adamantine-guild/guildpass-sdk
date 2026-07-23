@@ -1,6 +1,7 @@
 // GuildPass SDK: Pull in package or module bindings.
-import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { GuildPassConfigError } from '../errors/GuildPassConfigError';
+import { GuildPassNetworkError } from '../errors/GuildPassNetworkError';
 import { RequestOptions } from '../types/common';
 import { BatchItemResult } from '../contracts/contract.types';
 import { ContractProvider, EthCallRequest } from '../contracts/providers/provider.types';
@@ -33,17 +34,14 @@ export type EthersProviderLike = {
  */
 export function ethersContractProvider(provider: EthersProviderLike): ContractProvider {
   if (!provider || typeof provider.call !== 'function') {
-    throw new GuildPassError(
-      'ethersContractProvider requires an ethers Provider with a call() method',
-      GuildPassErrorCode.INVALID_CONFIG,
-    );
+    throw new GuildPassConfigError('ethersContractProvider requires an ethers Provider with a call() method');
   }
 
   const ethCall = async (request: EthCallRequest): Promise<unknown> => {
     try {
       return await provider.call({ to: request.to, data: request.data });
     } catch (err: any) {
-      throw new GuildPassError(
+      throw new GuildPassNetworkError(
         err?.shortMessage ?? err?.message ?? 'RPC provider returned an error',
         GuildPassErrorCode.HTTP_ERROR,
         undefined,

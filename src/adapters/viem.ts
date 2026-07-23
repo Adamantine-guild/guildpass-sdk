@@ -1,6 +1,7 @@
 // GuildPass SDK: Pull in package or module bindings.
-import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { GuildPassConfigError } from '../errors/GuildPassConfigError';
+import { GuildPassNetworkError } from '../errors/GuildPassNetworkError';
 import { RequestOptions } from '../types/common';
 import { BatchItemResult } from '../contracts/contract.types';
 import { ContractProvider, EthCallRequest } from '../contracts/providers/provider.types';
@@ -32,10 +33,7 @@ export type ViemPublicClientLike = {
  */
 export function viemContractProvider(client: ViemPublicClientLike): ContractProvider {
   if (!client || typeof client.call !== 'function') {
-    throw new GuildPassError(
-      'viemContractProvider requires a viem PublicClient with a call() method',
-      GuildPassErrorCode.INVALID_CONFIG,
-    );
+    throw new GuildPassConfigError('viemContractProvider requires a viem PublicClient with a call() method');
   }
 
   const ethCall = async (request: EthCallRequest): Promise<unknown> => {
@@ -43,7 +41,7 @@ export function viemContractProvider(client: ViemPublicClientLike): ContractProv
     try {
       response = await client.call({ to: request.to, data: request.data });
     } catch (err: any) {
-      throw new GuildPassError(
+      throw new GuildPassNetworkError(
         err?.shortMessage ?? err?.message ?? 'RPC provider returned an error',
         GuildPassErrorCode.HTTP_ERROR,
         undefined,
