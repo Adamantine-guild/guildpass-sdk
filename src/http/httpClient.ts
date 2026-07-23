@@ -1,5 +1,9 @@
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { GuildPassConfigError } from '../errors/GuildPassConfigError';
+import { GuildPassNetworkError } from '../errors/GuildPassNetworkError';
+import { GuildPassApiError } from '../errors/GuildPassApiError';
+import { GuildPassResponseValidationError } from '../errors/GuildPassResponseValidationError';
 import type { ResponseMeta } from '../types/common';
 import {
   ClientMetadata,
@@ -71,11 +75,11 @@ function resolveRetry(global: RetryConfig | undefined, local: RetryConfig | unde
   const retryableStatuses = merged.retryableStatuses ?? DEFAULT_RETRYABLE_STATUSES;
   const allowMutatingRetry = merged.allowMutatingRetry ?? false;
 
-  if (!Number.isFinite(maxRetries) || maxRetries < 0) throw new GuildPassError('Invalid maxRetries', GuildPassErrorCode.INVALID_CONFIG);
-  if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) throw new GuildPassError('Invalid baseDelayMs', GuildPassErrorCode.INVALID_CONFIG);
-  if (!Number.isFinite(maxDelayMs) || maxDelayMs < 0) throw new GuildPassError('Invalid maxDelayMs', GuildPassErrorCode.INVALID_CONFIG);
-  if (maxDelayMs < baseDelayMs) throw new GuildPassError('maxDelayMs cannot be less than baseDelayMs', GuildPassErrorCode.INVALID_CONFIG);
-  if (!Array.isArray(retryableStatuses) || retryableStatuses.length === 0) throw new GuildPassError('Invalid retryableStatuses', GuildPassErrorCode.INVALID_CONFIG);
+  if (!Number.isFinite(maxRetries) || maxRetries < 0) throw new GuildPassConfigError('Invalid maxRetries');
+  if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) throw new GuildPassConfigError('Invalid baseDelayMs');
+  if (!Number.isFinite(maxDelayMs) || maxDelayMs < 0) throw new GuildPassConfigError('Invalid maxDelayMs');
+  if (maxDelayMs < baseDelayMs) throw new GuildPassConfigError('maxDelayMs cannot be less than baseDelayMs');
+  if (!Array.isArray(retryableStatuses) || retryableStatuses.length === 0) throw new GuildPassConfigError('Invalid retryableStatuses');
 
   return { maxRetries, baseDelayMs, maxDelayMs, retryableStatuses, allowMutatingRetry };
 }
@@ -112,10 +116,10 @@ function isJsonContentType(contentType: string | null): boolean {
   return contentType.toLowerCase().includes('application/json');
 }
 
-function buildInvalidResponseError(response: Response, reason: 'unexpected_content_type' | 'malformed_json'): GuildPassError {
+function buildInvalidResponseError(response: Response, reason: 'unexpected_content_type' | 'malformed_json'): GuildPassResponseValidationError {
   const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
   const message = reason === 'unexpected_content_type' ? `Invalid response: expected JSON but received ${contentType || 'unknown'}` : 'Invalid response: received malformed JSON';
-  return new GuildPassError(message, GuildPassErrorCode.INVALID_RESPONSE, response.status, { reason, contentType });
+  return new GuildPassResponseValidationError(message, response.status, { reason, contentType });
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -239,7 +243,7 @@ export class HttpClient {
     }
     // ---------------------------------
 
-    if (signal?.aborted) throw new GuildPassError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
+    if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
 
     const startTime = Date.now();
     const hookPayload: RequestHookPayload = { method, path, headers: redactHeaders(requestHeaders) };
@@ -248,7 +252,7 @@ export class HttpClient {
       try { await this.hooks.onRequest(hookPayload); } catch (err) { console.error('GuildPass SDK: onRequest hook failed', err); }
     }
 
-    if (signal?.aborted) throw new GuildPassError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
+    if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
 
     const url = isAbsolute ? new URL(path) : new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
     if (params) Object.entries(params).forEach(([key, value]) => url.searchParams.append(key, String(value)));
@@ -269,7 +273,7 @@ export class HttpClient {
 
       try {
         const transport = this.fetchTransport ?? globalThis.fetch;
-        if (typeof transport !== 'function') throw new GuildPassError('A fetch-compatible transport is required.', GuildPassErrorCode.INVALID_CONFIG);
+        if (typeof transport !== 'function') throw new GuildPassConfigError('A fetch-compatible transport is required.');
 
         const response = await transport(url.toString(), {
           method,
@@ -294,7 +298,7 @@ export class HttpClient {
 
           const errorData = await parseErrorResponse(response);
           const errorMeta = extractMeta({ data: undefined, status: response.status, headers: response.headers }, Date.now() - startTime);
-          const httpError = GuildPassError.fromHttpError(response.status, errorData);
+          const httpError = GuildPassApiError.fromHttpError(response.status, errorData);
           httpError.requestMeta = errorMeta;
           throw httpError;
         }
@@ -319,7 +323,7 @@ export class HttpClient {
         let finalError = error;
 
         if (error.name === 'AbortError') {
-          finalError = signal?.aborted ? new GuildPassError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED) : new GuildPassError(`Request timed out after ${timeoutMs}ms`, GuildPassErrorCode.TIMEOUT);
+          finalError = signal?.aborted ? new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED) : new GuildPassNetworkError(`Request timed out after ${timeoutMs}ms`, GuildPassErrorCode.TIMEOUT);
         } else if (!(error instanceof GuildPassError)) {
           if (canRetry && attempt < retryConfig.maxRetries) {
             const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
@@ -327,7 +331,7 @@ export class HttpClient {
             attempt++;
             continue;
           }
-          finalError = new GuildPassError(error.message || 'Unknown network error', GuildPassErrorCode.HTTP_ERROR, undefined, error);
+          finalError = new GuildPassNetworkError(error.message || 'Unknown network error', GuildPassErrorCode.HTTP_ERROR, undefined, error);
         } else if (canRetry && attempt < retryConfig.maxRetries && retryConfig.retryableStatuses.includes(finalError.status)) {
           const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
           await delay(backoff);
