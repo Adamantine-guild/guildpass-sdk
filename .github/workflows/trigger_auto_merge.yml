@@ -19,12 +19,12 @@ jobs:
     steps:
       - name: Trigger automation repo
         env:
-          GH_TOKEN: ${{ secrets.POCKETPAY_AUTOMATION_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
         run: |
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
-            /repos/Axionvera/pocketpay-issue-automation/dispatches \
+            /repos/Axionvera/adamantine-pr-automation/dispatches \
             -f event_type=pocketpay-pr-opened \
             -F client_payload[repo]="${{ github.repository }}" \
             -F client_payload[pr_number]="${{ github.event.pull_request.number }}"
