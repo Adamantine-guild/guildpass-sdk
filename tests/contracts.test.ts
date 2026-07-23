@@ -1736,6 +1736,148 @@ describe('ContractClient Batch', () => {
 });
 
 // ---------------------------------------------------------------------------
+// maxBatchSize validation
+// ---------------------------------------------------------------------------
+describe('ContractClient batch maxBatchSize validation', () => {
+  const client = new GuildPassClient({
+    apiUrl: BASE_URL,
+    rpcUrl: RPC_URL,
+    contractAddress: CONTRACT,
+  });
+
+  const WALLET_A = '0x1111111111111111111111111111111111111111';
+  const CALL = { to: CONTRACT, data: '0x70a08231' + '0'.repeat(64) };
+
+  const invalidSizes: ReadonlyArray<readonly [string, number]> = [
+    ['zero', 0],
+    ['negative', -1],
+    ['non-integer', 2.5],
+    ['NaN', NaN],
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(invalidSizes)('batchEthCall rejects a %s maxBatchSize', async (_label, maxBatchSize) => {
+    await expect(
+      client.contracts.batchEthCall([CALL], RPC_URL, { maxBatchSize }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_INPUT,
+      message: expect.stringContaining('must be a positive integer'),
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(invalidSizes)(
+    'getMembershipTokenBalancesBatch rejects a %s maxBatchSize',
+    async (_label, maxBatchSize) => {
+      await expect(
+        client.contracts.getMembershipTokenBalancesBatch({
+          walletAddresses: [WALLET_A],
+          maxBatchSize,
+        }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_INPUT,
+        message: expect.stringContaining('must be a positive integer'),
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(invalidSizes)(
+    'getGuildOwnersBatch rejects a %s maxBatchSize',
+    async (_label, maxBatchSize) => {
+      await expect(
+        client.contracts.getGuildOwnersBatch({
+          guildIds: ['guild_1'],
+          maxBatchSize,
+        }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_INPUT,
+        message: expect.stringContaining('must be a positive integer'),
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  // Regression: a non-positive limit with chunk: true used to make the
+  // chunk-building loop `for (i = 0; i < calls.length; i += limit)` advance by
+  // <= 0 and push slices forever (OOM) before any RPC call. Routed through
+  // batchEthCall (pre-built call data, no calldata encoding) so the loop is
+  // genuinely reachable: without the guard this would hang, with it the call
+  // is rejected up front.
+  it.each(invalidSizes)(
+    'does not enter the chunk-building loop for a %s maxBatchSize with chunk: true',
+    async (_label, maxBatchSize) => {
+      await expect(
+        client.contracts.batchEthCall([CALL, CALL, CALL], RPC_URL, { maxBatchSize, chunk: true }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_INPUT,
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  // Happy-path cases go through batchEthCall, whose success path takes
+  // pre-built call data and therefore does not depend on the calldata-encoding
+  // helpers — keeping these assertions focused on the guard itself.
+  it('leaves the default batch size in place when maxBatchSize is omitted', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000001' },
+        ]),
+    });
+
+    const results = await client.contracts.batchEthCall([CALL], RPC_URL);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('success');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an explicitly undefined maxBatchSize as omitted', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000001' },
+        ]),
+    });
+
+    const results = await client.contracts.batchEthCall([CALL], RPC_URL, { maxBatchSize: undefined });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('success');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a valid positive integer maxBatchSize', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000001' },
+        ]),
+    });
+
+    const results = await client.contracts.batchEthCall([CALL], RPC_URL, { maxBatchSize: 1 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('success');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Contract selector, encoding, and decoding unit tests
 // ---------------------------------------------------------------------------
 describe('Contract Selectors', () => {

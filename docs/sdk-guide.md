@@ -385,6 +385,10 @@ const results = await client.contracts.getGuildOwnersBatch({
 });
 ```
 
+`maxBatchSize` must be a positive integer. Zero, negative and non-integer
+values are rejected with an `INVALID_INPUT` error before any request is sent.
+Omitting the option leaves the default of 100 in place.
+
 The same options are available on the low-level `batchEthCall` method via
 its `options` parameter:
 
