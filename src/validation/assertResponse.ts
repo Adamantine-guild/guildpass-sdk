@@ -1,9 +1,10 @@
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassResponseValidationError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 
 /**
  * Validates an API response against a shape guard, throwing a
- * GuildPassError with code INVALID_RESPONSE if it doesn't match.
+ * GuildPassResponseValidationError with code INVALID_RESPONSE if it
+ * doesn't match.
  */
 export function assertValidResponse<T>(
   value: unknown,
@@ -11,7 +12,7 @@ export function assertValidResponse<T>(
   typeName: string,
 ): T {
   if (!guard(value)) {
-    throw new GuildPassError(
+    throw new GuildPassResponseValidationError(
       `Received a malformed ${typeName} response from the API`,
       GuildPassErrorCode.INVALID_RESPONSE,
       undefined,
