@@ -1043,6 +1043,31 @@ export class ContractClient {
   }
 
   /**
+   * Validates a caller-supplied `maxBatchSize` before it reaches any chunking
+   * logic. A non-positive limit makes the chunk-building loop advance by <= 0
+   * and spin forever (`chunks.push(...)` until the process runs out of memory),
+   * and a `NaN` limit silently disables the size check altogether, so both are
+   * rejected up front.
+   *
+   * Unlike `chunkConcurrency`, which has a safe sequential fallback and is
+   * therefore clamped rather than rejected, `maxBatchSize` has no safe default
+   * other than the built-in 100 — an invalid caller value can only be a mistake,
+   * so it fails loudly.
+   *
+   * `undefined` is allowed and leaves the built-in default (100) in place.
+   */
+  private validateMaxBatchSize(value?: number): void {
+    if (value === undefined) return;
+
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new GuildPassConfigError(
+        `Invalid maxBatchSize ${value}: must be a positive integer`,
+        GuildPassErrorCode.INVALID_INPUT,
+      );
+    }
+  }
+
+  /**
    * Executes the given chunks concurrently with a bounded worker pool,
    * preserving output ordering by writing results into pre-allocated slots.
    */
@@ -1114,6 +1139,8 @@ export class ContractClient {
         GuildPassErrorCode.INVALID_INPUT,
       );
     }
+
+    this.validateMaxBatchSize(options?.maxBatchSize);
 
     const limit = options?.maxBatchSize ?? 100;
     if (calls.length > limit) {
@@ -1230,6 +1257,8 @@ export class ContractClient {
       );
     }
 
+    this.validateMaxBatchSize(params.maxBatchSize);
+
     // Validate all addresses upfront
     for (const addr of walletAddresses) {
       validateAddress(addr);
@@ -1312,6 +1341,8 @@ export class ContractClient {
         GuildPassErrorCode.INVALID_INPUT,
       );
     }
+
+    this.validateMaxBatchSize(params.maxBatchSize);
 
     // Validate all guild IDs upfront
     for (const gid of guildIds) {
