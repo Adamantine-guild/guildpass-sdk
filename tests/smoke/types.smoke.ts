@@ -12,6 +12,12 @@ import {
 import { GuildPassClient as ClientExport } from '../../dist/client';
 import { GuildPassError as ErrorExport, GuildPassErrorCode as ErrorCodeExport } from '../../dist/errors';
 import { type NetworkConfig as NetworkConfigExport } from '../../dist/types';
+import {
+  createCacheAdapterConformanceTests,
+  runCacheAdapterConformanceTests,
+  type CacheAdapterConformanceCase,
+  type CacheAdapterConformanceOptions,
+} from '../../dist/testing';
 
 
 const config: GuildPassClientConfig = {
@@ -40,3 +46,19 @@ void clientExport;
 void errorExport;
 void errorCodeExport;
 void networkExport;
+
+const conformanceOptions: CacheAdapterConformanceOptions = {
+  factory: async () => ({
+    async get() {
+      return null;
+    },
+    async set() {},
+    async delete() {},
+    async clear() {},
+  }),
+};
+const conformanceCases: CacheAdapterConformanceCase[] =
+  createCacheAdapterConformanceTests(conformanceOptions);
+
+void conformanceCases;
+void runCacheAdapterConformanceTests;

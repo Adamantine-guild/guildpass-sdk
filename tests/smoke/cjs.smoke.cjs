@@ -15,6 +15,10 @@ const {
 const { GuildPassClient: ClientExport } = require('../../dist/client.js');
 const { GuildPassError: ErrorExport, GuildPassErrorCode: ErrorCodeExport } = require('../../dist/errors.js');
 const { normaliseAddress: normaliseExport } = require('../../dist/utils.js');
+const {
+  createCacheAdapterConformanceTests,
+  runCacheAdapterConformanceTests,
+} = require('../../dist/testing.js');
 
 
 function expectExport(name, value, expectedType) {
@@ -39,6 +43,8 @@ assert.equal(ClientExport, GuildPassClient, 'Subpath client export matches root 
 assert.equal(ErrorExport, GuildPassError, 'Subpath error export matches root export');
 assert.equal(ErrorCodeExport, GuildPassErrorCode, 'Subpath error codes match root export');
 assert.equal(normaliseExport, normaliseAddress, 'Subpath utils export matches root export');
+expectExport('createCacheAdapterConformanceTests', createCacheAdapterConformanceTests, 'function');
+expectExport('runCacheAdapterConformanceTests', runCacheAdapterConformanceTests, 'function');
 
 
 const client = new GuildPassClient({ apiUrl: 'https://smoke-test.invalid' });

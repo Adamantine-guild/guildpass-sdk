@@ -15,6 +15,10 @@ import {
 import { GuildPassClient as ClientExport } from '../../dist/client.mjs';
 import { GuildPassError as ErrorExport, GuildPassErrorCode as ErrorCodeExport } from '../../dist/errors.mjs';
 import { normaliseAddress as normaliseExport } from '../../dist/utils.mjs';
+import {
+  createCacheAdapterConformanceTests,
+  runCacheAdapterConformanceTests,
+} from '../../dist/testing.mjs';
 
 
 function expectExport(name, value, expectedType) {
@@ -39,6 +43,8 @@ assert.equal(ClientExport, GuildPassClient, 'Subpath client export matches root 
 assert.equal(ErrorExport, GuildPassError, 'Subpath error export matches root export');
 assert.equal(ErrorCodeExport, GuildPassErrorCode, 'Subpath error codes match root export');
 assert.equal(normaliseExport, normaliseAddress, 'Subpath utils export matches root export');
+expectExport('createCacheAdapterConformanceTests', createCacheAdapterConformanceTests, 'function');
+expectExport('runCacheAdapterConformanceTests', runCacheAdapterConformanceTests, 'function');
 
 const client = new GuildPassClient({ apiUrl: 'https://smoke-test.invalid' });
 assert.equal(client.getConfig().apiUrl, 'https://smoke-test.invalid');
