@@ -9,12 +9,15 @@ import { validateAddress, validateGuildId } from '../utils/validation';
 import {
   BatchEthCallItem,
   BatchItemResult,
+  ChainBalanceResult,
   ERC20BalanceParams,
   ERC721TokenParams,
   ERC1155BalanceParams,
   FormattedTokenBalance,
   GuildOwnerParams,
   GuildOwnersBatchParams,
+  MembershipTokenBalancesParams,
+  MembershipTokenBalancesResult,
   ReadContractParams,
   RoleRequirementParams,
   TokenBalanceParams,
@@ -490,6 +493,69 @@ export class ContractClient {
       this.getTokenDecimals(params, options),
     ]);
     return { raw, decimals, formatted: formatUnits(raw, decimals) };
+  }
+
+  /**
+   * Fetches the membership token balance for a wallet across **every**
+   * configured chain in a single call.
+   *
+   * Iterates all chain IDs present in `config.chains` (plus the top-level
+   * `config.chainId` when no per-chain map is configured), fires the
+   * underlying {@link getMembershipTokenBalance} calls in parallel, and
+   * returns a map keyed by chain ID.
+   *
+   * A failure on one chain's RPC does **not** prevent results from the other
+   * chains from being returned — each chain's outcome is reported
+   * independently via the {@link ChainBalanceResult} discriminated union.
+   *
+   * @throws `INVALID_CONFIG` when no chain IDs can be determined from the
+   *   client config (neither `chainId` nor `chains` is set).
+   * @throws `INVALID_ADDRESS` when `walletAddress` is not a valid EVM address.
+   */
+  public async getMembershipTokenBalances(
+    params: MembershipTokenBalancesParams,
+    options?: RequestOptions,
+  ): Promise<MembershipTokenBalancesResult> {
+    const { walletAddress, contractAddress } = params;
+    validateAddress(walletAddress);
+
+    // Collect every chain ID we should query.
+    const chainIds: number[] = [];
+    if (this.config.chains) {
+      for (const key of Object.keys(this.config.chains)) {
+        chainIds.push(Number(key));
+      }
+    } else if (this.config.chainId !== undefined) {
+      chainIds.push(this.config.chainId);
+    }
+
+    if (chainIds.length === 0) {
+      throw new GuildPassError(
+        'getMembershipTokenBalances requires at least one chain configured via chainId or chains',
+        GuildPassErrorCode.INVALID_CONFIG,
+      );
+    }
+
+    // Query all chains in parallel; capture per-chain errors without throwing.
+    const entries = await Promise.all(
+      chainIds.map(async (chainId): Promise<[number, ChainBalanceResult]> => {
+        try {
+          const balance = await this.getMembershipTokenBalance(
+            { walletAddress, chainId, contractAddress },
+            options,
+          );
+          return [chainId, { status: 'success', balance }];
+        } catch (err: any) {
+          return [chainId, { status: 'error', error: err?.message ?? String(err) }];
+        }
+      }),
+    );
+
+    const result: MembershipTokenBalancesResult = {};
+    for (const [chainId, chainResult] of entries) {
+      result[chainId] = chainResult;
+    }
+    return result;
   }
 
   /**

@@ -305,6 +305,58 @@ const supply = decodeUint256Result(result);
 - **Contract call**: `eth_call` using the dynamically encoded selector + arguments from the supplied ABI fragment.
 - **Errors**: throws `INVALID_CONFIG` for missing RPC config, `INVALID_ADDRESS` for invalid contract addresses, `INVALID_INPUT` when `functionName` does not match `abi.name`, when argument count/type mismatches occur, or when an unsupported ABI type is used, `HTTP_ERROR` for RPC failures, `INVALID_RESPONSE` for non-hex results.
 
+### `getMembershipTokenBalances(params: MembershipTokenBalancesParams)`
+
+Fetches the membership token balance for a wallet across **every** chain
+configured in the client's `chains` map (or the single default `chainId` when
+no per-chain map is set), in a single call.
+
+All chain queries run in parallel. A failure on one chain's RPC does **not**
+prevent results from the other chains — each chain's outcome is reported
+independently via the `ChainBalanceResult` discriminated union.
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  chains: {
+    1: {
+      rpcUrl: 'https://eth.rpc.example',
+      contractAddress: '0x1111111111111111111111111111111111111111',
+    },
+    8453: {
+      rpcUrl: 'https://base.rpc.example',
+      contractAddress: '0x2222222222222222222222222222222222222222',
+    },
+  },
+});
+
+const balances = await client.contracts.getMembershipTokenBalances({
+  walletAddress: '0x1234567890123456789012345678901234567890',
+  contractAddress: '0x...', // optional: override the contract on every chain
+});
+
+// balances: Record<number, ChainBalanceResult>
+// {
+//   1:    { status: 'success', balance: '1000000000000000000' },
+//   8453: { status: 'error',   error:   'HTTP 503: Service Unavailable' },
+// }
+
+for (const [chainId, result] of Object.entries(balances)) {
+  if (result.status === 'success') {
+    console.log(`Chain ${chainId}: ${result.balance}`);
+  } else {
+    console.warn(`Chain ${chainId} failed: ${result.error}`);
+  }
+}
+```
+
+- **Returns**: `Promise<MembershipTokenBalancesResult>` — `Record<number, ChainBalanceResult>` keyed by chain ID.
+  Each entry is either `{ status: 'success'; balance: string }` or `{ status: 'error'; error: string }`.
+- **Requires**: at least one chain must be determinable from `chainId` or `chains` in the client config; throws `INVALID_CONFIG` otherwise.
+- **Contract call**: one parallel `eth_call` to `balanceOf(address)` per configured chain.
+- **Partial failures**: a failed chain is reported per-chain; all other chains are unaffected and returned normally.
+- **Errors**: throws `INVALID_CONFIG` when no chains are configured, `INVALID_ADDRESS` for invalid wallet addresses. Per-chain RPC and contract errors are captured inside each chain's `ChainBalanceResult` rather than surfaced as thrown exceptions.
+
 ### `getMembershipTokenBalancesBatch(params: TokenBalancesBatchParams)`
 
 Fetches membership token balances for multiple wallet addresses in a single
