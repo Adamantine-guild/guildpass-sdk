@@ -5,7 +5,8 @@
 The SDK supports tree-shakeable subpath imports. You can import focused modules directly to minimize your bundle size:
 
 - `@guildpass/sdk/client`: Main `GuildPassClient` class.
-- `@guildpass/sdk/errors`: Error classes and codes (`GuildPassError`, `GuildPassErrorCode`).
+- `@guildpass/sdk/errors`: Error classes and codes (`GuildPassError`, `GuildPassConfigError`,
+  `GuildPassNetworkError`, `GuildPassApiError`, `GuildPassResponseValidationError`, `GuildPassErrorCode`).
 - `@guildpass/sdk/utils`: Utility functions (`normaliseAddress`, `validateAddress`, `formatIsoDate`, etc.).
 - `@guildpass/sdk/types`: TypeScript definitions.
 - `@guildpass/sdk/adapters/viem`: `viemContractProvider` — wrap a viem `PublicClient` as the SDK's contract provider.
@@ -561,6 +562,49 @@ On HTTP errors, `GuildPassError.requestMeta` carries the same metadata for corre
 
 ---
 
+## Error Handling
+
+Every error the SDK throws is an instance of `GuildPassError`, but you
+rarely want to catch that base class alone — a denied access check
+("the wallet is correctly blocked") looks nothing like a network
+outage ("the check itself never ran"), and string-matching `error.message`
+to tell them apart is fragile. Instead, catch one of four typed
+subclasses, exported from every entry point (`@guildpass/sdk`,
+`@guildpass/sdk/errors`) and used consistently across `access`,
+`membership`, `roles`, `guilds`, and `contracts`:
+
+| Class | Thrown when | Carries `status`? |
+| :--- | :--- | :--- |
+| `GuildPassConfigError` | Local problem detected before any request: missing/invalid SDK config, bad call parameters, a misconfigured service instance. | No |
+| `GuildPassNetworkError` | The request never received a response: connection failures, timeouts, cancellations. | No |
+| `GuildPassApiError` | The server responded with a non-2xx status. | Yes |
+| `GuildPassResponseValidationError` | A response was received but couldn't be trusted: malformed JSON, failed shape validation, signature/consensus verification failure. | Sometimes |
+
+All four extend `GuildPassError`, so existing `instanceof GuildPassError`
+and `error.code` checks keep working unchanged:
+
+```typescript
+import {
+  GuildPassApiError,
+  GuildPassNetworkError,
+  GuildPassConfigError,
+} from '@guildpass/sdk';
+
+try {
+  await client.access.checkAccess({ ... });
+} catch (error) {
+  if (error instanceof GuildPassApiError) {
+    // error.status is guaranteed to be set (e.g. 500, 429)
+  } else if (error instanceof GuildPassNetworkError) {
+    // the request never reached the server — safe to retry
+  } else if (error instanceof GuildPassConfigError) {
+    // fix the call site or client config, retrying won't help
+  }
+}
+```
+
+---
+
 ## Response Validation
 
 By default, service methods trust that the API response matches the
@@ -581,7 +625,7 @@ const client = new GuildPassClient({
 ```
 
 When enabled, a response that doesn't match the expected shape causes
-the SDK method to throw a `GuildPassError` with
+the SDK method to throw a `GuildPassResponseValidationError` with
 `code: GuildPassErrorCode.INVALID_RESPONSE`, instead of silently
 returning malformed data:
 
@@ -589,7 +633,7 @@ returning malformed data:
 try {
   await client.access.checkAccess({ ... });
 } catch (error) {
-  if (error instanceof GuildPassError && error.code === GuildPassErrorCode.INVALID_RESPONSE) {
+  if (error instanceof GuildPassResponseValidationError) {
     // The API returned a response that doesn't match AccessCheckResult.
   }
 }
