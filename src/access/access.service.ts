@@ -13,6 +13,8 @@ import type { ResponseMetadata, DiscrepancyHookPayload } from '../http/http.type
 import type { ContractClient } from '../contracts/contractClient';
 import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { GuildPassConfigError } from '../errors/GuildPassConfigError';
+import { GuildPassResponseValidationError } from '../errors/GuildPassResponseValidationError';
 import { 
   AccessCheckParams, 
   AccessCheckResult, 
@@ -74,7 +76,7 @@ export class AccessService {
     options: VerifiedAccessCheckOptions
   ): Promise<VerifiedAccessCheckResult> {
     if (!this.contracts) {
-      throw new GuildPassError('ContractClient is not configured', GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassConfigError('ContractClient is not configured');
     }
 
     const { requirement, chainId, throwOnDiscrepancy, ...requestOptions } = options;
@@ -134,7 +136,7 @@ export class AccessService {
       }
 
       if (throwOnDiscrepancy) {
-        throw new GuildPassError(`Access verification failed: ${discrepancyReason}`, GuildPassErrorCode.INVALID_RESPONSE);
+        throw new GuildPassResponseValidationError(`Access verification failed: ${discrepancyReason}`);
       }
     }
 
@@ -199,13 +201,13 @@ export class AccessService {
   private validateBatchOptions(items: AccessCheckParams[], options?: AccessCheckBatchOptions): void {
     const concurrency = options?.concurrency ?? 5;
     if (!Number.isInteger(concurrency) || concurrency < 1 || !Number.isFinite(concurrency)) {
-      throw new Error("concurrency must be a positive finite integer");
+      throw new GuildPassError('concurrency must be a positive finite integer', GuildPassErrorCode.INVALID_INPUT);
     }
     if (concurrency > 50) {
-      throw new Error("concurrency must not exceed 50");
+      throw new GuildPassError('concurrency must not exceed 50', GuildPassErrorCode.INVALID_INPUT);
     }
     if (!items || items.length === 0) {
-      throw new Error("items array must not be empty");
+      throw new GuildPassError('items array must not be empty', GuildPassErrorCode.INVALID_INPUT);
     }
   }
 

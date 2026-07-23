@@ -6,6 +6,7 @@ import { normaliseAddress } from '../utils/address';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
 import { isGuildRoleArray } from '../validation/responseGuards';
+import { GuildPassConfigError } from '../errors/GuildPassConfigError';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Pull in package or module bindings.
@@ -92,7 +93,7 @@ export class RolesService {
    */
   public async hasRole(params: HasRoleParams, options?: RequestOptions): Promise<boolean> {
     if (!this.access) {
-      throw new Error(
+      throw new GuildPassConfigError(
         'GuildPass SDK: hasRole() requires an AccessService instance. ' +
           'Use GuildPassClient to obtain a properly configured RolesService.',
       );
