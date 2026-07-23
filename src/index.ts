@@ -19,6 +19,10 @@ export type { ResponseMetadata } from './http/http.types';
 
 // Errors
 export * from './errors/GuildPassError';
+export * from './errors/GuildPassConfigError';
+export * from './errors/GuildPassNetworkError';
+export * from './errors/GuildPassApiError';
+export * from './errors/GuildPassResponseValidationError';
 export * from './errors/errorCodes';
 export * from './errors/guards';
 
