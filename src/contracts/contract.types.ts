@@ -133,6 +133,44 @@ export type GuildOwnersBatchParams = {
 };
 
 // ---------------------------------------------------------------------------
+// Multi-chain balance aggregation types
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for {@link ContractClient.getMembershipTokenBalances}.
+ * Queries every chain configured in {@link GuildPassClientConfig.chains} (plus
+ * the default chain when {@link GuildPassClientConfig.chainId} is set) and
+ * returns a per-chain balance map in a single call.
+ */
+export type MembershipTokenBalancesParams = {
+  /** Wallet address to look up the balance for on every configured chain. */
+  walletAddress: string;
+  /**
+   * Optional contract address override applied to every chain query.
+   * When omitted, the contract address from each chain's own config is used.
+   */
+  contractAddress?: string;
+};
+
+/**
+ * The result of a single chain's balance lookup within
+ * {@link ContractClient.getMembershipTokenBalances}.
+ *
+ * On success, `balance` holds the raw on-chain integer as a decimal string.
+ * On failure, `error` holds a human-readable description of what went wrong;
+ * other chains in the same call are unaffected.
+ */
+export type ChainBalanceResult =
+  | { status: 'success'; balance: string }
+  | { status: 'error'; error: string };
+
+/**
+ * Return type of {@link ContractClient.getMembershipTokenBalances}.
+ * A map from chain ID (number) to that chain's balance result.
+ */
+export type MembershipTokenBalancesResult = Record<number, ChainBalanceResult>;
+
+// ---------------------------------------------------------------------------
 // Convenience method types (ERC-20 / ERC-721 / ERC-1155)
 // ---------------------------------------------------------------------------
 
