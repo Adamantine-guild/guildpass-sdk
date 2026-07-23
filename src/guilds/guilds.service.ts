@@ -8,7 +8,7 @@ import { isGuild, isGuildConfig } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 import { verifySignedPayload, SignedEnvelope } from '../security';
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 // GuildPass SDK: Import external module dependencies.
 import { GetGuildParams, Guild, GuildConfig } from './guilds.types';
@@ -42,7 +42,7 @@ export class GuildsService {
     
     if (this.verifySignedResponses) {
       if (!this.trustedSignerAddress) {
-        throw new GuildPassError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
+        throw new GuildPassConfigError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
       }
       rawData = await verifySignedPayload<Guild>(response as SignedEnvelope<Guild> | Guild, this.trustedSignerAddress);
     } else {
@@ -88,7 +88,7 @@ export class GuildsService {
 
     if (this.verifySignedResponses) {
       if (!this.trustedSignerAddress) {
-        throw new GuildPassError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
+        throw new GuildPassConfigError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
       }
       rawData = await verifySignedPayload<GuildConfig>(response as SignedEnvelope<GuildConfig> | GuildConfig, this.trustedSignerAddress);
     } else {
