@@ -275,33 +275,47 @@ See the [SDK Guide](./sdk-guide.md#caching-and-request-deduplication) for more o
 
 ## Conformance Testing
 
-If you are authoring a custom adapter, you can use the shared conformance test suite to guarantee it behaves correctly against the `CacheAdapter` contract (including TTL semantics, prefix deletion, and error isolation).
-
-If you are developing inside the SDK repository, you can import the suite directly:
+Custom adapters should run the exported conformance suite. It covers value
+round-tripping, TTL semantics, deletion, complete clearing, optional prefix
+deletion, concurrent writes, and store-failure isolation.
 
 ```typescript
-import { runCacheAdapterConformanceTests } from '../tests/cacheAdapterConformance';
+import { describe, it } from 'vitest';
+import { runCacheAdapterConformanceTests } from '@guildpass/sdk/testing';
 import { MyCustomAdapter } from './MyCustomAdapter';
 
-runCacheAdapterConformanceTests({
-  factory: async () => {
-    const adapter = new MyCustomAdapter('redis://localhost:6379');
-    await adapter.connect();
-    await adapter.clear();
-    return adapter;
+runCacheAdapterConformanceTests(
+  {
+    // Each case must receive a fresh, empty adapter.
+    factory: async () => {
+      const adapter = new MyCustomAdapter('redis://localhost:6379');
+      await adapter.connect();
+      await adapter.clear();
+      return adapter;
+    },
+
+    // Strongly recommended: exercise the never-throw contract while the
+    // underlying store is unavailable.
+    brokenFactory: async () => {
+      const adapter = new MyCustomAdapter('redis://localhost:6379');
+      await adapter.connect();
+      await adapter.disconnect();
+      return adapter;
+    },
+
+    // Omit this to use real timers. A real store may need a longer wait or
+    // a backend-specific clock hook.
+    advanceTime: async (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   },
-  brokenFactory: async () => {
-    const adapter = new MyCustomAdapter('redis://localhost:6379');
-    // Force a closed connection or invalid state
-    await adapter.disconnect();
-    return adapter;
-  },
-  teardown: async () => {
-    // Disconnect properly after each test
-  },
-  // When testing against a real external database, provide a real-time delay function
-  // instead of relying on Vitest's default fake timers.
-  advanceTime: async (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-});
+  { describe, it },
+);
 ```
-If you are building an adapter in an external project, you can use the above API as a reference and copy the tests/cacheAdapterConformance.ts file directly into your codebase to serve as your test harness.
+
+Vitest and Jest projects with global `describe` and `it` functions may omit
+the second argument. Other test frameworks can pass compatible registration
+functions. For custom orchestration, `createCacheAdapterConformanceTests()`
+returns the same cases without registering them.
+
+If `brokenFactory` is omitted, store-failure cases are not registered. Passing
+it is the recommended way to verify that `get()` falls back to `null` and that
+write, delete, clear, and prefix-delete failures never escape the adapter.

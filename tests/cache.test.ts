@@ -2,16 +2,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import { InMemoryCacheAdapter, CacheAdapter } from '../src/cache/cache.types';
 import { RECOMMENDED_ACCESS_CACHE_TTL_MS } from '../src/config/securityLimits';
-import { runCacheAdapterConformanceTests } from './cacheAdapterConformance';
+import { runCacheAdapterConformanceTests } from '../src/testing/cacheAdapterConformance';
 
 const BASE_CONFIG = { apiUrl: 'https://api.guildpass.xyz' };
 
 // ---------------------------------------------------------------------------
 // InMemoryCacheAdapter Conformance tests
 // ---------------------------------------------------------------------------
-runCacheAdapterConformanceTests({
-  factory: () => new InMemoryCacheAdapter(),
-});
+runCacheAdapterConformanceTests(
+  {
+    factory: () => new InMemoryCacheAdapter(),
+    setup: () => {
+      vi.useFakeTimers();
+    },
+    teardown: () => {
+      vi.useRealTimers();
+    },
+    advanceTime: async (ms) => {
+      await vi.advanceTimersByTimeAsync(ms);
+    },
+  },
+  { describe, it },
+);
 
 // ---------------------------------------------------------------------------
 // InMemoryCacheAdapter specific details
