@@ -335,6 +335,132 @@ describe('AccessService', () => {
       },
     });
   });
+
+  describe('checkAccessBatch by-resource form', () => {
+    const buildResult = (resourceId: string): AccessCheckResult => ({
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: 'guild_1',
+      resourceId,
+      requiredRoles: [],
+      matchedRoles: [],
+    });
+
+    it('returns results keyed by resourceId', async () => {
+      const get = vi.fn().mockImplementation((_url: string, opts: any) =>
+        Promise.resolve(buildResult(opts.params.resourceId)),
+      );
+      const service = new AccessService({ get } as unknown as HttpClient);
+
+      const result = await service.checkAccessBatch({
+        walletAddress: mixedCaseAddress,
+        guildId: 'guild_1',
+        resourceIds: ['resource_1', 'resource_2'],
+      });
+
+      expect(Object.keys(result).sort()).toEqual(['resource_1', 'resource_2']);
+      expect(result.resource_1).toEqual({ status: 'fulfilled', value: buildResult('resource_1') });
+      expect(result.resource_2).toEqual({ status: 'fulfilled', value: buildResult('resource_2') });
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+
+    it('collapses duplicate resourceIds into a single request', async () => {
+      const get = vi.fn().mockImplementation((_url: string, opts: any) =>
+        Promise.resolve(buildResult(opts.params.resourceId)),
+      );
+      const service = new AccessService({ get } as unknown as HttpClient);
+
+      const result = await service.checkAccessBatch({
+        walletAddress: validAddress,
+        guildId: 'guild_1',
+        resourceIds: ['resource_1', 'resource_1', 'resource_1'],
+      });
+
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(Object.keys(result)).toEqual(['resource_1']);
+    });
+
+    it('keeps per-resource failures isolated in the keyed map', async () => {
+      const get = vi.fn().mockImplementation((_url: string, opts: any) =>
+        opts.params.resourceId === 'bad'
+          ? Promise.reject(new Error('upstream boom'))
+          : Promise.resolve(buildResult(opts.params.resourceId)),
+      );
+      const service = new AccessService({ get } as unknown as HttpClient);
+
+      const result = await service.checkAccessBatch({
+        walletAddress: validAddress,
+        guildId: 'guild_1',
+        resourceIds: ['good', 'bad'],
+      });
+
+      expect(result.good.status).toBe('fulfilled');
+      expect(result.bad.status).toBe('rejected');
+      expect((result.bad as { status: 'rejected'; error: Error }).error.message).toBe('upstream boom');
+    });
+
+    it('rejects an empty resourceIds array without network calls', async () => {
+      const { get, service } = createService(buildResult('resource_1'));
+
+      await expect(
+        service.checkAccessBatch({
+          walletAddress: validAddress,
+          guildId: 'guild_1',
+          resourceIds: [],
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid wallet or guild before any network call', async () => {
+      const { get, service } = createService(buildResult('resource_1'));
+
+      await expect(
+        service.checkAccessBatch({
+          walletAddress: 'not-an-address',
+          guildId: 'guild_1',
+          resourceIds: ['resource_1'],
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+
+      await expect(
+        service.checkAccessBatch({
+          walletAddress: validAddress,
+          guildId: '',
+          resourceIds: ['resource_1'],
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it('passes request options through the by-resource form', async () => {
+      const get = vi.fn().mockImplementation((_url: string, opts: any) =>
+        Promise.resolve(buildResult(opts.params.resourceId)),
+      );
+      const service = new AccessService({ get } as unknown as HttpClient);
+      const controller = new AbortController();
+
+      await service.checkAccessBatch(
+        {
+          walletAddress: mixedCaseAddress,
+          guildId: 'guild_1',
+          resourceIds: ['resource_1'],
+        },
+        { concurrency: 1, timeoutMs: 750, signal: controller.signal },
+      );
+
+      expect(get).toHaveBeenCalledWith('/access/check', {
+        timeoutMs: 750,
+        signal: controller.signal,
+        retry: undefined,
+        params: {
+          address: mixedCaseAddress.toLowerCase(),
+          guildId: 'guild_1',
+          resourceId: 'resource_1',
+        },
+      });
+    });
+  });
 });
 
 describe('getAccessSummary', () => {

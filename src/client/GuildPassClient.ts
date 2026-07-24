@@ -20,7 +20,7 @@ import { CacheAdapter } from '../cache/cache.types';
 import { normaliseAddress } from '../utils/address';
 import { validateAddress } from '../utils/validation';
 import { encodePathSegment } from '../utils/formatting';
-import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult } from '../access/access.types';
+import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult, AccessCheckBatchByResourceParams, AccessCheckBatchByResourceResult } from '../access/access.types';
 import type { MembershipParams, Membership } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from '../roles/roles.types';
 import type { GetGuildParams, Guild, GuildConfig } from '../guilds/guilds.types';
@@ -306,19 +306,13 @@ export class GuildPassClient {
   private buildCachedAccessService(raw: AccessService): AccessService {
     const accessCacheTtl = resolveAccessCacheTtl(this.cacheTtl);
 
-    return Object.create(raw, {
+    const cached: AccessService = Object.create(raw, {
       checkAccess: {
         value: async (params: AccessCheckParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkAccess', params.guildId, params.resourceId, wallet);
           return this.withCache(key, () => raw.checkAccess(params, options), accessCacheTtl);
         },
-      },
-      checkAccessBatch: {
-        value: async (
-          items: AccessCheckParams[],
-          options?: AccessCheckBatchOptions,
-        ): Promise<AccessCheckBatchResult[]> => raw.checkAccessBatch(items, options),
       },
       checkRoleAccess: {
         value: async (params: RoleAccessCheckParams, options?: any): Promise<any> => {
@@ -328,6 +322,18 @@ export class GuildPassClient {
         },
       },
     });
+
+    Object.defineProperty(cached, 'checkAccessBatch', {
+      // Bind to the cached proxy so each per-item check flows through the
+      // cached checkAccess above instead of bypassing the cache layer.
+      value: async (
+        input: AccessCheckParams[] | AccessCheckBatchByResourceParams,
+        options?: AccessCheckBatchOptions,
+      ): Promise<AccessCheckBatchResult[] | AccessCheckBatchByResourceResult> =>
+        raw.checkAccessBatch.call(cached, input as any, options),
+    });
+
+    return cached;
   }
 
   private buildCachedMembershipService(raw: MembershipService): MembershipService {

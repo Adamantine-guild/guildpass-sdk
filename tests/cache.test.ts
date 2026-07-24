@@ -195,6 +195,63 @@ describe('GuildPassClient – cache integration', () => {
     expect(httpGet).toHaveBeenCalledTimes(1);
   });
 
+  it('checkAccessBatch flows through the per-resource cache entries', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockImplementation(
+      async (_url: unknown, opts: any) => ({
+        ...mockAccess,
+        resourceId: opts.params.resourceId,
+      }),
+    );
+
+    const params = {
+      walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      guildId: 'g1',
+      resourceIds: ['res1', 'res2'],
+    };
+
+    const first = await client.access.checkAccessBatch(params);
+    expect(httpGet).toHaveBeenCalledTimes(2);
+    expect(first.res1.status).toBe('fulfilled');
+    expect(first.res2.status).toBe('fulfilled');
+
+    // Second identical batch: every entry must be a cache hit, no new requests.
+    const second = await client.access.checkAccessBatch(params);
+    expect(httpGet).toHaveBeenCalledTimes(2);
+    expect(second.res1.status).toBe('fulfilled');
+
+    // A batch adding one new resource only fetches that one.
+    const third = await client.access.checkAccessBatch({ ...params, resourceIds: ['res1', 'res3'] });
+    expect(httpGet).toHaveBeenCalledTimes(3);
+    expect(third.res3.status).toBe('fulfilled');
+  });
+
+  it('array-form checkAccessBatch also populates per-resource cache entries', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockImplementation(
+      async (_url: unknown, opts: any) => ({
+        ...mockAccess,
+        resourceId: opts.params.resourceId,
+      }),
+    );
+
+    await client.access.checkAccessBatch([
+      { walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045', guildId: 'g1', resourceId: 'res1' },
+      { walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045', guildId: 'g1', resourceId: 'res2' },
+    ]);
+    expect(httpGet).toHaveBeenCalledTimes(2);
+
+    // A follow-up single check for one of the batched resources is a cache hit.
+    await client.access.checkAccess({
+      walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+      guildId: 'g1',
+      resourceId: 'res1',
+    });
+    expect(httpGet).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidateWalletCache normalises the address before building the deletion prefix', async () => {
     const adapter = new InMemoryCacheAdapter();
     const addr1 = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';

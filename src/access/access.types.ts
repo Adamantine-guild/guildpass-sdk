@@ -34,6 +34,18 @@ export type AccessCheckBatchResult = {
   error?: Error;
 };
 
+export type AccessCheckBatchByResourceParams = {
+  walletAddress: string;
+  guildId: string;
+  resourceIds: string[];
+};
+
+export type AccessCheckBatchResourceEntry =
+  | { status: 'fulfilled'; value: AccessCheckResult }
+  | { status: 'rejected'; error: Error };
+
+export type AccessCheckBatchByResourceResult = Record<string, AccessCheckBatchResourceEntry>;
+
 export type VerifiedAccessCheckOptions = RequestOptions & {
   /** The access requirement rule to verify directly against the chain. */
   requirement: AccessRequirement;
