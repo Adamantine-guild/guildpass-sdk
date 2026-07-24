@@ -247,6 +247,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
     if (r.retryableStatuses !== undefined && (!Array.isArray(r.retryableStatuses) || r.retryableStatuses.length === 0 || r.retryableStatuses.some((s) => typeof s !== 'number' || !Number.isFinite(s)))) {
       throwConfigError('retryableStatuses must be a non-empty array of valid HTTP status numbers', 'retry.retryableStatuses', 'invalid_type', r.retryableStatuses);
     }
+
+    if (r.jitter !== undefined && typeof r.jitter !== 'boolean') {
+      throwConfigError('retry.jitter must be a boolean', 'retry.jitter', 'invalid_type', r.jitter);
+    }
   }
 
   if (config.rateLimit) {
