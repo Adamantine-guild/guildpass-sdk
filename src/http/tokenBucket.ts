@@ -76,6 +76,6 @@ export class TokenBucket {
   }
 
   public getThrottlingUntil(): number {
-    return this.retryUntil;
+    return this.retryUntil > Date.now() ? this.retryUntil : 0;
   }
 }

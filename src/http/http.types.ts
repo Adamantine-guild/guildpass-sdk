@@ -17,6 +17,11 @@ export type RetryConfig = {
   maxDelayMs?: number;
   retryableStatuses?: number[];
   allowMutatingRetry?: boolean;
+  /**
+   * Randomize each backoff delay by ±25% to avoid thundering-herd retries.
+   * Defaults to `true`; set to `false` for deterministic delays (e.g. tests).
+   */
+  jitter?: boolean;
 };
 
 export type DiscrepancyHookPayload = {
