@@ -2,6 +2,23 @@
 
 This guide covers advanced usage and patterns for the GuildPass SDK.
 
+## Client Configuration Builder
+
+As the SDK gains support for more options, configuring the `GuildPassClient` directly with an object can become complex. The `GuildPassClientBuilder` provides a fluent, strongly typed way to build and validate your client configuration before runtime.
+
+```typescript
+import { GuildPassClientBuilder } from "@guildpass/sdk";
+
+// Validate and build fluently
+const client = new GuildPassClientBuilder('https://api.guildpass.xyz')
+  .withApiKey(process.env.GUILDPASS_API_KEY)
+  .withTimeout(5000)
+  .withRetry({ maxRetries: 3 })
+  .build();
+```
+
+The builder validates your configuration when `.build()` is called, immediately throwing a `GuildPassConfigError` if any settings are invalid. Existing configuration methods (passing an object directly to the constructor) continue to work exactly as before.
+
 ## Error Handling
 
 The SDK uses a custom `GuildPassError` class. You should always wrap SDK calls in try-catch blocks.

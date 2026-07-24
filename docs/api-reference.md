@@ -29,8 +29,21 @@ You can also import everything from the root `@guildpass/sdk` (the adapter subpa
 
 ## GuildPassClient
 
-The main constructor.
+The main constructor. You can initialize the client by passing a config object directly, or by using the `GuildPassClientBuilder` for a fluent interface.
 
+### Initialization
+
+**Using the Builder (Recommended):**
+```typescript
+import { GuildPassClientBuilder } from '@guildpass/sdk';
+
+const client = new GuildPassClientBuilder('https://api.guildpass.xyz')
+  .withApiKey('secret-key')
+  .withTimeout(5000)
+  .build();
+```
+
+**Using the Constructor:**
 ```typescript
 new GuildPassClient(config: GuildPassClientConfig)
 ```
