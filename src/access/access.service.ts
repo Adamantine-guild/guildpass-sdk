@@ -14,6 +14,7 @@ import type { ResponseMetadata, DiscrepancyHookPayload } from '../http/http.type
 import type { ContractClient } from '../contracts/contractClient';
 import { GuildPassConfigError, GuildPassResponseValidationError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { AdaptiveConcurrencyController } from './adaptiveConcurrency';
 import { 
   AccessCheckParams, 
   AccessCheckResult, 
@@ -236,6 +237,35 @@ export class AccessService {
     };
 
     const queue = items.map((item, index) => ({ item, index }));
+
+    if (options?.adaptiveConcurrency) {
+      const controller = new AdaptiveConcurrencyController({ initialLimit: concurrency });
+      const adaptiveWorkers = Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
+        while (queue.length > 0) {
+          if (failFast && hasFailed) break;
+          await controller.acquire();
+          const current = queue.shift();
+          if (!current) {
+            controller.release();
+            break;
+          }
+          try {
+            await execute(current.item, current.index);
+            const outcome = results[current.index];
+            if (outcome?.status === 'fulfilled') {
+              controller.recordSuccess();
+            } else if (outcome?.status === 'rejected') {
+              controller.recordFailure(outcome.error);
+            }
+          } finally {
+            controller.release();
+          }
+        }
+      });
+      await Promise.all(adaptiveWorkers);
+      return results;
+    }
+
     const workers = Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
       while (queue.length > 0) {
         if (failFast && hasFailed) break;

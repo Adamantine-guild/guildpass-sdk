@@ -56,6 +56,14 @@ Checks if a wallet can access a resource.
 Checks access for multiple resources or wallets concurrently.
 
 - **Returns**: `Promise<AccessCheckBatchResult[]>`
+- **Options**:
+  - `concurrency` (default `5`, max `50`): static in-flight limit.
+  - `failFast` (default `false`): abort the batch on the first failure.
+  - `adaptiveConcurrency` (default `false`): opt-in AIMD mode. The effective
+    in-flight limit starts at `concurrency`, halves whenever the backend
+    responds with HTTP 429 or 5xx, and grows back by one after every
+    `currentLimit` consecutive successes (capped at `concurrency`). Use this
+    for large batches against a backend whose health may degrade mid-batch.
 
 ### `checkAccessBatch(params: { walletAddress, guildId, resourceIds }, options?: AccessCheckBatchOptions & RequestOptions)`
 
