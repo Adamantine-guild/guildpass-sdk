@@ -5,6 +5,8 @@ import type { AccessCheckResult } from '../src/access/access.types';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
+import checkAccessSuccess from './fixtures/access/check-access-success.json';
+import checkRoleAccessSuccess from './fixtures/access/check-role-access-success.json';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
 const mixedCaseAddress = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
@@ -21,16 +23,7 @@ function createService(response: unknown) {
 
 describe('AccessService', () => {
   it('calls the access check endpoint with expected query parameters', async () => {
-    const accessResult: AccessCheckResult = {
-      hasAccess: true,
-      walletAddress: validAddress,
-      guildId: 'guild_1',
-      resourceId: 'resource_1',
-      requiredRoles: ['member'],
-      matchedRoles: ['member'],
-      reason: 'matched required role',
-    };
-    const { get, service } = createService(accessResult);
+    const { get, service } = createService(checkAccessSuccess);
 
     const result = await service.checkAccess({
       walletAddress: mixedCaseAddress,
@@ -38,7 +31,7 @@ describe('AccessService', () => {
       resourceId: 'resource_1',
     });
 
-    expect(result).toEqual(accessResult);
+    expect(result).toEqual(checkAccessSuccess);
     expect(get).toHaveBeenCalledWith('/access/check', {
       params: {
         address: mixedCaseAddress.toLowerCase(),
@@ -49,15 +42,7 @@ describe('AccessService', () => {
   });
 
   it('passes per-request timeout options to the access check request', async () => {
-    const accessResult: AccessCheckResult = {
-      hasAccess: true,
-      walletAddress: validAddress,
-      guildId: 'guild_1',
-      resourceId: 'resource_1',
-      requiredRoles: [],
-      matchedRoles: [],
-    };
-    const { get, service } = createService(accessResult);
+    const { get, service } = createService(checkAccessSuccess);
 
     await service.checkAccess(
       {
@@ -79,15 +64,7 @@ describe('AccessService', () => {
   });
 
   it('passes signal option to the access check request', async () => {
-    const accessResult: AccessCheckResult = {
-      hasAccess: true,
-      walletAddress: validAddress,
-      guildId: 'guild_1',
-      resourceId: 'resource_1',
-      requiredRoles: [],
-      matchedRoles: [],
-    };
-    const { get, service } = createService(accessResult);
+    const { get, service } = createService(checkAccessSuccess);
     const controller = new AbortController();
 
     await service.checkAccess(
@@ -110,15 +87,7 @@ describe('AccessService', () => {
   });
 
   it('passes retry option to the access check request', async () => {
-    const accessResult: AccessCheckResult = {
-      hasAccess: true,
-      walletAddress: validAddress,
-      guildId: 'guild_1',
-      resourceId: 'resource_1',
-      requiredRoles: [],
-      matchedRoles: [],
-    };
-    const { get, service } = createService(accessResult);
+    const { get, service } = createService(checkAccessSuccess);
 
     await service.checkAccess(
       {
@@ -140,7 +109,7 @@ describe('AccessService', () => {
   });
 
   it('calls the role access endpoint with expected query parameters', async () => {
-    const { get, service } = createService({ hasRole: true });
+    const { get, service } = createService(checkRoleAccessSuccess);
 
     const result = await service.checkRoleAccess({
       walletAddress: mixedCaseAddress,
@@ -148,7 +117,7 @@ describe('AccessService', () => {
       roleId: 'role_1',
     });
 
-    expect(result).toBe(true);
+    expect(result).toEqual(checkRoleAccessSuccess.hasRole);
     expect(get).toHaveBeenCalledWith('/access/role-check', {
       params: {
         address: mixedCaseAddress.toLowerCase(),
@@ -159,7 +128,7 @@ describe('AccessService', () => {
   });
 
   it('passes per-request timeout options to role access checks', async () => {
-    const { get, service } = createService({ hasRole: true });
+    const { get, service } = createService(checkRoleAccessSuccess);
 
     await service.checkRoleAccess(
       {
@@ -181,7 +150,7 @@ describe('AccessService', () => {
   });
 
   it('passes signal option to role access checks', async () => {
-    const { get, service } = createService({ hasRole: true });
+    const { get, service } = createService(checkRoleAccessSuccess);
     const controller = new AbortController();
 
     await service.checkRoleAccess(
@@ -268,15 +237,7 @@ describe('AccessService', () => {
   });
 
   it('passes request options through batch access checks', async () => {
-    const accessResult: AccessCheckResult = {
-      hasAccess: true,
-      walletAddress: validAddress,
-      guildId: 'guild_1',
-      resourceId: 'resource_1',
-      requiredRoles: [],
-      matchedRoles: [],
-    };
-    const { get, service } = createService(accessResult);
+    const { get, service } = createService(checkAccessSuccess);
 
     await service.checkAccessBatch(
       [
@@ -302,15 +263,7 @@ describe('AccessService', () => {
   });
 
   it('passes signal option through batch access checks', async () => {
-    const accessResult: AccessCheckResult = {
-      hasAccess: true,
-      walletAddress: validAddress,
-      guildId: 'guild_1',
-      resourceId: 'resource_1',
-      requiredRoles: [],
-      matchedRoles: [],
-    };
-    const { get, service } = createService(accessResult);
+    const { get, service } = createService(checkAccessSuccess);
     const controller = new AbortController();
 
     await service.checkAccessBatch(

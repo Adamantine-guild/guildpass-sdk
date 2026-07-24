@@ -96,6 +96,44 @@ pnpm test:run
 
 ---
 
+## Test Fixtures
+
+The SDK's test suite uses a set of fixture files to mock API responses. These fixtures are located in the `tests/fixtures` directory and are organized by service module.
+
+### Purpose
+
+The fixtures ensure that the SDK's tests are run against a consistent and predictable set of data that mirrors the real GuildPass backend's API contract. This prevents tests from passing with outdated or incorrect mock data.
+
+### Structure
+
+Fixture files are JSON files, with each file representing a specific API endpoint response. The directory structure is as follows:
+
+```
+tests/fixtures/
+├───access/
+│   ├───check-access-success.json
+│   └───...
+├───guilds/
+│   └───...
+├───membership/
+│   └───...
+└───roles/
+    └───...
+```
+
+Each service has its own directory, and within that directory, there are separate files for success and error cases for each endpoint.
+
+### Updating Fixtures
+
+When the GuildPass backend API contract changes, the corresponding fixture files must be updated. To do this, follow these steps:
+
+1.  **Identify the affected endpoint:** Determine which API endpoint has changed and locate the corresponding fixture file in the `tests/fixtures` directory.
+2.  **Update the fixture file:** Modify the JSON file to reflect the new API response structure.
+3.  **Run the tests:** Run the test suite to ensure that the SDK's response parsing and handling logic is compatible with the new fixture.
+4.  **Commit the changes:** Commit the updated fixture file along with any code changes.
+
+---
+
 ## Branching & Commits
 
 - Branch off `main`: `git checkout -b feat/short-description` or `fix/short-description`

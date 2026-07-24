@@ -1,0 +1,9 @@
+{
+  "isActive": true,
+  "roles": [
+    {
+      "id": "role_1",
+      "name": "Member"
+    }
+  ]
+}

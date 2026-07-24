@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { GuildsService } from '../src/guilds/guilds.service';
 import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
+import getGuildSuccess from './fixtures/guilds/get-guild-success.json';
+import getGuildConfigSuccess from './fixtures/guilds/get-guild-config-success.json';
 
 function createService(response: unknown) {
   const get = vi.fn().mockResolvedValue(response);
@@ -11,7 +13,7 @@ function createService(response: unknown) {
 
 describe('GuildsService validation errors', () => {
   it('throws a GuildPassConfigError for an invalid guild ID', async () => {
-    const { get, service } = createService({ id: 'guild_1', name: 'Test Guild' });
+    const { get, service } = createService(getGuildSuccess);
 
     await expect(service.getGuild({ guildId: '' })).rejects.toBeInstanceOf(GuildPassConfigError);
     expect(get).not.toHaveBeenCalled();
@@ -20,7 +22,7 @@ describe('GuildsService validation errors', () => {
 
 describe('GuildsService request options forwarding', () => {
   it('forwards timeoutMs option to getGuild', async () => {
-    const { get, service } = createService({ id: 'guild_1', name: 'Test Guild' });
+    const { get, service } = createService(getGuildSuccess);
 
     await service.getGuild({ guildId: 'guild_1' }, { timeoutMs: 200 });
 
@@ -30,7 +32,7 @@ describe('GuildsService request options forwarding', () => {
   });
 
   it('forwards signal option to getGuild', async () => {
-    const { get, service } = createService({ id: 'guild_1', name: 'Test Guild' });
+    const { get, service } = createService(getGuildSuccess);
     const controller = new AbortController();
 
     await service.getGuild({ guildId: 'guild_1' }, { signal: controller.signal });
@@ -41,7 +43,7 @@ describe('GuildsService request options forwarding', () => {
   });
 
   it('forwards retry option to getGuild', async () => {
-    const { get, service } = createService({ id: 'guild_1', name: 'Test Guild' });
+    const { get, service } = createService(getGuildSuccess);
 
     await service.getGuild({ guildId: 'guild_1' }, { retry: { maxRetries: 2 } });
 
@@ -51,7 +53,7 @@ describe('GuildsService request options forwarding', () => {
   });
 
   it('forwards all options together to getGuild', async () => {
-    const { get, service } = createService({ id: 'guild_1', name: 'Test Guild' });
+    const { get, service } = createService(getGuildSuccess);
     const controller = new AbortController();
 
     await service.getGuild(
@@ -67,7 +69,7 @@ describe('GuildsService request options forwarding', () => {
   });
 
   it('forwards timeoutMs option to getGuildConfig', async () => {
-    const { get, service } = createService({ id: 'guild_1', theme: 'dark' });
+    const { get, service } = createService(getGuildConfigSuccess);
 
     await service.getGuildConfig({ guildId: 'guild_1' }, { timeoutMs: 250 });
 
@@ -77,7 +79,7 @@ describe('GuildsService request options forwarding', () => {
   });
 
   it('forwards signal option to getGuildConfig', async () => {
-    const { get, service } = createService({ id: 'guild_1', theme: 'dark' });
+    const { get, service } = createService(getGuildConfigSuccess);
     const controller = new AbortController();
 
     await service.getGuildConfig({ guildId: 'guild_1' }, { signal: controller.signal });
@@ -88,7 +90,7 @@ describe('GuildsService request options forwarding', () => {
   });
 
   it('forwards retry option to getGuildConfig', async () => {
-    const { get, service } = createService({ id: 'guild_1', theme: 'dark' });
+    const { get, service } = createService(getGuildConfigSuccess);
 
     await service.getGuildConfig({ guildId: 'guild_1' }, { retry: { maxRetries: 2 } });
 
