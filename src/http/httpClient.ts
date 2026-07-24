@@ -60,6 +60,44 @@ function extractResponseMeta(response: Response, durationMs: number): ResponseMe
   return meta;
 }
 
+const SENSITIVE_URL_PARAM = /key|token|secret|auth|pass|signature|credential/i;
+const CREDENTIAL_PATH_SEGMENT = /^[A-Za-z0-9_-]{16,}$/;
+
+export function redactUrlCredentials(rawUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+  let changed = false;
+  if (url.username) {
+    url.username = '[REDACTED]';
+    changed = true;
+  }
+  if (url.password) {
+    url.password = '[REDACTED]';
+    changed = true;
+  }
+  const paramsToRedact: string[] = [];
+  url.searchParams.forEach((value, key) => {
+    if (SENSITIVE_URL_PARAM.test(key) || value.length >= 16) paramsToRedact.push(key);
+  });
+  for (const key of paramsToRedact) {
+    url.searchParams.set(key, '[REDACTED]');
+    changed = true;
+  }
+  const redactedPath = url.pathname
+    .split('/')
+    .map((segment) => (CREDENTIAL_PATH_SEGMENT.test(segment) ? '[REDACTED]' : segment))
+    .join('/');
+  if (redactedPath !== url.pathname) {
+    url.pathname = redactedPath;
+    changed = true;
+  }
+  return changed ? url.toString() : rawUrl;
+}
+
 export function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};
   if (!headers) return redacted;

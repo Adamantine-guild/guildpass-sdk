@@ -113,6 +113,16 @@ export type GuildPassClientConfig = {
 };
 
 /**
+ * Shape returned by `GuildPassClient.getConfig()`: the client config minus
+ * the API key and every function-valued or non-serializable field, with
+ * credentials redacted from RPC URLs.
+ */
+export type PublicClientConfig = Omit<
+  GuildPassClientConfig,
+  'apiKey' | 'fetch' | 'hooks' | 'contractProvider' | 'cache' | 'middleware'
+>;
+
+/**
  * Local helper to enforce structured configuration exceptions uniformly.
  */
 const throwConfigError = (message: string, field: string, reason: string, value: any): never => {

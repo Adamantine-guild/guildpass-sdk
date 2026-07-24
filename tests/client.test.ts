@@ -61,7 +61,59 @@ describe('GuildPassClient', () => {
       fetch: customFetch,
     });
 
-    expect(client.getConfig().fetch).toBe(customFetch);
+    expect('fetch' in client.getConfig()).toBe(false);
+  });
+
+  it('should omit function-valued fields from getConfig', () => {
+    const client = new GuildPassClient({
+      apiUrl: 'https://test-api.com',
+      fetch: vi.fn() as unknown as typeof fetch,
+      hooks: { onRequest: vi.fn(), onResponse: vi.fn(), onError: vi.fn() },
+    });
+
+    const publicConfig = client.getConfig() as Record<string, unknown>;
+    for (const key of ['fetch', 'hooks', 'contractProvider', 'cache', 'middleware']) {
+      expect(key in publicConfig).toBe(false);
+    }
+    expect(() => JSON.stringify(publicConfig)).not.toThrow();
+  });
+
+  it('should redact credentials from RPC URLs in getConfig', () => {
+    const infuraKey = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+    const client = new GuildPassClient({
+      apiUrl: 'https://test-api.com',
+      rpcUrl: `https://mainnet.infura.io/v3/${infuraKey}`,
+      rpcUrls: [
+        'https://user:secretpass@rpc.example.com',
+        'https://rpc.example.com/?apikey=abc123&region=eu',
+      ],
+      chains: {
+        1: {
+          rpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${infuraKey}`,
+          contractAddress: '0x1111111111111111111111111111111111111111',
+        },
+      },
+    });
+
+    const publicConfig = client.getConfig();
+    const serialized = JSON.stringify(publicConfig);
+    expect(serialized).not.toContain(infuraKey);
+    expect(serialized).not.toContain('secretpass');
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).toContain('region=eu');
+    expect(publicConfig.rpcUrl).toBe('https://mainnet.infura.io/v3/[REDACTED]');
+    expect(publicConfig.chains?.[1]?.contractAddress).toBe(
+      '0x1111111111111111111111111111111111111111',
+    );
+  });
+
+  it('should leave credential-free RPC URLs untouched in getConfig', () => {
+    const client = new GuildPassClient({
+      apiUrl: 'https://test-api.com',
+      rpcUrl: 'https://ethereum.publicnode.com',
+    });
+
+    expect(client.getConfig().rpcUrl).toBe('https://ethereum.publicnode.com');
   });
 
   // GuildPass SDK: Test suite container block.

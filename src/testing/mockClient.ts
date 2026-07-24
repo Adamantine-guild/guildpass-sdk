@@ -5,7 +5,7 @@ import { MembershipService } from '../membership/membership.service';
 import { RolesService } from '../roles/roles.service';
 import { ContractClient } from '../contracts/contractClient';
 import { DEFAULT_ACCESS_RESULT, DEFAULT_GUILD, DEFAULT_GUILD_CONFIG, DEFAULT_ROLE, DEFAULT_MEMBERSHIP } from './fixtures';
-import type { GuildPassClientConfig } from '../config/sdkConfig';
+import type { PublicClientConfig } from '../config/sdkConfig';
 
 /** 
  * Utility type to extract only the public properties and methods of a class.
@@ -28,7 +28,7 @@ export type MockClientOverrides = {
   membership?: MockServiceOverrides<MembershipService>;
   roles?: MockServiceOverrides<RolesService>;
   contracts?: MockServiceOverrides<ContractClient>;
-  getConfig?: () => Omit<GuildPassClientConfig, 'apiKey'>;
+  getConfig?: () => PublicClientConfig;
 };
 
 /**

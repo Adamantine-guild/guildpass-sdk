@@ -3,14 +3,14 @@ import { AccessService } from '../access/access.service';
 // GuildPass SDK: Import external module dependencies.
 import { DEFAULT_CONFIG } from '../config/defaultConfig';
 // GuildPass SDK: Pull in package or module bindings.
-import { GuildPassClientConfig, validateConfig } from '../config/sdkConfig';
+import { GuildPassClientConfig, PublicClientConfig, validateConfig } from '../config/sdkConfig';
 import { emitSecurityConfigWarnings, resolveAccessCacheTtl } from '../config/securityLimits';
 // GuildPass SDK: Import external module dependencies.
 import { ContractClient } from '../contracts/contractClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildsService } from '../guilds/guilds.service';
 // GuildPass SDK: Import external module dependencies.
-import { HttpClient } from '../http/httpClient';
+import { HttpClient, redactUrlCredentials } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { MembershipService } from '../membership/membership.service';
 import { SDK_VERSION } from '../config/version';
@@ -224,12 +224,50 @@ export class GuildPassClient {
   /**
    * Returns the current SDK configuration without sensitive values.
    * Sensitive fields such as `apiKey` are omitted from this public snapshot.
-   * The SDK continues to use the real API key internally for authenticated requests.
+   * Function-valued fields (`fetch`, `hooks`, `contractProvider`, `cache`,
+   * `middleware`) are omitted as well, and credentials embedded in RPC URLs
+   * (userinfo, query parameters, key-shaped path segments) are redacted, so
+   * the result is safe to `JSON.stringify` for logging.
+   * The SDK continues to use the real values internally.
    */
-  public getConfig(): Omit<GuildPassClientConfig, 'apiKey'> {
-    const safeConfig: Partial<GuildPassClientConfig> = { ...this.config };
+  public getConfig(): PublicClientConfig {
+    const safeConfig: Record<string, unknown> = { ...this.config };
     delete safeConfig.apiKey;
-    return safeConfig as Omit<GuildPassClientConfig, 'apiKey'>;
+    delete safeConfig.fetch;
+    delete safeConfig.hooks;
+    delete safeConfig.contractProvider;
+    delete safeConfig.cache;
+    delete safeConfig.middleware;
+    if (typeof safeConfig.rpcUrl === 'string') {
+      safeConfig.rpcUrl = redactUrlCredentials(safeConfig.rpcUrl);
+    }
+    if (Array.isArray(safeConfig.rpcUrls)) {
+      safeConfig.rpcUrls = safeConfig.rpcUrls.map((u) =>
+        typeof u === 'string' ? redactUrlCredentials(u) : u,
+      );
+    }
+    if (safeConfig.chains && typeof safeConfig.chains === 'object') {
+      const chains: Record<string, unknown> = {};
+      for (const [chainId, chain] of Object.entries(
+        safeConfig.chains as Record<string, Record<string, unknown>>,
+      )) {
+        chains[chainId] = {
+          ...chain,
+          ...(typeof chain.rpcUrl === 'string'
+            ? { rpcUrl: redactUrlCredentials(chain.rpcUrl) }
+            : {}),
+          ...(Array.isArray(chain.rpcUrls)
+            ? {
+                rpcUrls: chain.rpcUrls.map((u) =>
+                  typeof u === 'string' ? redactUrlCredentials(u) : u,
+                ),
+              }
+            : {}),
+        };
+      }
+      safeConfig.chains = chains;
+    }
+    return safeConfig as unknown as PublicClientConfig;
   }
 
   // ---------------------------------------------------------------------------
