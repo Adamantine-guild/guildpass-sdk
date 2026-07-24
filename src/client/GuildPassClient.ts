@@ -103,6 +103,7 @@ export class GuildPassClient {
       {
         retry: this.config.retry,
         hooks: this.config.hooks,
+        middleware: this.config.middleware,
         fetch: this.config.fetch,
         rateLimit: this.config.rateLimit,
         metadata: {

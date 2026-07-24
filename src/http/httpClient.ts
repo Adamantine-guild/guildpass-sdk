@@ -17,8 +17,12 @@ import {
   RequestHookPayload,
   ResponseMetadata,
   RetryConfig,
+  Middleware,
 } from './http.types';
 import { TokenBucket } from './tokenBucket';
+import { runRequestPipeline, runResponsePipeline, runErrorPipeline } from '../middleware/middleware.pipeline';
+import type { RequestMiddlewarePayload, ResponseMiddlewarePayload, ErrorMiddlewarePayload } from '../middleware/middleware.types';
+import type { Middleware } from './http.types';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
@@ -157,6 +161,7 @@ export class HttpClient {
   private readonly timeoutMs: number;
   private readonly globalRetry?: RetryConfig;
   private readonly hooks?: HttpHooks;
+  private readonly middleware: Middleware[];
   private readonly fetchTransport?: FetchLike;
   private readonly metadata?: ClientMetadata;
   private readonly tokenBucket?: TokenBucket;
@@ -175,6 +180,7 @@ export class HttpClient {
       if ('fetch' in configOrHooks || 'retry' in configOrHooks || 'hooks' in configOrHooks) {
         this.globalRetry = configOrHooks.retry;
         this.hooks = configOrHooks.hooks;
+        this.middleware = configOrHooks.middleware ?? [];
         this.fetchTransport = configOrHooks.fetch;
         this.metadata = configOrHooks.metadata;
         if (configOrHooks.rateLimit) this.tokenBucket = new TokenBucket(configOrHooks.rateLimit);
@@ -184,6 +190,7 @@ export class HttpClient {
         this.hooks = configOrHooks;
       }
     }
+    if (!this.middleware) this.middleware = [];
   }
 
   public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<any> {
@@ -244,6 +251,32 @@ export class HttpClient {
       requestHeaders['Idempotency-Key'] = idempotencyKey;
     }
     // ---------------------------------
+
+    // ── Middleware pipeline: request phase ──────────────────────────────
+    let middlewarePayload: RequestMiddlewarePayload = {
+      method: method as any,
+      path: path.startsWith('/') ? path : `/${path}`,
+      headers: { ...requestHeaders },
+      body,
+    };
+    if (this.middleware.length > 0) {
+      try {
+        middlewarePayload = await runRequestPipeline({
+          middleware: this.middleware,
+          payload: middlewarePayload,
+        });
+        // Merge any header/body mutations from middleware
+        Object.assign(requestHeaders, middlewarePayload.headers);
+      } catch (mwError) {
+        const error = mwError instanceof Error ? mwError : new Error(String(mwError));
+        await runErrorPipeline(this.middleware, {
+          request: middlewarePayload,
+          error,
+        });
+        throw error;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
 
@@ -314,6 +347,24 @@ export class HttpClient {
           } catch (err) { console.error('GuildPass SDK: onResponse hook failed', err); }
         }
 
+        // Response middleware (reverse order)
+        if (this.middleware.length > 0) {
+          try {
+            await runResponsePipeline({
+              middleware: this.middleware,
+              request: middlewarePayload,
+              response: {
+                status: response.status,
+                data,
+                headers: Object.fromEntries(response.headers?.entries?.() ?? []),
+                durationMs,
+              },
+            });
+          } catch {
+            // Pipeline error already propagated through middleware; re-throw first error
+          }
+        }
+
         this.tokenBucket?.onSuccess();
         const meta = options.includeMeta ? extractResponseMeta(response, durationMs) : undefined;
 
@@ -344,6 +395,14 @@ export class HttpClient {
         const durationMs = Date.now() - startTime;
         if (this.hooks?.onError) {
           try { await this.hooks.onError({ ...hookPayload, error: finalError, durationMs }); } catch (hookErr) { console.error('GuildPass SDK: onError hook failed', hookErr); }
+        }
+        // Error middleware (reverse order)
+        if (this.middleware.length > 0) {
+          await runErrorPipeline(this.middleware, {
+            request: middlewarePayload,
+            error: finalError,
+            durationMs,
+          });
         }
         throw finalError;
       }

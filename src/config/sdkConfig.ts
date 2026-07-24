@@ -2,7 +2,8 @@
 import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http.types';
 import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
-import { CacheAdapter } from '../cache/cache.types';
+import type { CacheAdapter } from '../cache/cache.types';
+import type { Middleware } from '../middleware/middleware.types';
 import { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
 import { ContractProvider } from '../contracts/providers/provider.types';
 import { validateAddress } from '../utils/validation';
@@ -38,6 +39,7 @@ export type GuildPassClientConfig = {
   /** Global retry policy applied to all requests. Defaults to no retries. */
   retry?: RetryConfig;
   hooks?: HttpHooks;
+  middleware?: Middleware[];
   fetch?: FetchLike;
   rateLimit?: RateLimitConfig;
   validateResponses?: boolean;

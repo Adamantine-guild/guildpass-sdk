@@ -3,6 +3,7 @@ import type { AccessCheckParams, AccessCheckResult } from '../access/access.type
 import type { AccessRequirement } from '../types/common';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type { ResponseMeta } from '../types/common';
+import type { Middleware } from '../middleware/middleware.types';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -42,6 +43,7 @@ export type ClientMetadata = {
 export type HttpClientConfig = {
   retry?: RetryConfig;
   hooks?: HttpHooks;
+  middleware?: Middleware[];
   fetch?: FetchLike;
   metadata?: ClientMetadata;
   rateLimit?: RateLimitConfig;
