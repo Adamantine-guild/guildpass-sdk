@@ -318,3 +318,4 @@ Distributed under the MIT License. See [LICENSE](./LICENSE) for more information
   <p>Built with ❤️ by the <b>GuildPass</b> team</p>
   <a href="https://guildpass.xyz">guildpass.xyz</a>
 </div>
+
