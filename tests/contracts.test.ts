@@ -7,9 +7,11 @@ import { GuildPassErrorCode } from '../src/errors/errorCodes';
 import { GuildPassError } from '../src/errors/GuildPassError';
 import {
   BALANCE_OF_SELECTOR,
+  ERC1155_BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
   encodeAddressArgument,
   encodeGuildId,
+  encodeUint256Argument,
   decodeAddressResult,
   decodeUint256Result,
 } from '../src/contracts/contractClient';
@@ -642,6 +644,46 @@ describe('ContractClient.validateRoleRequirement', () => {
       ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
       expect(fetch).not.toHaveBeenCalled();
     });
+
+    it('supports ERC-1155 standard and calls balanceOf(address,uint256) when standard is ERC1155', async () => {
+      mockEthCallResult(hexWord((5).toString(16)));
+
+      await expect(
+        client.contracts.validateRoleRequirement({
+          walletAddress,
+          requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+        }),
+      ).resolves.toBe(true);
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^https:\/\/rpc\.test\.com\/?$/),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_call',
+            params: [
+              {
+                to: NFT_CONTRACT,
+                data: `0x00fdd58e${encodeAddressArgument(walletAddress)}${encodeUint256Argument('123', 'NFT requirement "id"')}`,
+              },
+              'latest',
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('returns false when ERC-1155 balance is below minAmount', async () => {
+      mockEthCallResult(hexWord((1).toString(16)));
+
+      await expect(
+        client.contracts.validateRoleRequirement({
+          walletAddress,
+          requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+        }),
+      ).resolves.toBe(false);
+    });
   });
 
   describe('ROLE requirements', () => {
@@ -977,6 +1019,48 @@ describe('strictInterfaceChecking', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
     expect(body.params[0].data).toContain('0x70a08231'); // balanceOf selector
+  });
+
+  it('flag ON, ERC-1155 NFT requirement supports ERC-165 checks with ERC-1155 interface ID', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → true (ERC-165 itself)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // supportsInterface(0xd9b67a26) → true (ERC-1155)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // balanceOf(walletAddress, 123) → 5
+      .mockResolvedValueOnce(mockRpcResponse({ result: hexWord((5).toString(16)) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+      }),
+    ).resolves.toBe(true);
+
+    // 3 calls: 2 ERC-165 checks + 1 balanceOf(address,uint256)
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const body = JSON.parse(mockFetch().mock.calls[2][1].body as string);
+    expect(body.params[0].data).toContain('0x00fdd58e');
+  });
+
+  it('flag ON, ERC-1155 NFT requirement fails when contract lacks ERC-1155 support', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → true (ERC-165 itself)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // supportsInterface(0xd9b67a26) → false (NOT ERC-1155)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(false) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+      }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('does not support the required interface'),
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 
