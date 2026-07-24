@@ -55,6 +55,18 @@ export type GuildPassClientConfig = {
   validateResponses?: boolean;
   cache?: CacheAdapter;
   cacheTtl?: number;
+  /**
+   * When enabled (default), identical in-flight read requests are
+   * deduplicated: concurrent calls with the same arguments share a single
+   * underlying HTTP request instead of each issuing their own.
+   *
+   * Disable this if your application requires every call to hit the network
+   * independently (e.g. for per-call abort semantics or debugging). Can be
+   * overridden per call via `RequestOptions.deduplicate`.
+   *
+   * @default true
+   */
+  deduplication?: boolean;
   sendClientMetadata?: boolean;
   clientName?: string;
   clientVersion?: string;
@@ -151,6 +163,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
         throwConfigError(`cache adapter must implement ${method}(): function`, 'cache', 'invalid_type', config.cache);
       }
     }
+  }
+
+  if (config.deduplication !== undefined && typeof config.deduplication !== 'boolean') {
+    throwConfigError('deduplication must be a boolean', 'deduplication', 'invalid_type', config.deduplication);
   }
 
   if (config.contractProvider !== undefined) {
