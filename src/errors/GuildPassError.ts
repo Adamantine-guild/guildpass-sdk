@@ -2,6 +2,34 @@
 import { GuildPassErrorCode } from './errorCodes';
 import type { ResponseMetadata } from '../http/http.types';
 
+const REDACTED = '[REDACTED]';
+
+const isSensitiveKey = (key: string): boolean => {
+  const normalized = key.toLowerCase().replace(/[-_\s]/g, '');
+  return (
+    normalized === 'authorization' ||
+    normalized === 'cookie' ||
+    normalized === 'setcookie' ||
+    normalized.endsWith('apikey') ||
+    normalized.endsWith('privatekey') ||
+    normalized.endsWith('password') ||
+    normalized.endsWith('secret') ||
+    normalized.endsWith('token')
+  );
+};
+
+const redactSensitiveValues = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(redactSensitiveValues);
+  if (value === null || typeof value !== 'object') return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+      key,
+      isSensitiveKey(key) ? REDACTED : redactSensitiveValues(nestedValue),
+    ]),
+  );
+};
+
 // GuildPass SDK: Exposed interface structure.
 export class GuildPassError extends Error {
   // GuildPass SDK: Class member structure property or constructor.
@@ -29,6 +57,21 @@ export class GuildPassError extends Error {
     // Fix for inheritance in TypeScript when targeting ES5 or lower
     Object.setPrototypeOf(this, GuildPassError.prototype);
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Returns a log-safe plain object representation of this error.
+   * Sensitive values in `details` are replaced with `[REDACTED]`.
+   */
+  public toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      status: this.status,
+      requestMeta: this.requestMeta,
+      details: redactSensitiveValues(this.details),
+    };
   }
 
   // GuildPass SDK: Class member structure property or constructor.

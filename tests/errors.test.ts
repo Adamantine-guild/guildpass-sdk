@@ -50,6 +50,60 @@ describe('GuildPassError', () => {
     expect(error500.code).toBe(GuildPassErrorCode.SERVER_ERROR);
     // GuildPass SDK: End of logic containment structure block.
   });
+
+  it('serializes every diagnostic field to a plain object', () => {
+    const error = new GuildPassError('Invalid request', GuildPassErrorCode.INVALID_INPUT, 400, {
+      field: 'guildId',
+    });
+    error.requestMeta = {
+      requestId: 'req-123',
+      correlationId: 'corr-456',
+      status: 400,
+      durationMs: 25,
+    };
+
+    const expected = {
+      name: 'GuildPassError',
+      message: 'Invalid request',
+      code: GuildPassErrorCode.INVALID_INPUT,
+      status: 400,
+      requestMeta: error.requestMeta,
+      details: { field: 'guildId' },
+    };
+    expect(error.toJSON()).toEqual(expected);
+    expect(JSON.parse(JSON.stringify(error))).toEqual(expected);
+  });
+
+  it('redacts sensitive detail fields recursively without changing the source details', () => {
+    const details = {
+      apiKey: 'api-key-value',
+      authorization: 'Bearer credential',
+      nested: {
+        password: 'password-value',
+        accessToken: 'token-value',
+        reason: 'expired',
+      },
+    };
+    const error = new GuildPassError(
+      'Authentication failed',
+      GuildPassErrorCode.UNAUTHORISED,
+      401,
+      details,
+    );
+
+    expect(error.toJSON().details).toEqual({
+      apiKey: '[REDACTED]',
+      authorization: '[REDACTED]',
+      nested: {
+        password: '[REDACTED]',
+        accessToken: '[REDACTED]',
+        reason: 'expired',
+      },
+    });
+    expect(JSON.stringify(error)).not.toContain('api-key-value');
+    expect(JSON.stringify(error)).not.toContain('Bearer credential');
+    expect(details.apiKey).toBe('api-key-value');
+  });
   // GuildPass SDK: End of logic containment structure block.
 });
 
@@ -183,6 +237,18 @@ describe('GuildPassError subclass hierarchy', () => {
     expect(timeout.code).toBe(GuildPassErrorCode.TIMEOUT);
     expect(timeout.status).toBeUndefined();
     expect(timeout.name).toBe('GuildPassTimeoutError');
+  });
+
+  it('base serialization reflects the concrete subclass name', () => {
+    const error = GuildPassApiError.fromHttpError(429, { token: 'secret-token' });
+
+    expect(error.toJSON()).toMatchObject({
+      name: 'GuildPassRateLimitError',
+      message: 'HTTP Error: 429',
+      code: GuildPassErrorCode.RATE_LIMITED,
+      status: 429,
+      details: { token: '[REDACTED]' },
+    });
   });
 });
 
