@@ -99,7 +99,7 @@ export class GuildPassClient {
     this.http = new HttpClient(
       this.config.apiUrl,
       this.config.apiKey,
-      this.config.timeoutMs,
+      this.config.defaultTimeoutMs ?? this.config.timeoutMs,
       {
         retry: this.config.retry,
         hooks: this.config.hooks,
@@ -254,6 +254,7 @@ export class GuildPassClient {
     key: string,
     fn: () => Promise<T>,
     ttlOverride?: number,
+    skipCoalesce = false,
   ): Promise<T> {
     const effectiveTtl = ttlOverride ?? this.cacheTtl;
 
@@ -266,7 +267,10 @@ export class GuildPassClient {
       }
     }
 
-    return this.coalesce(key, async () => {
+    // Requests carrying a caller AbortSignal must not be coalesced: one
+    // caller aborting would otherwise reject the shared promise for every
+    // other caller waiting on the same key.
+    const run = async () => {
       const result = await fn();
       if (this.cache) {
         try {
@@ -276,7 +280,9 @@ export class GuildPassClient {
         }
       }
       return result;
-    });
+    };
+
+    return skipCoalesce ? run() : this.coalesce(key, run);
   }
 
   /**
@@ -312,7 +318,7 @@ export class GuildPassClient {
         value: async (params: AccessCheckParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkAccess', params.guildId, params.resourceId, wallet);
-          return this.withCache(key, () => raw.checkAccess(params, options), accessCacheTtl);
+          return this.withCache(key, () => raw.checkAccess(params, options), accessCacheTtl, !!options?.signal);
         },
       },
       checkAccessBatch: {
@@ -325,7 +331,7 @@ export class GuildPassClient {
         value: async (params: RoleAccessCheckParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.checkRoleAccess(params, options), accessCacheTtl);
+          return this.withCache(key, () => raw.checkRoleAccess(params, options), accessCacheTtl, !!options?.signal);
         },
       },
     });
@@ -337,7 +343,7 @@ export class GuildPassClient {
         value: async (params: MembershipParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('membership', 'getMembership', params.guildId, wallet);
-          return this.withCache(key, () => raw.getMembership(params, options));
+          return this.withCache(key, () => raw.getMembership(params, options), undefined, !!options?.signal);
         },
       },
       isMember: {
@@ -372,7 +378,7 @@ export class GuildPassClient {
       getRoles: {
         value: async (params: GetRolesParams, options?: any): Promise<any> => {
           const key = this.buildRolesCacheKey('getRoles', [params.guildId], params.cursor, params.limit);
-          return this.withCache(key, () => raw.getRoles(params, options));
+          return this.withCache(key, () => raw.getRoles(params, options), undefined, !!options?.signal);
         },
       },
       getUserRoles: {
@@ -384,14 +390,14 @@ export class GuildPassClient {
             params.cursor,
             params.limit,
           );
-          return this.withCache(key, () => raw.getUserRoles(params, options));
+          return this.withCache(key, () => raw.getUserRoles(params, options), undefined, !!options?.signal);
         },
       },
       hasRole: {
         value: async (params: HasRoleParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.hasRole(params, options), accessCacheTtl);
+          return this.withCache(key, () => raw.hasRole(params, options), accessCacheTtl, !!options?.signal);
         },
       },
     });
@@ -402,13 +408,13 @@ export class GuildPassClient {
       getGuild: {
         value: async (params: GetGuildParams, options?: any): Promise<any> => {
           const key = buildCacheKey('guilds', 'getGuild', params.guildId);
-          return this.withCache(key, () => raw.getGuild(params, options));
+          return this.withCache(key, () => raw.getGuild(params, options), undefined, !!options?.signal);
         },
       },
       getGuildConfig: {
         value: async (params: GetGuildParams, options?: any): Promise<any> => {
           const key = buildCacheKey('guilds', 'getGuildConfig', params.guildId);
-          return this.withCache(key, () => raw.getGuildConfig(params, options));
+          return this.withCache(key, () => raw.getGuildConfig(params, options), undefined, !!options?.signal);
         },
       },
     });
