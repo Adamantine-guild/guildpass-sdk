@@ -107,6 +107,7 @@ export class GuildPassClient {
         hooks: this.config.hooks,
         middleware: this.config.middleware,
         fetch: this.config.fetch,
+        transport: this.config.transport,
         rateLimit: this.config.rateLimit,
         metadata: {
           sdkVersion: SDK_VERSION,
@@ -236,6 +237,7 @@ export class GuildPassClient {
     const safeConfig: Record<string, unknown> = { ...this.config };
     delete safeConfig.apiKey;
     delete safeConfig.fetch;
+    delete safeConfig.transport;
     delete safeConfig.hooks;
     delete safeConfig.contractProvider;
     delete safeConfig.cache;

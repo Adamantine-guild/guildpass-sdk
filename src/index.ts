@@ -46,5 +46,8 @@ export * from './siwe';
 // Middleware
 export * from './middleware';
 
+// Network
+export * from './network';
+
 // EIP-712 (typed-data signing/verification)
 export * from './eip712';

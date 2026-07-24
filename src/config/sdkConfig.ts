@@ -51,6 +51,7 @@ export type GuildPassClientConfig = {
   hooks?: HttpHooks;
   middleware?: Middleware[];
   fetch?: FetchLike;
+  transport?: import('../network/transport.types').HttpTransport;
   rateLimit?: RateLimitConfig;
   validateResponses?: boolean;
   /** Enforces EIP-55 checksums for all addresses accepted by the SDK. @default false */
@@ -121,7 +122,7 @@ export type GuildPassClientConfig = {
  */
 export type PublicClientConfig = Omit<
   GuildPassClientConfig,
-  'apiKey' | 'fetch' | 'hooks' | 'contractProvider' | 'cache' | 'middleware'
+  'apiKey' | 'fetch' | 'transport' | 'hooks' | 'contractProvider' | 'cache' | 'middleware'
 >;
 
 /**
@@ -339,9 +340,9 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   validateChainsConfig(config.chains, config.strictAddressChecksum);
 
-  const transport = config.fetch ?? globalThis.fetch;
-  if (typeof transport !== 'function') {
-    throwConfigError('A fetch-compatible transport is required.', 'fetch', 'required', null);
+  const transportFallback = config.fetch ?? globalThis.fetch;
+  if (!config.transport && typeof transportFallback !== 'function') {
+    throwConfigError('A fetch-compatible transport or custom transport is required.', 'transport', 'required', null);
   }
 }
 
