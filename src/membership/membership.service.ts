@@ -16,6 +16,7 @@ export class MembershipService {
   constructor(
     private readonly http: HttpClient,
     private readonly validateResponses = false,
+    private readonly strictAddressChecksum = false,
   ) {}
 
   /**
@@ -36,7 +37,7 @@ export class MembershipService {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
 
     // GuildPass SDK: Terminate function block execution and return.

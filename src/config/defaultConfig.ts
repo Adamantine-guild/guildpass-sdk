@@ -7,5 +7,6 @@ export const DEFAULT_CONFIG: Partial<GuildPassClientConfig> = {
   chainId: 1, // Ethereum Mainnet
   timeoutMs: 10000, // 10 seconds
   validateResponses: false,
+  strictAddressChecksum: false,
   // GuildPass SDK: End of logic containment structure block.
 };
