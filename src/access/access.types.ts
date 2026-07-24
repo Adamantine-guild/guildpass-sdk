@@ -25,6 +25,12 @@ export type AccessCheckResult = {
 export type AccessCheckBatchOptions = {
   concurrency?: number;
   failFast?: boolean;
+  /**
+   * Opt-in adaptive (AIMD) concurrency: the effective in-flight limit starts
+   * at `concurrency`, halves on HTTP 429/5xx responses, and grows back
+   * gradually on sustained success. Defaults to false (static concurrency).
+   */
+  adaptiveConcurrency?: boolean;
 };
 
 export type AccessCheckBatchResult = {

@@ -135,6 +135,17 @@ results.forEach((result) => {
 });
 ```
 
+For very large batches, `adaptiveConcurrency: true` makes the worker pool
+back off automatically when the API starts returning 429s or 5xxs and ramp
+back up as it recovers:
+
+```typescript
+const results = await client.access.checkAccessBatch(items, {
+  concurrency: 10,          // starting (and maximum) in-flight limit
+  adaptiveConcurrency: true,
+});
+```
+
 ## 5. Custom Fetch Transport
 
 Use the `fetch` config option when you need a runtime-specific transport,
