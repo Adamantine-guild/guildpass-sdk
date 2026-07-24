@@ -90,6 +90,39 @@ describe('GuildPassError subclass hierarchy', () => {
     expect(notFound.code).toBe(GuildPassErrorCode.NOT_FOUND);
   });
 
+  it('fromHttpError includes every d.errors[] entry in the message', () => {
+    const mixed = GuildPassError.fromHttpError(400, {
+      errors: [
+        { message: 'Name is required' },
+        { field: 'guildId', issue: 'required' },
+        { code: 'E_LIMIT' },
+        'plain string entry',
+      ],
+    });
+    expect(mixed.message).toBe('Name is required; guildId: required; E_LIMIT; plain string entry');
+  });
+
+  it('fromHttpError falls back to JSON for unrecognized error entry shapes', () => {
+    const err = GuildPassError.fromHttpError(422, {
+      errors: [{ constraint: 'unique', value: 7 }],
+    });
+    expect(err.message).toBe('{"constraint":"unique","value":7}');
+  });
+
+  it('fromHttpError keeps the single-entry errors[] message unwrapped', () => {
+    const err = GuildPassError.fromHttpError(400, {
+      errors: [{ field: 'guildId', issue: 'must be a positive integer' }],
+    });
+    expect(err.message).toBe('guildId: must be a positive integer');
+  });
+
+  it('fromHttpError tolerates null and non-object entries without dropping others', () => {
+    const err = GuildPassError.fromHttpError(400, {
+      errors: [null, undefined, 42, { message: 'kept' }],
+    });
+    expect(err.message).toBe('42; kept');
+  });
+
   it('fromHttpError returns a specialized subclass per status', () => {
     expect(GuildPassApiError.fromHttpError(401)).toBeInstanceOf(GuildPassAuthenticationError);
     expect(GuildPassApiError.fromHttpError(403)).toBeInstanceOf(GuildPassAuthorizationError);
