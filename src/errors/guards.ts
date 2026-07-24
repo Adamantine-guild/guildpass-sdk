@@ -19,8 +19,11 @@ export function isGuildPassError(error: unknown): error is GuildPassError {
 
   const candidate = error as { name?: unknown; code?: unknown };
 
+  // Subclasses set their own `name` (e.g. GuildPassRateLimitError), so
+  // match the family naming convention rather than the base class only.
   return (
-    candidate.name === 'GuildPassError' &&
+    typeof candidate.name === 'string' &&
+    /^GuildPass[A-Za-z]*Error$/.test(candidate.name) &&
     typeof candidate.code === 'string' &&
     VALID_ERROR_CODES.has(candidate.code)
   );

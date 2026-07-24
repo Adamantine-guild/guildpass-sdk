@@ -5,6 +5,7 @@ import {
   GuildPassApiError,
   GuildPassCancellationError,
   GuildPassResponseValidationError,
+  GuildPassTimeoutError,
 } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type { ResponseMeta } from '../types/common';
@@ -362,7 +363,9 @@ export class HttpClient {
 
           const errorData = await parseErrorResponse(response);
           const errorMeta = extractMeta({ data: undefined, status: response.status, headers: response.headers }, Date.now() - startTime);
-          const httpError = GuildPassApiError.fromHttpError(response.status, errorData);
+          const httpError = GuildPassApiError.fromHttpError(response.status, errorData, {
+            retryAfterMs: getRetryAfterMs(response.headers),
+          });
           httpError.requestMeta = errorMeta;
           throw httpError;
         }
@@ -405,7 +408,7 @@ export class HttpClient {
         let finalError = error;
 
         if (error.name === 'AbortError') {
-          finalError = signal?.aborted ? new GuildPassCancellationError() : new GuildPassNetworkError(`Request timed out after ${timeoutMs}ms`, GuildPassErrorCode.TIMEOUT);
+          finalError = signal?.aborted ? new GuildPassCancellationError() : new GuildPassTimeoutError(`Request timed out after ${timeoutMs}ms`);
         } else if (!(error instanceof GuildPassError)) {
           if (canRetry && attempt < retryConfig.maxRetries) {
             const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);

@@ -7,6 +7,12 @@ import {
   GuildPassNetworkError,
   GuildPassApiError,
   GuildPassResponseValidationError,
+  GuildPassAuthenticationError,
+  GuildPassAuthorizationError,
+  GuildPassValidationError,
+  GuildPassRateLimitError,
+  GuildPassServerError,
+  GuildPassTimeoutError,
 } from '../src/errors/errorTypes';
 // GuildPass SDK: Import external module dependencies.
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
@@ -83,6 +89,68 @@ describe('GuildPassError subclass hierarchy', () => {
     expect(notFound.status).toBe(404);
     expect(notFound.code).toBe(GuildPassErrorCode.NOT_FOUND);
   });
+
+  it('fromHttpError returns a specialized subclass per status', () => {
+    expect(GuildPassApiError.fromHttpError(401)).toBeInstanceOf(GuildPassAuthenticationError);
+    expect(GuildPassApiError.fromHttpError(403)).toBeInstanceOf(GuildPassAuthorizationError);
+    expect(GuildPassApiError.fromHttpError(400)).toBeInstanceOf(GuildPassValidationError);
+    expect(GuildPassApiError.fromHttpError(422)).toBeInstanceOf(GuildPassValidationError);
+    expect(GuildPassApiError.fromHttpError(429)).toBeInstanceOf(GuildPassRateLimitError);
+    expect(GuildPassApiError.fromHttpError(500)).toBeInstanceOf(GuildPassServerError);
+    expect(GuildPassApiError.fromHttpError(503)).toBeInstanceOf(GuildPassServerError);
+    expect(GuildPassApiError.fromHttpError(404)).toBeInstanceOf(GuildPassApiError);
+    expect(GuildPassApiError.fromHttpError(404)).not.toBeInstanceOf(GuildPassServerError);
+  });
+
+  it('specialized subclasses stay backward compatible with existing matching', () => {
+    const auth = GuildPassApiError.fromHttpError(401);
+    expect(auth).toBeInstanceOf(GuildPassApiError);
+    expect(auth).toBeInstanceOf(GuildPassError);
+    expect(auth.code).toBe(GuildPassErrorCode.UNAUTHORISED);
+    expect(auth.status).toBe(401);
+
+    const forbidden = GuildPassApiError.fromHttpError(403);
+    expect(forbidden.code).toBe(GuildPassErrorCode.UNAUTHORISED);
+    expect(forbidden.status).toBe(403);
+
+    const server = GuildPassApiError.fromHttpError(502);
+    expect(server.code).toBe(GuildPassErrorCode.SERVER_ERROR);
+    expect(server.status).toBe(502);
+
+    const rateLimited = GuildPassApiError.fromHttpError(429);
+    expect(rateLimited.code).toBe(GuildPassErrorCode.RATE_LIMITED);
+    expect(rateLimited.status).toBe(429);
+  });
+
+  it('401 and 403 are distinguishable via instanceof', () => {
+    const auth = GuildPassApiError.fromHttpError(401);
+    const forbidden = GuildPassApiError.fromHttpError(403);
+    expect(auth).not.toBeInstanceOf(GuildPassAuthorizationError);
+    expect(forbidden).not.toBeInstanceOf(GuildPassAuthenticationError);
+  });
+
+  it('GuildPassRateLimitError carries the Retry-After delay when provided', () => {
+    const withRetry = GuildPassApiError.fromHttpError(429, undefined, { retryAfterMs: 3000 });
+    expect(withRetry).toBeInstanceOf(GuildPassRateLimitError);
+    expect((withRetry as GuildPassRateLimitError).retryAfterMs).toBe(3000);
+
+    const withoutRetry = GuildPassApiError.fromHttpError(429);
+    expect((withoutRetry as GuildPassRateLimitError).retryAfterMs).toBeUndefined();
+
+    // retryAfterMs is meaningless on non-429 statuses and must not leak
+    const server = GuildPassApiError.fromHttpError(500, undefined, { retryAfterMs: 1000 });
+    expect((server as GuildPassRateLimitError).retryAfterMs).toBeUndefined();
+  });
+
+  it('GuildPassTimeoutError is a network error with the TIMEOUT code', () => {
+    const timeout = new GuildPassTimeoutError('Request timed out after 5000ms');
+    expect(timeout).toBeInstanceOf(GuildPassNetworkError);
+    expect(timeout).toBeInstanceOf(GuildPassError);
+    expect(timeout).not.toBeInstanceOf(GuildPassApiError);
+    expect(timeout.code).toBe(GuildPassErrorCode.TIMEOUT);
+    expect(timeout.status).toBeUndefined();
+    expect(timeout.name).toBe('GuildPassTimeoutError');
+  });
 });
 
 describe('isGuildPassError', () => {
@@ -98,6 +166,20 @@ describe('isGuildPassError', () => {
       message: 'Too many requests',
     };
     expect(isGuildPassError(fakeError)).toBe(true);
+  });
+
+  it('should match subclass instances and subclass-shaped objects cross-realm', () => {
+    expect(isGuildPassError(new GuildPassRateLimitError('slow down'))).toBe(true);
+    expect(isGuildPassError(new GuildPassTimeoutError('timed out'))).toBe(true);
+    expect(
+      isGuildPassError({ name: 'GuildPassRateLimitError', code: GuildPassErrorCode.RATE_LIMITED })
+    ).toBe(true);
+    expect(
+      isGuildPassError({ name: 'GuildPassAuthenticationError', code: GuildPassErrorCode.UNAUTHORISED })
+    ).toBe(true);
+    expect(
+      isGuildPassError({ name: 'GuildPassRateLimitError', code: 'NOT_A_REAL_CODE' })
+    ).toBe(false);
   });
 
   it('should return false for arbitrary errors and objects', () => {
