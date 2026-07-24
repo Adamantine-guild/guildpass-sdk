@@ -37,6 +37,25 @@ export class GuildPassNetworkError extends GuildPassError {
 }
 
 /**
+ * Thrown when the caller aborts a request via an `AbortSignal`, whether
+ * the signal was already aborted before the request started or fired
+ * while the request (or a retry backoff) was in flight.
+ *
+ * Distinct from {@link GuildPassNetworkError} timeouts and transport
+ * failures so callers can tell "I cancelled this" apart from "the
+ * network failed". Extends `GuildPassNetworkError` for backward
+ * compatibility with existing `instanceof GuildPassNetworkError`
+ * handling; always carries code `REQUEST_CANCELLED`.
+ */
+export class GuildPassCancellationError extends GuildPassNetworkError {
+  constructor(message = 'Request cancelled by caller', details?: any) {
+    super(message, GuildPassErrorCode.REQUEST_CANCELLED, details);
+    this.name = 'GuildPassCancellationError';
+    Object.setPrototypeOf(this, GuildPassCancellationError.prototype);
+  }
+}
+
+/**
  * Thrown when the server returned a non-2xx HTTP response. Always
  * carries the numeric `status` code from that response so callers can
  * branch on 4xx vs 5xx without string-matching the message.
