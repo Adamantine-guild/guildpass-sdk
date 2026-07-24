@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MembershipService } from '../src/membership/membership.service';
 import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
+import getMembershipSuccess from './fixtures/membership/get-membership-success.json';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
 
@@ -13,7 +14,7 @@ function createService(response: unknown) {
 
 describe('MembershipService validation errors', () => {
   it('throws a GuildPassConfigError for an invalid wallet address', async () => {
-    const { get, service } = createService({ isActive: true, roles: [] });
+    const { get, service } = createService(getMembershipSuccess);
 
     await expect(
       service.getMembership({ walletAddress: 'not-an-address', guildId: 'guild_1' }),
@@ -24,7 +25,7 @@ describe('MembershipService validation errors', () => {
 
 describe('MembershipService request options forwarding', () => {
   it('forwards timeoutMs option', async () => {
-    const { get, service } = createService({ isActive: true, roles: [] });
+    const { get, service } = createService(getMembershipSuccess);
 
     await service.getMembership({ walletAddress: validAddress, guildId: 'guild_1' }, { timeoutMs: 500 });
 
@@ -35,7 +36,7 @@ describe('MembershipService request options forwarding', () => {
   });
 
   it('forwards signal option', async () => {
-    const { get, service } = createService({ isActive: true, roles: [] });
+    const { get, service } = createService(getMembershipSuccess);
     const controller = new AbortController();
 
     await service.getMembership({ walletAddress: validAddress, guildId: 'guild_1' }, { signal: controller.signal });
@@ -47,7 +48,7 @@ describe('MembershipService request options forwarding', () => {
   });
 
   it('forwards retry option', async () => {
-    const { get, service } = createService({ isActive: true, roles: [] });
+    const { get, service } = createService(getMembershipSuccess);
 
     await service.getMembership({ walletAddress: validAddress, guildId: 'guild_1' }, { retry: { maxRetries: 2 } });
 
@@ -58,7 +59,7 @@ describe('MembershipService request options forwarding', () => {
   });
 
   it('forwards all options together', async () => {
-    const { get, service } = createService({ isActive: true, roles: [] });
+    const { get, service } = createService(getMembershipSuccess);
     const controller = new AbortController();
 
     await service.getMembership(
