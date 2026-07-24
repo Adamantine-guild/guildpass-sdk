@@ -51,7 +51,7 @@ export class GuildsService {
       }
     }
 
-    const validatedResult = this.validateResponses ? assertValidResponse(rawData, isGuild, 'Guild') : rawData;
+    const validatedResult = this.validateResponses ? assertValidResponse(rawData, isGuild, 'Guild', { endpoint: `GET ${path}` }) : rawData;
 
     if (options?.includeMeta) {
       return { data: validatedResult as Guild, meta: (response as any).meta } as { data: Guild; meta: ResponseMetadata };
@@ -98,7 +98,7 @@ export class GuildsService {
     }
 
     const validatedResult = this.validateResponses
-      ? assertValidResponse(rawData as GuildConfig, isGuildConfig, 'GuildConfig')
+      ? assertValidResponse(rawData as GuildConfig, isGuildConfig, 'GuildConfig', { endpoint: `GET ${path}` })
       : (rawData as GuildConfig);
 
     if (options?.includeMeta) {

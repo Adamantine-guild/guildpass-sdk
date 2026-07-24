@@ -117,4 +117,12 @@ export const isGuildConfig: Validator<GuildConfig> = object({
   socialLinks: optional(record(string())),
 });
 
+/**
+ * Checks whether `value` conforms to the `/access/role-check` response
+ * shape consumed by `AccessService.checkRoleAccess`.
+ */
+export const isRoleCheckResult: Validator<{ hasRole: boolean }> = object({
+  hasRole: boolean(),
+});
+
 
