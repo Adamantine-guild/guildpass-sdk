@@ -3,6 +3,7 @@ import {
   GuildPassConfigError,
   GuildPassNetworkError,
   GuildPassApiError,
+  GuildPassCancellationError,
   GuildPassResponseValidationError,
 } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
@@ -106,8 +107,22 @@ function getRetryAfterMs(headers: Headers): number | null {
   return null;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new GuildPassCancellationError());
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new GuildPassCancellationError());
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function isEmptyJsonBodyError(error: unknown): boolean {
@@ -254,7 +269,7 @@ export class HttpClient {
     }
     // ---------------------------------
 
-    if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
+    if (signal?.aborted) throw new GuildPassCancellationError();
 
     const startTime = Date.now();
     const hookPayload: RequestHookPayload = { method, path, headers: redactHeaders(requestHeaders) };
@@ -263,7 +278,7 @@ export class HttpClient {
       try { await this.hooks.onRequest(hookPayload); } catch (err) { console.error('GuildPass SDK: onRequest hook failed', err); }
     }
 
-    if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
+    if (signal?.aborted) throw new GuildPassCancellationError();
 
     const url = isAbsolute ? new URL(path) : new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
     if (params) Object.entries(params).forEach(([key, value]) => url.searchParams.append(key, String(value)));
@@ -271,6 +286,7 @@ export class HttpClient {
     let attempt = 0;
 
     while (true) {
+      if (signal?.aborted) throw new GuildPassCancellationError();
       await this.tokenBucket?.acquire();
 
       const controller = new AbortController();
@@ -338,16 +354,18 @@ export class HttpClient {
         let finalError = error;
 
         if (error.name === 'AbortError') {
-          finalError = signal?.aborted ? new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED) : new GuildPassNetworkError(`Request timed out after ${timeoutMs}ms`, GuildPassErrorCode.TIMEOUT);
+          finalError = signal?.aborted ? new GuildPassCancellationError() : new GuildPassNetworkError(`Request timed out after ${timeoutMs}ms`, GuildPassErrorCode.TIMEOUT);
         } else if (!(error instanceof GuildPassError)) {
           if (canRetry && attempt < retryConfig.maxRetries) {
-            await delay(computeBackoffMs(retryConfig, attempt));
+            const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
+            await delay(backoff, signal);
             attempt++;
             continue;
           }
           finalError = new GuildPassNetworkError(error.message || 'Unknown network error', GuildPassErrorCode.HTTP_ERROR, error);
         } else if (canRetry && attempt < retryConfig.maxRetries && retryConfig.retryableStatuses.includes(finalError.status)) {
-          await delay(computeBackoffMs(retryConfig, attempt));
+          const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
+          await delay(backoff, signal);
           attempt++;
           continue;
         }
