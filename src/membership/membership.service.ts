@@ -52,11 +52,15 @@ export class MembershipService {
     });
 
     if (options?.includeMeta) {
-      return result as { data: Membership; meta: ResponseMetadata };
+      const withMeta = result as { data: Membership; meta: ResponseMetadata };
+      const checkedData = this.validateResponses
+        ? assertValidResponse(withMeta.data, isMembership, 'Membership', { endpoint: 'GET /membership' })
+        : withMeta.data;
+      return { data: checkedData, meta: withMeta.meta };
     }
 
     return this.validateResponses
-      ? assertValidResponse(result as Membership, isMembership, 'Membership')
+      ? assertValidResponse(result as Membership, isMembership, 'Membership', { endpoint: 'GET /membership' })
       : (result as Membership);
     // GuildPass SDK: End of logic containment structure block.
   }

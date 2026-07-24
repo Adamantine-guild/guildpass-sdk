@@ -659,6 +659,167 @@ describe('Service Modules', () => {
       const result = await validatingClient.guilds.getGuildConfig({ guildId: 'guild_1' });
       expect(result).toEqual(mockGuildConfig);
     });
+
+    it('rejects a malformed checkRoleAccess response when validation is enabled', async () => {
+      mockJsonResponse({ hasRole: 'yes' });
+
+      await expect(
+        validatingClient.access.checkRoleAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_RESPONSE,
+        message: expect.stringContaining('hasRole'),
+      });
+    });
+
+    it('passes a malformed checkRoleAccess response through when validation is off', async () => {
+      mockJsonResponse({ hasRole: 'yes' });
+
+      const result = await client.access.checkRoleAccess({
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        roleId: 'role_1',
+      });
+
+      expect(result).toBe('yes');
+    });
+
+    it('validates the checkRoleAccess includeMeta path too', async () => {
+      mockJsonResponse({});
+
+      await expect(
+        validatingClient.access.checkRoleAccess(
+          {
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: 'guild_1',
+            roleId: 'role_1',
+          },
+          { includeMeta: true },
+        ),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_RESPONSE });
+    });
+
+    it('accepts a well-formed checkRoleAccess includeMeta response', async () => {
+      mockJsonResponse({ hasRole: true });
+
+      const result = await validatingClient.access.checkRoleAccess(
+        {
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        },
+        { includeMeta: true },
+      );
+
+      expect(result.data).toBe(true);
+      expect(result.meta).toBeDefined();
+    });
+
+    it('rejects a malformed getMembership response on the includeMeta path', async () => {
+      mockJsonResponse({ isActive: true });
+
+      await expect(
+        validatingClient.membership.getMembership(
+          {
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: 'guild_1',
+          },
+          { includeMeta: true },
+        ),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_RESPONSE });
+    });
+
+    it('accepts a well-formed getMembership includeMeta response', async () => {
+      const mockMembership = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        isActive: true,
+        roles: ['member'],
+      };
+      mockJsonResponse(mockMembership);
+
+      const result = await validatingClient.membership.getMembership(
+        {
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+        },
+        { includeMeta: true },
+      );
+
+      expect(result.data).toEqual(mockMembership);
+      expect(result.meta).toBeDefined();
+    });
+
+    it('names the endpoint in the validation error message', async () => {
+      mockJsonResponse({ hasAccess: true });
+
+      await expect(
+        validatingClient.access.checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('GET /access/check'),
+      });
+    });
+
+    it('names the specific offending field in the validation error message', async () => {
+      mockJsonResponse({
+        hasAccess: true,
+        walletAddress: 'not-an-address',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['member'],
+        matchedRoles: ['member'],
+      });
+
+      await expect(
+        validatingClient.access.checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('walletAddress'),
+      });
+    });
+
+    it('exposes endpoint, mismatch and received payload on error.details', async () => {
+      const malformed = { hasAccess: true };
+      mockJsonResponse(malformed);
+
+      const failure = await validatingClient.access
+        .checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        })
+        .then(
+          () => null,
+          (err: unknown) => err,
+        );
+
+      expect(failure).toMatchObject({
+        code: GuildPassErrorCode.INVALID_RESPONSE,
+        details: {
+          endpoint: 'GET /access/check',
+          received: malformed,
+        },
+      });
+      expect(typeof (failure as { details: { mismatch?: unknown } }).details.mismatch).toBe('string');
+    });
+
+    it('locates the failing element inside an array response', async () => {
+      mockJsonResponse([{ id: '1', name: 'ok' }, { id: '2' }]);
+
+      await expect(validatingClient.roles.getRoles({ guildId: 'guild_1' })).rejects.toMatchObject({
+        message: expect.stringContaining('[1].name'),
+      });
+    });
   });
 
   describe('API Contract Tests', () => {

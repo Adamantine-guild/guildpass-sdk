@@ -7,7 +7,7 @@ import {
 } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
-import { isAccessCheckResult } from '../validation/responseGuards';
+import { isAccessCheckResult, isRoleCheckResult } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
 import { verifySignedPayload, SignedEnvelope } from '../security';
 import type { ResponseMetadata, DiscrepancyHookPayload } from '../http/http.types';
@@ -68,7 +68,7 @@ export class AccessService {
     }
 
     const validatedResult = this.validateResponses
-      ? assertValidResponse(rawData as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult')
+      ? assertValidResponse(rawData as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult', { endpoint: 'GET /access/check' })
       : (rawData as AccessCheckResult);
 
     if (options?.includeMeta) {
@@ -262,11 +262,17 @@ export class AccessService {
 
     if (options?.includeMeta) {
       const r = result as { data: { hasRole: boolean }; meta: ResponseMetadata };
-      return { data: r.data.hasRole, meta: r.meta };
+      const checkedData = this.validateResponses
+        ? assertValidResponse(r.data, isRoleCheckResult, 'RoleCheckResult', { endpoint: 'GET /access/role-check' })
+        : r.data;
+      return { data: checkedData.hasRole, meta: r.meta };
     }
 
     // GuildPass SDK: Terminate function block execution and return.
-    return (result as { hasRole: boolean }).hasRole;
+    const checked = this.validateResponses
+      ? assertValidResponse(result, isRoleCheckResult, 'RoleCheckResult', { endpoint: 'GET /access/role-check' })
+      : (result as { hasRole: boolean });
+    return checked.hasRole;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.
