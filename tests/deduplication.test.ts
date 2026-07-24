@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import { InMemoryCacheAdapter } from '../src/cache/cache.types';
+import { GuildPassConfigError } from '../src/errors/errorTypes';
 
 const BASE_CONFIG = { apiUrl: 'https://api.guildpass.xyz' };
 const ADDR = '0x1234567890123456789012345678901234567890';
@@ -227,5 +228,109 @@ describe('request coalescing with cache adapter', () => {
     expect(httpSpy).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
+  });
+});
+
+describe('deduplication opt-out', () => {
+  it('issues independent requests for every call when deduplication: false', async () => {
+    const client = new GuildPassClient({ ...BASE_CONFIG, deduplication: false });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const promises = Array.from({ length: 5 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    const results = await Promise.all(promises);
+
+    expect(results).toHaveLength(5);
+    results.forEach((r) => expect(r).toEqual(mockAccess));
+    expect(httpSpy).toHaveBeenCalledTimes(5);
+  });
+
+  it('still caches results when deduplication: false and a cache adapter is set', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({
+      ...BASE_CONFIG,
+      cache: adapter,
+      cacheTtl: 10_000,
+      deduplication: false,
+    });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const promises = Array.from({ length: 5 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    await Promise.all(promises);
+    expect(httpSpy).toHaveBeenCalledTimes(5);
+
+    // Every concurrent call populated the same cache entry; the next call hits it.
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(5);
+  });
+
+  it('per-call deduplicate: false bypasses an identical in-flight request', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const params = { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' };
+    const results = await Promise.all([
+      ...Array.from({ length: 4 }, () => client.access.checkAccess(params)),
+      client.access.checkAccess(params, { deduplicate: false }),
+    ]);
+
+    expect(results).toHaveLength(5);
+    results.forEach((r) => expect(r).toEqual(mockAccess));
+    // 4 coalesced into 1 + 1 opted-out call = 2 HTTP requests.
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('per-call deduplicate: true re-enables coalescing when disabled globally', async () => {
+    const client = new GuildPassClient({ ...BASE_CONFIG, deduplication: false });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const params = { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' };
+    const results = await Promise.all(
+      Array.from({ length: 3 }, () => client.access.checkAccess(params, { deduplicate: true })),
+    );
+
+    expect(results).toHaveLength(3);
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a non-boolean deduplication config value', () => {
+    expect(
+      () => new GuildPassClient({ ...BASE_CONFIG, deduplication: 'yes' as any }),
+    ).toThrow(GuildPassConfigError);
+  });
+});
+
+describe('non-idempotent and uncached paths are never deduplicated', () => {
+  it('does not coalesce concurrent identical checkAccessBatch calls', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const batch = [{ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }];
+    const [a, b] = await Promise.all([
+      client.access.checkAccessBatch(batch),
+      client.access.checkAccessBatch(batch),
+    ]);
+
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(1);
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not coalesce concurrent isMember calls with includeMeta', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockResolvedValue({ isActive: true, joinedAt: '2026-01-01T00:00:00Z' });
+
+    const params = { walletAddress: ADDR, guildId: 'g1' };
+    await Promise.all([
+      client.membership.isMember(params, { includeMeta: true }),
+      client.membership.isMember(params, { includeMeta: true }),
+    ]);
+
+    expect(httpSpy).toHaveBeenCalledTimes(2);
   });
 });
