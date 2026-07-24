@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HttpClient } from '../src/http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { GuildPassRateLimitError } from '../src/errors/errorTypes';
 
 // GuildPass SDK: Test suite container block.
 describe('HttpClient', () => {
@@ -344,6 +345,27 @@ describe('HttpClient', () => {
 
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ ok: true });
+      vi.useRealTimers();
+    });
+
+    it('final 429 error is a GuildPassRateLimitError carrying retryAfterMs', async () => {
+      const noRetryClient = new HttpClient(baseUrl, undefined, 10000, {
+        retry: { maxRetries: 0 },
+      });
+
+      (fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '3' }),
+        json: () => Promise.resolve({ error: 'quota exhausted' }),
+      });
+
+      const failure = await noRetryClient.get('/rate-limited').catch((e) => e);
+      expect(failure).toBeInstanceOf(GuildPassRateLimitError);
+      expect(failure.code).toBe(GuildPassErrorCode.RATE_LIMITED);
+      expect(failure.status).toBe(429);
+      expect(failure.retryAfterMs).toBe(3000);
+      expect(failure.message).toBe('quota exhausted');
     });
 
     it('throws after exhausting all retries', async () => {

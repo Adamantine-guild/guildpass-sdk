@@ -70,10 +70,114 @@ export class GuildPassApiError extends GuildPassError {
   /**
    * Builds a `GuildPassApiError` from an HTTP status code and optional
    * response body, reusing the base class's status-to-code mapping.
+   * Returns a specialized subclass for well-known statuses (401, 403,
+   * 400/422, 429, 5xx) so callers can use `instanceof` instead of
+   * comparing `status`; `code`, `message`, and `status` are unchanged.
    */
-  public static fromHttpError(status: number, details?: any): GuildPassApiError {
+  public static fromHttpError(
+    status: number,
+    details?: any,
+    options?: { retryAfterMs?: number | null },
+  ): GuildPassApiError {
     const mapped = GuildPassError.fromHttpError(status, details);
-    return new GuildPassApiError(mapped.message, mapped.code, status, mapped.details);
+    let error: GuildPassApiError;
+    if (status === 401) {
+      error = new GuildPassAuthenticationError(mapped.message, mapped.details);
+    } else if (status === 403) {
+      error = new GuildPassAuthorizationError(mapped.message, mapped.details);
+    } else if (status === 400 || status === 422) {
+      error = new GuildPassValidationError(mapped.message, mapped.code, status, mapped.details);
+    } else if (status === 429) {
+      error = new GuildPassRateLimitError(mapped.message, mapped.details);
+    } else if (status >= 500 && status < 600) {
+      error = new GuildPassServerError(mapped.message, status, mapped.details);
+    } else {
+      error = new GuildPassApiError(mapped.message, mapped.code, status, mapped.details);
+    }
+    if (error instanceof GuildPassRateLimitError && options?.retryAfterMs != null) {
+      error.retryAfterMs = options.retryAfterMs;
+    }
+    return error;
+  }
+}
+
+/**
+ * HTTP 401: the request lacked valid credentials. Distinct from
+ * {@link GuildPassAuthorizationError} (403), where credentials were
+ * accepted but the caller is not allowed to do this.
+ */
+export class GuildPassAuthenticationError extends GuildPassApiError {
+  constructor(message: string, details?: any) {
+    super(message, GuildPassErrorCode.UNAUTHORISED, 401, details);
+    this.name = 'GuildPassAuthenticationError';
+    Object.setPrototypeOf(this, GuildPassAuthenticationError.prototype);
+  }
+}
+
+/**
+ * HTTP 403: the caller was authenticated but is not allowed to perform
+ * this operation.
+ */
+export class GuildPassAuthorizationError extends GuildPassApiError {
+  constructor(message: string, details?: any) {
+    super(message, GuildPassErrorCode.UNAUTHORISED, 403, details);
+    this.name = 'GuildPassAuthorizationError';
+    Object.setPrototypeOf(this, GuildPassAuthorizationError.prototype);
+  }
+}
+
+/**
+ * HTTP 400 or 422: the server rejected the request payload as invalid.
+ * For responses that arrived but failed local shape/signature checks
+ * see {@link GuildPassResponseValidationError}.
+ */
+export class GuildPassValidationError extends GuildPassApiError {
+  constructor(message: string, code: GuildPassErrorCode, status: number, details?: any) {
+    super(message, code, status, details);
+    this.name = 'GuildPassValidationError';
+    Object.setPrototypeOf(this, GuildPassValidationError.prototype);
+  }
+}
+
+/**
+ * HTTP 429: the server rate limited the request. When the response
+ * carried a `Retry-After` header, the parsed delay is exposed as
+ * `retryAfterMs` so callers can wait exactly as long as the server
+ * asked before trying again.
+ */
+export class GuildPassRateLimitError extends GuildPassApiError {
+  public retryAfterMs?: number;
+
+  constructor(message: string, details?: any) {
+    super(message, GuildPassErrorCode.RATE_LIMITED, 429, details);
+    this.name = 'GuildPassRateLimitError';
+    Object.setPrototypeOf(this, GuildPassRateLimitError.prototype);
+  }
+}
+
+/**
+ * HTTP 5xx: the failure is on the server side and retrying later is
+ * usually reasonable.
+ */
+export class GuildPassServerError extends GuildPassApiError {
+  constructor(message: string, status: number, details?: any) {
+    super(message, GuildPassErrorCode.SERVER_ERROR, status, details);
+    this.name = 'GuildPassServerError';
+    Object.setPrototypeOf(this, GuildPassServerError.prototype);
+  }
+}
+
+/**
+ * The request exceeded the configured `timeoutMs` without receiving a
+ * response. Distinct from {@link GuildPassCancellationError} (the
+ * caller aborted) and from transport failures (DNS, refused
+ * connections), which remain plain {@link GuildPassNetworkError}s.
+ */
+export class GuildPassTimeoutError extends GuildPassNetworkError {
+  constructor(message: string, details?: any) {
+    super(message, GuildPassErrorCode.TIMEOUT, details);
+    this.name = 'GuildPassTimeoutError';
+    Object.setPrototypeOf(this, GuildPassTimeoutError.prototype);
   }
 }
 
