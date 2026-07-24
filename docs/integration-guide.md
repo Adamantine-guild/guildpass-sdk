@@ -135,16 +135,21 @@ results.forEach((result) => {
 });
 ```
 
-For very large batches, `adaptiveConcurrency: true` makes the worker pool
-back off automatically when the API starts returning 429s or 5xxs and ramp
-back up as it recovers:
+When one wallet needs gating across many resources (the common "can this user see this page" case), pass the single-wallet form instead and get a map keyed by resourceId:
 
 ```typescript
-const results = await client.access.checkAccessBatch(items, {
-  concurrency: 10,          // starting (and maximum) in-flight limit
-  adaptiveConcurrency: true,
+const results = await client.access.checkAccessBatch({
+  walletAddress: '0x123...',
+  guildId: 'guild-a',
+  resourceIds: ['res-1', 'res-2', 'res-3'],
 });
+
+if (results['res-1'].status === 'fulfilled' && results['res-1'].value.hasAccess) {
+  // render the res-1 section
+}
 ```
+
+Each resource is cached independently, so a second batch overlapping the first only fetches the resources it hasn't seen.
 
 ## 5. Custom Fetch Transport
 

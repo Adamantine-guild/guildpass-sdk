@@ -2,7 +2,8 @@
 import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http.types';
 import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
-import { CacheAdapter } from '../cache/cache.types';
+import type { CacheAdapter } from '../cache/cache.types';
+import type { Middleware } from '../middleware/middleware.types';
 import { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
 import { ContractProvider } from '../contracts/providers/provider.types';
 import { validateAddress } from '../utils/validation';
@@ -35,14 +36,37 @@ export type GuildPassClientConfig = {
   chains?: Record<number, ChainConfig>;
   apiKey?: string;
   timeoutMs?: number;
+  /**
+   * Client-wide default request timeout in milliseconds. Applied to every
+   * request that doesn't pass its own per-request `timeoutMs`, and rejects
+   * with a `TIMEOUT` error when exceeded.
+   *
+   * Preferred over `timeoutMs` (which is kept for backward compatibility).
+   * If both are set they must be equal; `defaultTimeoutMs` wins when only it
+   * is provided.
+   */
+  defaultTimeoutMs?: number;
   /** Global retry policy applied to all requests. Defaults to no retries. */
   retry?: RetryConfig;
   hooks?: HttpHooks;
+  middleware?: Middleware[];
   fetch?: FetchLike;
   rateLimit?: RateLimitConfig;
   validateResponses?: boolean;
   cache?: CacheAdapter;
   cacheTtl?: number;
+  /**
+   * When enabled (default), identical in-flight read requests are
+   * deduplicated: concurrent calls with the same arguments share a single
+   * underlying HTTP request instead of each issuing their own.
+   *
+   * Disable this if your application requires every call to hit the network
+   * independently (e.g. for per-call abort semantics or debugging). Can be
+   * overridden per call via `RequestOptions.deduplicate`.
+   *
+   * @default true
+   */
+  deduplication?: boolean;
   sendClientMetadata?: boolean;
   clientName?: string;
   clientVersion?: string;
@@ -89,6 +113,16 @@ export type GuildPassClientConfig = {
 };
 
 /**
+ * Shape returned by `GuildPassClient.getConfig()`: the client config minus
+ * the API key and every function-valued or non-serializable field, with
+ * credentials redacted from RPC URLs.
+ */
+export type PublicClientConfig = Omit<
+  GuildPassClientConfig,
+  'apiKey' | 'fetch' | 'hooks' | 'contractProvider' | 'cache' | 'middleware'
+>;
+
+/**
  * Local helper to enforce structured configuration exceptions uniformly.
  */
 const throwConfigError = (message: string, field: string, reason: string, value: any): never => {
@@ -119,6 +153,14 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throwConfigError('timeoutMs must be a positive number', 'timeoutMs', 'invalid_type', config.timeoutMs);
   }
 
+  if (config.defaultTimeoutMs !== undefined && (typeof config.defaultTimeoutMs !== 'number' || config.defaultTimeoutMs <= 0 || !Number.isFinite(config.defaultTimeoutMs))) {
+    throwConfigError('defaultTimeoutMs must be a positive finite number', 'defaultTimeoutMs', 'invalid_type', config.defaultTimeoutMs);
+  }
+
+  if (config.defaultTimeoutMs !== undefined && config.timeoutMs !== undefined && config.defaultTimeoutMs !== config.timeoutMs) {
+    throwConfigError('defaultTimeoutMs and timeoutMs are aliases; set only one, or set both to the same value', 'defaultTimeoutMs', 'conflict', config.defaultTimeoutMs);
+  }
+
   if (config.cacheTtl !== undefined && (typeof config.cacheTtl !== 'number' || config.cacheTtl < 0 || !Number.isFinite(config.cacheTtl))) {
     throwConfigError('cacheTtl must be a non-negative finite number (milliseconds)', 'cacheTtl', 'invalid_range', config.cacheTtl);
   }
@@ -131,6 +173,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
         throwConfigError(`cache adapter must implement ${method}(): function`, 'cache', 'invalid_type', config.cache);
       }
     }
+  }
+
+  if (config.deduplication !== undefined && typeof config.deduplication !== 'boolean') {
+    throwConfigError('deduplication must be a boolean', 'deduplication', 'invalid_type', config.deduplication);
   }
 
   if (config.contractProvider !== undefined) {
@@ -228,6 +274,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
     if (r.retryableStatuses !== undefined && (!Array.isArray(r.retryableStatuses) || r.retryableStatuses.length === 0 || r.retryableStatuses.some((s) => typeof s !== 'number' || !Number.isFinite(s)))) {
       throwConfigError('retryableStatuses must be a non-empty array of valid HTTP status numbers', 'retry.retryableStatuses', 'invalid_type', r.retryableStatuses);
+    }
+
+    if (r.jitter !== undefined && typeof r.jitter !== 'boolean') {
+      throwConfigError('retry.jitter must be a boolean', 'retry.jitter', 'invalid_type', r.jitter);
     }
   }
 

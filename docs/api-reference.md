@@ -65,6 +65,35 @@ Checks access for multiple resources or wallets concurrently.
     `currentLimit` consecutive successes (capped at `concurrency`). Use this
     for large batches against a backend whose health may degrade mid-batch.
 
+### `checkAccessBatch(params: { walletAddress, guildId, resourceIds }, options?: AccessCheckBatchOptions & RequestOptions)`
+
+Single-wallet form for gating a page of resources in one call. Duplicate
+`resourceIds` are collapsed to a single request. Each resource flows through
+the configured cache independently, so repeat batches and follow-up
+`checkAccess` calls for the same resource are cache hits.
+
+- **Returns**: `Promise<Record<string, { status: 'fulfilled'; value: AccessCheckResult } | { status: 'rejected'; error: Error }>>` keyed by resourceId
+
+```typescript
+const results = await client.access.checkAccessBatch({
+  walletAddress: '0x123...',
+  guildId: 'guild-a',
+  resourceIds: ['res-1', 'res-2', 'res-3'],
+});
+
+for (const [resourceId, entry] of Object.entries(results)) {
+  if (entry.status === 'fulfilled') {
+    console.log(resourceId, entry.value.hasAccess);
+  } else {
+    console.error(resourceId, entry.error);
+  }
+}
+```
+
+A server-side batch endpoint is a natural follow-up; today the method
+parallelizes the existing single-resource checks internally with the
+`concurrency` option (default 5, max 50).
+
 ### `checkRoleAccess(params: RoleAccessCheckParams, options?: RequestOptions)`
 
 Checks if a wallet has a specific role.

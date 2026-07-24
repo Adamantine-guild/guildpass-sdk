@@ -7,7 +7,7 @@ import {
 } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
-import { isAccessCheckResult } from '../validation/responseGuards';
+import { isAccessCheckResult, isRoleCheckResult } from '../validation/responseGuards';
 import type { RequestOptions } from '../types/common';
 import { verifySignedPayload, SignedEnvelope } from '../security';
 import type { ResponseMetadata, DiscrepancyHookPayload } from '../http/http.types';
@@ -21,6 +21,8 @@ import {
   RoleAccessCheckParams, 
   AccessCheckBatchOptions, 
   AccessCheckBatchResult,
+  AccessCheckBatchByResourceParams,
+  AccessCheckBatchByResourceResult,
   VerifiedAccessCheckOptions,
   VerifiedAccessCheckResult
 } from './access.types';
@@ -69,7 +71,7 @@ export class AccessService {
     }
 
     const validatedResult = this.validateResponses
-      ? assertValidResponse(rawData as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult')
+      ? assertValidResponse(rawData as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult', { endpoint: 'GET /access/check' })
       : (rawData as AccessCheckResult);
 
     if (options?.includeMeta) {
@@ -165,11 +167,47 @@ export class AccessService {
 
   /**
    * Checks access for multiple resources or wallets concurrently.
+   *
+   * Two call shapes are supported:
+   * - `checkAccessBatch(items, options)` — array of full params, returns one
+   *   result entry per input item (order preserved).
+   * - `checkAccessBatch({ walletAddress, guildId, resourceIds }, options)` —
+   *   single wallet + guild across many resources, returns a map keyed by
+   *   resourceId. Duplicate resourceIds are collapsed to a single request.
    */
   public async checkAccessBatch(
     items: AccessCheckParams[],
     options?: AccessCheckBatchOptions & RequestOptions
-  ): Promise<AccessCheckBatchResult[]> {
+  ): Promise<AccessCheckBatchResult[]>;
+  public async checkAccessBatch(
+    params: AccessCheckBatchByResourceParams,
+    options?: AccessCheckBatchOptions & RequestOptions
+  ): Promise<AccessCheckBatchByResourceResult>;
+  public async checkAccessBatch(
+    input: AccessCheckParams[] | AccessCheckBatchByResourceParams,
+    options?: AccessCheckBatchOptions & RequestOptions
+  ): Promise<AccessCheckBatchResult[] | AccessCheckBatchByResourceResult> {
+    if (!Array.isArray(input)) {
+      const { walletAddress, guildId, resourceIds } = input;
+      validateAddress(walletAddress);
+      validateGuildId(guildId);
+      if (!Array.isArray(resourceIds) || resourceIds.length === 0) {
+        throw new GuildPassConfigError('resourceIds array must not be empty', GuildPassErrorCode.INVALID_INPUT);
+      }
+      const uniqueResourceIds = [...new Set(resourceIds)];
+      const items = uniqueResourceIds.map((resourceId) => ({ walletAddress, guildId, resourceId }));
+      const settled = await this.checkAccessBatch(items, options);
+      const byResource: AccessCheckBatchByResourceResult = {};
+      settled.forEach((entry, index) => {
+        const resourceId = uniqueResourceIds[index];
+        byResource[resourceId] = entry.status === 'fulfilled'
+          ? { status: 'fulfilled', value: entry.value as AccessCheckResult }
+          : { status: 'rejected', error: entry.error as Error };
+      });
+      return byResource;
+    }
+
+    const items = input;
     this.validateBatchOptions(items, options);
     const concurrency = options?.concurrency ?? 5;
     const failFast = options?.failFast ?? false;
@@ -292,11 +330,17 @@ export class AccessService {
 
     if (options?.includeMeta) {
       const r = result as { data: { hasRole: boolean }; meta: ResponseMetadata };
-      return { data: r.data.hasRole, meta: r.meta };
+      const checkedData = this.validateResponses
+        ? assertValidResponse(r.data, isRoleCheckResult, 'RoleCheckResult', { endpoint: 'GET /access/role-check' })
+        : r.data;
+      return { data: checkedData.hasRole, meta: r.meta };
     }
 
     // GuildPass SDK: Terminate function block execution and return.
-    return (result as { hasRole: boolean }).hasRole;
+    const checked = this.validateResponses
+      ? assertValidResponse(result, isRoleCheckResult, 'RoleCheckResult', { endpoint: 'GET /access/role-check' })
+      : (result as { hasRole: boolean });
+    return checked.hasRole;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.

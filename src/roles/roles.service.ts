@@ -44,8 +44,8 @@ export class RolesService {
 
     const result = await this.http.get<any>(path, reqOptions);
     const hasPagination = cursor !== undefined || limit !== undefined;
-    
-    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]');
+
+    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]', `GET ${path}`);
   }
 
   /**
@@ -71,8 +71,8 @@ export class RolesService {
 
     const result = await this.http.get<any>(path, reqOptions);
     const hasPagination = cursor !== undefined || limit !== undefined;
-    
-    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]');
+
+    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]', `GET ${path}`);
   }
 
   /**
@@ -106,7 +106,8 @@ export class RolesService {
     options: RequestOptions | undefined,
     hasPaginationParams: boolean,
     guard: (val: unknown) => val is T[],
-    typeName: string
+    typeName: string,
+    endpoint?: string
   ): any {
     const responseData = options?.includeMeta ? result.data : result;
     const meta = options?.includeMeta ? result.meta : undefined;
@@ -120,7 +121,7 @@ export class RolesService {
         finalData = responseData;
       }
       if (this.validateResponses) {
-        assertValidResponse(finalData.items, guard, typeName);
+        assertValidResponse(finalData.items, guard, typeName, { endpoint });
       }
     } else {
       if (Array.isArray(responseData)) {
@@ -131,7 +132,7 @@ export class RolesService {
         finalData = responseData;
       }
       if (this.validateResponses) {
-        assertValidResponse(finalData, guard, typeName);
+        assertValidResponse(finalData, guard, typeName, { endpoint });
       }
     }
 

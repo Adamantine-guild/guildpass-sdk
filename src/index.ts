@@ -43,5 +43,8 @@ export * from './wallet/helpers';
 // SIWE (Sign-In With Ethereum)
 export * from './siwe';
 
+// Middleware
+export * from './middleware';
+
 // EIP-712 (typed-data signing/verification)
 export * from './eip712';

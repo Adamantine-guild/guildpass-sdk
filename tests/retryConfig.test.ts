@@ -24,6 +24,14 @@ describe('Partial retry configuration validation', () => {
     expect(() => validateConfig({ ...BASE, retry: { maxDelayMs: 5000 } })).not.toThrow();
   });
 
+  it('accepts { retry: { jitter: false } } alone', () => {
+    expect(() => validateConfig({ ...BASE, retry: { jitter: false } })).not.toThrow();
+  });
+
+  it('rejects a non-boolean jitter', () => {
+    expect(() => validateConfig({ ...BASE, retry: { jitter: 'yes' as any } })).toThrow(GuildPassError);
+  });
+
   it('accepts a complete retry config', () => {
     expect(() =>
       validateConfig({

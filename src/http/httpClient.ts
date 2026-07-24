@@ -3,7 +3,9 @@ import {
   GuildPassConfigError,
   GuildPassNetworkError,
   GuildPassApiError,
+  GuildPassCancellationError,
   GuildPassResponseValidationError,
+  GuildPassTimeoutError,
 } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type { ResponseMeta } from '../types/common';
@@ -17,8 +19,12 @@ import {
   RequestHookPayload,
   ResponseMetadata,
   RetryConfig,
+  Middleware,
 } from './http.types';
 import { TokenBucket } from './tokenBucket';
+import { runRequestPipeline, runResponsePipeline, runErrorPipeline } from '../middleware/middleware.pipeline';
+import type { RequestMiddlewarePayload, ResponseMiddlewarePayload, ErrorMiddlewarePayload } from '../middleware/middleware.types';
+import type { Middleware } from './http.types';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
@@ -54,6 +60,44 @@ function extractResponseMeta(response: Response, durationMs: number): ResponseMe
   return meta;
 }
 
+const SENSITIVE_URL_PARAM = /key|token|secret|auth|pass|signature|credential/i;
+const CREDENTIAL_PATH_SEGMENT = /^[A-Za-z0-9_-]{16,}$/;
+
+export function redactUrlCredentials(rawUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+  let changed = false;
+  if (url.username) {
+    url.username = '[REDACTED]';
+    changed = true;
+  }
+  if (url.password) {
+    url.password = '[REDACTED]';
+    changed = true;
+  }
+  const paramsToRedact: string[] = [];
+  url.searchParams.forEach((value, key) => {
+    if (SENSITIVE_URL_PARAM.test(key) || value.length >= 16) paramsToRedact.push(key);
+  });
+  for (const key of paramsToRedact) {
+    url.searchParams.set(key, '[REDACTED]');
+    changed = true;
+  }
+  const redactedPath = url.pathname
+    .split('/')
+    .map((segment) => (CREDENTIAL_PATH_SEGMENT.test(segment) ? '[REDACTED]' : segment))
+    .join('/');
+  if (redactedPath !== url.pathname) {
+    url.pathname = redactedPath;
+    changed = true;
+  }
+  return changed ? url.toString() : rawUrl;
+}
+
 export function redactHeaders(headers: Headers | Record<string, string>): Record<string, string> {
   const redacted: Record<string, string> = {};
   if (!headers) return redacted;
@@ -76,14 +120,23 @@ function resolveRetry(global: RetryConfig | undefined, local: RetryConfig | unde
   const maxDelayMs = merged.maxDelayMs ?? 5000;
   const retryableStatuses = merged.retryableStatuses ?? DEFAULT_RETRYABLE_STATUSES;
   const allowMutatingRetry = merged.allowMutatingRetry ?? false;
+  const jitter = merged.jitter ?? true;
 
   if (!Number.isFinite(maxRetries) || maxRetries < 0) throw new GuildPassConfigError('Invalid maxRetries', GuildPassErrorCode.INVALID_CONFIG);
   if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) throw new GuildPassConfigError('Invalid baseDelayMs', GuildPassErrorCode.INVALID_CONFIG);
   if (!Number.isFinite(maxDelayMs) || maxDelayMs < 0) throw new GuildPassConfigError('Invalid maxDelayMs', GuildPassErrorCode.INVALID_CONFIG);
   if (maxDelayMs < baseDelayMs) throw new GuildPassConfigError('maxDelayMs cannot be less than baseDelayMs', GuildPassErrorCode.INVALID_CONFIG);
   if (!Array.isArray(retryableStatuses) || retryableStatuses.length === 0) throw new GuildPassConfigError('Invalid retryableStatuses', GuildPassErrorCode.INVALID_CONFIG);
+  if (typeof jitter !== 'boolean') throw new GuildPassConfigError('Invalid jitter', GuildPassErrorCode.INVALID_CONFIG);
 
-  return { maxRetries, baseDelayMs, maxDelayMs, retryableStatuses, allowMutatingRetry };
+  return { maxRetries, baseDelayMs, maxDelayMs, retryableStatuses, allowMutatingRetry, jitter };
+}
+
+function computeBackoffMs(config: Required<RetryConfig>, attempt: number): number {
+  const base = Math.min(config.baseDelayMs * 2 ** attempt, config.maxDelayMs);
+  if (!config.jitter || base <= 0) return base;
+  const jitter = base * 0.25 * (Math.random() * 2 - 1);
+  return Math.max(0, Math.round(base + jitter));
 }
 
 function getRetryAfterMs(headers: Headers): number | null {
@@ -97,8 +150,22 @@ function getRetryAfterMs(headers: Headers): number | null {
   return null;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new GuildPassCancellationError());
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new GuildPassCancellationError());
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function isEmptyJsonBodyError(error: unknown): boolean {
@@ -157,6 +224,7 @@ export class HttpClient {
   private readonly timeoutMs: number;
   private readonly globalRetry?: RetryConfig;
   private readonly hooks?: HttpHooks;
+  private readonly middleware: Middleware[];
   private readonly fetchTransport?: FetchLike;
   private readonly metadata?: ClientMetadata;
   private readonly tokenBucket?: TokenBucket;
@@ -175,6 +243,7 @@ export class HttpClient {
       if ('fetch' in configOrHooks || 'retry' in configOrHooks || 'hooks' in configOrHooks) {
         this.globalRetry = configOrHooks.retry;
         this.hooks = configOrHooks.hooks;
+        this.middleware = configOrHooks.middleware ?? [];
         this.fetchTransport = configOrHooks.fetch;
         this.metadata = configOrHooks.metadata;
         if (configOrHooks.rateLimit) this.tokenBucket = new TokenBucket(configOrHooks.rateLimit);
@@ -184,6 +253,7 @@ export class HttpClient {
         this.hooks = configOrHooks;
       }
     }
+    if (!this.middleware) this.middleware = [];
   }
 
   public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<any> {
@@ -245,6 +315,32 @@ export class HttpClient {
     }
     // ---------------------------------
 
+    // ── Middleware pipeline: request phase ──────────────────────────────
+    let middlewarePayload: RequestMiddlewarePayload = {
+      method: method as any,
+      path: path.startsWith('/') ? path : `/${path}`,
+      headers: { ...requestHeaders },
+      body,
+    };
+    if (this.middleware.length > 0) {
+      try {
+        middlewarePayload = await runRequestPipeline({
+          middleware: this.middleware,
+          payload: middlewarePayload,
+        });
+        // Merge any header/body mutations from middleware
+        Object.assign(requestHeaders, middlewarePayload.headers);
+      } catch (mwError) {
+        const error = mwError instanceof Error ? mwError : new Error(String(mwError));
+        await runErrorPipeline(this.middleware, {
+          request: middlewarePayload,
+          error,
+        });
+        throw error;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
+
     if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
 
     const startTime = Date.now();
@@ -254,7 +350,7 @@ export class HttpClient {
       try { await this.hooks.onRequest(hookPayload); } catch (err) { console.error('GuildPass SDK: onRequest hook failed', err); }
     }
 
-    if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
+    if (signal?.aborted) throw new GuildPassCancellationError();
 
     const url = isAbsolute ? new URL(path) : new URL(`${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`);
     if (params) Object.entries(params).forEach(([key, value]) => url.searchParams.append(key, String(value)));
@@ -262,6 +358,7 @@ export class HttpClient {
     let attempt = 0;
 
     while (true) {
+      if (signal?.aborted) throw new GuildPassCancellationError();
       await this.tokenBucket?.acquire();
 
       const controller = new AbortController();
@@ -291,16 +388,22 @@ export class HttpClient {
           const isRetryable = canRetry && retryConfig.retryableStatuses.includes(response.status);
           if (isRetryable && attempt < retryConfig.maxRetries) {
             const retryAfter = getRetryAfterMs(response.headers);
-            const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
+            const backoff = computeBackoffMs(retryConfig, attempt);
             this.tokenBucket?.onRateLimited(retryAfter ?? undefined);
-            // The token bucket's acquire method will now handle the delay based on retryAfter
+            // Always wait before retrying: the server's Retry-After wins when
+            // present, otherwise the computed backoff. Without a configured
+            // token bucket there is no other pacing, so skipping this delay
+            // would hot-loop retries against an already-struggling upstream.
+            await delay(retryAfter ?? backoff);
             attempt++;
             continue;
           }
 
           const errorData = await parseErrorResponse(response);
           const errorMeta = extractMeta({ data: undefined, status: response.status, headers: response.headers }, Date.now() - startTime);
-          const httpError = GuildPassApiError.fromHttpError(response.status, errorData);
+          const httpError = GuildPassApiError.fromHttpError(response.status, errorData, {
+            retryAfterMs: getRetryAfterMs(response.headers),
+          });
           httpError.requestMeta = errorMeta;
           throw httpError;
         }
@@ -314,6 +417,24 @@ export class HttpClient {
           } catch (err) { console.error('GuildPass SDK: onResponse hook failed', err); }
         }
 
+        // Response middleware (reverse order)
+        if (this.middleware.length > 0) {
+          try {
+            await runResponsePipeline({
+              middleware: this.middleware,
+              request: middlewarePayload,
+              response: {
+                status: response.status,
+                data,
+                headers: Object.fromEntries(response.headers?.entries?.() ?? []),
+                durationMs,
+              },
+            });
+          } catch {
+            // Pipeline error already propagated through middleware; re-throw first error
+          }
+        }
+
         this.tokenBucket?.onSuccess();
         const meta = options.includeMeta ? extractResponseMeta(response, durationMs) : undefined;
 
@@ -325,18 +446,18 @@ export class HttpClient {
         let finalError = error;
 
         if (error.name === 'AbortError') {
-          finalError = signal?.aborted ? new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED) : new GuildPassNetworkError(`Request timed out after ${timeoutMs}ms`, GuildPassErrorCode.TIMEOUT);
+          finalError = signal?.aborted ? new GuildPassCancellationError() : new GuildPassTimeoutError(`Request timed out after ${timeoutMs}ms`);
         } else if (!(error instanceof GuildPassError)) {
           if (canRetry && attempt < retryConfig.maxRetries) {
             const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
-            await delay(backoff);
+            await delay(backoff, signal);
             attempt++;
             continue;
           }
           finalError = new GuildPassNetworkError(error.message || 'Unknown network error', GuildPassErrorCode.HTTP_ERROR, error);
         } else if (canRetry && attempt < retryConfig.maxRetries && retryConfig.retryableStatuses.includes(finalError.status)) {
           const backoff = Math.min(retryConfig.baseDelayMs * 2 ** attempt, retryConfig.maxDelayMs);
-          await delay(backoff);
+          await delay(backoff, signal);
           attempt++;
           continue;
         }
@@ -344,6 +465,14 @@ export class HttpClient {
         const durationMs = Date.now() - startTime;
         if (this.hooks?.onError) {
           try { await this.hooks.onError({ ...hookPayload, error: finalError, durationMs }); } catch (hookErr) { console.error('GuildPass SDK: onError hook failed', hookErr); }
+        }
+        // Error middleware (reverse order)
+        if (this.middleware.length > 0) {
+          await runErrorPipeline(this.middleware, {
+            request: middlewarePayload,
+            error: finalError,
+            durationMs,
+          });
         }
         throw finalError;
       }

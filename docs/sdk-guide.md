@@ -31,6 +31,48 @@ try {
 }
 ```
 
+### Typed error classes
+
+Every SDK error extends `GuildPassError`, so a single `instanceof GuildPassError`
+catch still works. On top of that, HTTP failures come back as subclasses of
+`GuildPassApiError` keyed to the status code, which reads better than comparing
+`error.status` yourself:
+
+```typescript
+import {
+  GuildPassAuthenticationError, // 401: missing/invalid credentials
+  GuildPassAuthorizationError,  // 403: authenticated but not allowed
+  GuildPassValidationError,     // 400/422: server rejected the request payload
+  GuildPassRateLimitError,      // 429: slow down, see retryAfterMs
+  GuildPassServerError,         // 5xx: server-side failure, retrying is reasonable
+  GuildPassTimeoutError,        // no response within the configured timeoutMs
+  GuildPassCancellationError,   // the caller's AbortSignal fired
+} from "@guildpass/sdk";
+
+try {
+  await client.access.checkAccess({...});
+} catch (error) {
+  if (error instanceof GuildPassRateLimitError) {
+    // The server told us how long to wait.
+    await sleep(error.retryAfterMs ?? 1000);
+    // ... retry
+  } else if (error instanceof GuildPassAuthenticationError) {
+    // Refresh credentials, then retry.
+  } else if (error instanceof GuildPassAuthorizationError) {
+    // Don't retry: the account simply isn't allowed. Surface this to the user.
+  } else if (error instanceof GuildPassServerError || error instanceof GuildPassTimeoutError) {
+    // Transient: safe to retry with backoff.
+  } else if (error instanceof GuildPassCancellationError) {
+    // We cancelled this ourselves; usually nothing to do.
+  }
+}
+```
+
+Errors that received an HTTP response also carry `requestMeta` (request ID,
+correlation ID, trace ID, duration) for support tickets and log correlation.
+Cross-realm or duplicated-module setups (monorepos, `vm` contexts) where
+`instanceof` fails can use the `isGuildPassError` type guard instead.
+
 ## Request Cancellation
 
 You can cancel in-flight requests using an `AbortSignal`. This is useful for UI unmounting, manual cancellation, or server-side request propagation.
@@ -576,8 +618,9 @@ const access = await client.access.checkAccess(
 | `maxDelayMs` | `5000` | Backoff will never exceed this value. |
 | `retryableStatuses` | `[429, 500, 502, 503, 504]` | 4xx errors other than 429 are not retried. |
 | `allowMutatingRetry` | `false` | POST/PUT/PATCH/DELETE are **not** retried unless this is `true`. |
+| `jitter` | `true` | Randomizes each backoff by ±25% so many clients do not retry in lockstep. Set to `false` for deterministic delays (e.g. in tests). |
 
-The SDK respects the `Retry-After` response header on 429 responses, waiting the server-specified duration before retrying rather than using the computed backoff.
+The SDK respects the `Retry-After` response header on retryable responses, waiting the server-specified duration before retrying rather than using the computed backoff. Every retry waits at least the computed backoff (or `Retry-After`, when present), whether or not a `rateLimit` bucket is configured.
 
 Non-idempotent methods (POST, PATCH) are never retried unless you explicitly set `allowMutatingRetry: true`. Only enable this when you are certain the operation is safe to repeat.
   hooks: {

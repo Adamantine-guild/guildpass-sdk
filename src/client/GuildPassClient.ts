@@ -3,14 +3,14 @@ import { AccessService } from '../access/access.service';
 // GuildPass SDK: Import external module dependencies.
 import { DEFAULT_CONFIG } from '../config/defaultConfig';
 // GuildPass SDK: Pull in package or module bindings.
-import { GuildPassClientConfig, validateConfig } from '../config/sdkConfig';
+import { GuildPassClientConfig, PublicClientConfig, validateConfig } from '../config/sdkConfig';
 import { emitSecurityConfigWarnings, resolveAccessCacheTtl } from '../config/securityLimits';
 // GuildPass SDK: Import external module dependencies.
 import { ContractClient } from '../contracts/contractClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildsService } from '../guilds/guilds.service';
 // GuildPass SDK: Import external module dependencies.
-import { HttpClient } from '../http/httpClient';
+import { HttpClient, redactUrlCredentials } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { MembershipService } from '../membership/membership.service';
 import { SDK_VERSION } from '../config/version';
@@ -20,7 +20,7 @@ import { CacheAdapter } from '../cache/cache.types';
 import { normaliseAddress } from '../utils/address';
 import { validateAddress } from '../utils/validation';
 import { encodePathSegment } from '../utils/formatting';
-import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult } from '../access/access.types';
+import type { AccessCheckParams, AccessCheckResult, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult, AccessCheckBatchByResourceParams, AccessCheckBatchByResourceResult } from '../access/access.types';
 import type { MembershipParams, Membership } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, GuildRole, HasRoleParams } from '../roles/roles.types';
 import type { GetGuildParams, Guild, GuildConfig } from '../guilds/guilds.types';
@@ -79,6 +79,7 @@ export class GuildPassClient {
   private readonly config: GuildPassClientConfig;
   private readonly cache: CacheAdapter | undefined;
   private readonly cacheTtl: number | undefined;
+  private readonly deduplication: boolean;
   private readonly inFlightRequests = new Map<string, Promise<any>>();
 
   // GuildPass SDK: Class member structure property or constructor.
@@ -95,14 +96,16 @@ export class GuildPassClient {
 
     this.cache = this.config.cache;
     this.cacheTtl = this.config.cacheTtl;
+    this.deduplication = this.config.deduplication ?? true;
 
     this.http = new HttpClient(
       this.config.apiUrl,
       this.config.apiKey,
-      this.config.timeoutMs,
+      this.config.defaultTimeoutMs ?? this.config.timeoutMs,
       {
         retry: this.config.retry,
         hooks: this.config.hooks,
+        middleware: this.config.middleware,
         fetch: this.config.fetch,
         rateLimit: this.config.rateLimit,
         metadata: {
@@ -221,12 +224,50 @@ export class GuildPassClient {
   /**
    * Returns the current SDK configuration without sensitive values.
    * Sensitive fields such as `apiKey` are omitted from this public snapshot.
-   * The SDK continues to use the real API key internally for authenticated requests.
+   * Function-valued fields (`fetch`, `hooks`, `contractProvider`, `cache`,
+   * `middleware`) are omitted as well, and credentials embedded in RPC URLs
+   * (userinfo, query parameters, key-shaped path segments) are redacted, so
+   * the result is safe to `JSON.stringify` for logging.
+   * The SDK continues to use the real values internally.
    */
-  public getConfig(): Omit<GuildPassClientConfig, 'apiKey'> {
-    const safeConfig: Partial<GuildPassClientConfig> = { ...this.config };
+  public getConfig(): PublicClientConfig {
+    const safeConfig: Record<string, unknown> = { ...this.config };
     delete safeConfig.apiKey;
-    return safeConfig as Omit<GuildPassClientConfig, 'apiKey'>;
+    delete safeConfig.fetch;
+    delete safeConfig.hooks;
+    delete safeConfig.contractProvider;
+    delete safeConfig.cache;
+    delete safeConfig.middleware;
+    if (typeof safeConfig.rpcUrl === 'string') {
+      safeConfig.rpcUrl = redactUrlCredentials(safeConfig.rpcUrl);
+    }
+    if (Array.isArray(safeConfig.rpcUrls)) {
+      safeConfig.rpcUrls = safeConfig.rpcUrls.map((u) =>
+        typeof u === 'string' ? redactUrlCredentials(u) : u,
+      );
+    }
+    if (safeConfig.chains && typeof safeConfig.chains === 'object') {
+      const chains: Record<string, unknown> = {};
+      for (const [chainId, chain] of Object.entries(
+        safeConfig.chains as Record<string, Record<string, unknown>>,
+      )) {
+        chains[chainId] = {
+          ...chain,
+          ...(typeof chain.rpcUrl === 'string'
+            ? { rpcUrl: redactUrlCredentials(chain.rpcUrl) }
+            : {}),
+          ...(Array.isArray(chain.rpcUrls)
+            ? {
+                rpcUrls: chain.rpcUrls.map((u) =>
+                  typeof u === 'string' ? redactUrlCredentials(u) : u,
+                ),
+              }
+            : {}),
+        };
+      }
+      safeConfig.chains = chains;
+    }
+    return safeConfig as unknown as PublicClientConfig;
   }
 
   // ---------------------------------------------------------------------------
@@ -253,8 +294,10 @@ export class GuildPassClient {
     key: string,
     fn: () => Promise<T>,
     ttlOverride?: number,
+    deduplicate?: boolean,
   ): Promise<T> {
     const effectiveTtl = ttlOverride ?? this.cacheTtl;
+    const shouldDeduplicate = deduplicate ?? this.deduplication;
 
     if (this.cache) {
       try {
@@ -265,7 +308,7 @@ export class GuildPassClient {
       }
     }
 
-    return this.coalesce(key, async () => {
+    const execute = async (): Promise<T> => {
       const result = await fn();
       if (this.cache) {
         try {
@@ -275,7 +318,9 @@ export class GuildPassClient {
         }
       }
       return result;
-    });
+    };
+
+    return shouldDeduplicate ? this.coalesce(key, execute) : execute();
   }
 
   /**
@@ -306,28 +351,34 @@ export class GuildPassClient {
   private buildCachedAccessService(raw: AccessService): AccessService {
     const accessCacheTtl = resolveAccessCacheTtl(this.cacheTtl);
 
-    return Object.create(raw, {
+    const cached: AccessService = Object.create(raw, {
       checkAccess: {
         value: async (params: AccessCheckParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkAccess', params.guildId, params.resourceId, wallet);
-          return this.withCache(key, () => raw.checkAccess(params, options), accessCacheTtl);
+          return this.withCache(key, () => raw.checkAccess(params, options), accessCacheTtl, options?.deduplicate);
         },
-      },
-      checkAccessBatch: {
-        value: async (
-          items: AccessCheckParams[],
-          options?: AccessCheckBatchOptions,
-        ): Promise<AccessCheckBatchResult[]> => raw.checkAccessBatch(items, options),
       },
       checkRoleAccess: {
         value: async (params: RoleAccessCheckParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.checkRoleAccess(params, options), accessCacheTtl);
+          return this.withCache(key, () => raw.checkRoleAccess(params, options), accessCacheTtl, options?.deduplicate);
         },
       },
     });
+
+    Object.defineProperty(cached, 'checkAccessBatch', {
+      // Bind to the cached proxy so each per-item check flows through the
+      // cached checkAccess above instead of bypassing the cache layer.
+      value: async (
+        input: AccessCheckParams[] | AccessCheckBatchByResourceParams,
+        options?: AccessCheckBatchOptions,
+      ): Promise<AccessCheckBatchResult[] | AccessCheckBatchByResourceResult> =>
+        raw.checkAccessBatch.call(cached, input as any, options),
+    });
+
+    return cached;
   }
 
   private buildCachedMembershipService(raw: MembershipService): MembershipService {
@@ -336,7 +387,7 @@ export class GuildPassClient {
         value: async (params: MembershipParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('membership', 'getMembership', params.guildId, wallet);
-          return this.withCache(key, () => raw.getMembership(params, options));
+          return this.withCache(key, () => raw.getMembership(params, options), undefined, options?.deduplicate);
         },
       },
       isMember: {
@@ -371,7 +422,7 @@ export class GuildPassClient {
       getRoles: {
         value: async (params: GetRolesParams, options?: any): Promise<any> => {
           const key = this.buildRolesCacheKey('getRoles', [params.guildId], params.cursor, params.limit);
-          return this.withCache(key, () => raw.getRoles(params, options));
+          return this.withCache(key, () => raw.getRoles(params, options), undefined, options?.deduplicate);
         },
       },
       getUserRoles: {
@@ -383,14 +434,14 @@ export class GuildPassClient {
             params.cursor,
             params.limit,
           );
-          return this.withCache(key, () => raw.getUserRoles(params, options));
+          return this.withCache(key, () => raw.getUserRoles(params, options), undefined, options?.deduplicate);
         },
       },
       hasRole: {
         value: async (params: HasRoleParams, options?: any): Promise<any> => {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('access', 'checkRoleAccess', params.guildId, params.roleId, wallet);
-          return this.withCache(key, () => raw.hasRole(params, options), accessCacheTtl);
+          return this.withCache(key, () => raw.hasRole(params, options), accessCacheTtl, options?.deduplicate);
         },
       },
     });
@@ -401,13 +452,13 @@ export class GuildPassClient {
       getGuild: {
         value: async (params: GetGuildParams, options?: any): Promise<any> => {
           const key = buildCacheKey('guilds', 'getGuild', params.guildId);
-          return this.withCache(key, () => raw.getGuild(params, options));
+          return this.withCache(key, () => raw.getGuild(params, options), undefined, options?.deduplicate);
         },
       },
       getGuildConfig: {
         value: async (params: GetGuildParams, options?: any): Promise<any> => {
           const key = buildCacheKey('guilds', 'getGuildConfig', params.guildId);
-          return this.withCache(key, () => raw.getGuildConfig(params, options));
+          return this.withCache(key, () => raw.getGuildConfig(params, options), undefined, options?.deduplicate);
         },
       },
     });

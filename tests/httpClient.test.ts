@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HttpClient } from '../src/http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { GuildPassRateLimitError } from '../src/errors/errorTypes';
 
 // GuildPass SDK: Test suite container block.
 describe('HttpClient', () => {
@@ -344,6 +345,27 @@ describe('HttpClient', () => {
 
       expect(fetch).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ ok: true });
+      vi.useRealTimers();
+    });
+
+    it('final 429 error is a GuildPassRateLimitError carrying retryAfterMs', async () => {
+      const noRetryClient = new HttpClient(baseUrl, undefined, 10000, {
+        retry: { maxRetries: 0 },
+      });
+
+      (fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '3' }),
+        json: () => Promise.resolve({ error: 'quota exhausted' }),
+      });
+
+      const failure = await noRetryClient.get('/rate-limited').catch((e) => e);
+      expect(failure).toBeInstanceOf(GuildPassRateLimitError);
+      expect(failure.code).toBe(GuildPassErrorCode.RATE_LIMITED);
+      expect(failure.status).toBe(429);
+      expect(failure.retryAfterMs).toBe(3000);
+      expect(failure.message).toBe('quota exhausted');
     });
 
     it('throws after exhausting all retries', async () => {
@@ -450,6 +472,7 @@ describe('HttpClient', () => {
       const requestPromise = retryClient.get('/rate-limited');
 
       // Initial fetch call
+      await vi.advanceTimersByTimeAsync(0);
       expect(fetch).toHaveBeenCalledTimes(1);
 
       // Advance timers by less than retryAfterMs, the second fetch should not have happened yet
@@ -490,23 +513,29 @@ describe('HttpClient', () => {
           json: () => Promise.resolve({ ok: true }),
         });
 
+      // Fire the first request and let it receive the 429 so the bucket
+      // enters its throttled state before the follow-up requests start.
       const request1Promise = retryClient.get('/rate-limited-1');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
       const request2Promise = retryClient.get('/rate-limited-2');
       const request3Promise = retryClient.get('/rate-limited-3');
 
-      // Only the first request should have fired initially
+      // Both follow-ups are held by the throttle: no new fetches fire.
+      await vi.advanceTimersByTimeAsync(0);
       expect(fetch).toHaveBeenCalledTimes(1);
 
       // Advance time just before the retryAfterMs period ends
-      vi.advanceTimersByTime(retryAfterMs - 1);
+      await vi.advanceTimersByTimeAsync(retryAfterMs - 1);
       expect(fetch).toHaveBeenCalledTimes(1); // Still only the first request
 
       // Advance time past the retryAfterMs period
-      vi.advanceTimersByTime(1);
+      await vi.advanceTimersByTimeAsync(1);
 
       // Now all requests should have fired
       await Promise.all([request1Promise, request2Promise, request3Promise]);
-      expect(fetch).toHaveBeenCalledTimes(4); // 1 initial + 3 subsequent
+      expect(fetch).toHaveBeenCalledTimes(4); // 1 initial + 1 retry + 2 paced
 
       vi.useRealTimers();
     });
@@ -538,6 +567,7 @@ describe('HttpClient', () => {
       expect(initialThrottlingUntil).toBe(0);
 
       const requestPromise = retryClient.get('/rate-limited-state');
+      await vi.advanceTimersByTimeAsync(0);
 
       // After the 429, throttling should be active
       const throttlingUntilAfter429 = (retryClient as any).tokenBucket.getThrottlingUntil();
@@ -551,6 +581,236 @@ describe('HttpClient', () => {
       const throttlingUntilAfterCoolDown = (retryClient as any).tokenBucket.getThrottlingUntil();
       expect(throttlingUntilAfterCoolDown).toBe(0); // Should be reset to 0 after the delay
 
+      vi.useRealTimers();
+    });
+
+    it('waits the computed backoff between status retries even without a rate limiter', async () => {
+      vi.useFakeTimers();
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, {
+        maxRetries: 1,
+        baseDelayMs: 100,
+        jitter: false,
+      });
+
+      (fetch as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const requestPromise = retryClient.get('/flaky-no-limiter');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // The retry must not fire immediately (no hot loop).
+      await vi.advanceTimersByTimeAsync(99);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await requestPromise;
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ ok: true });
+      vi.useRealTimers();
+    });
+
+    it('prefers Retry-After over the computed backoff on status retries', async () => {
+      vi.useFakeTimers();
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, {
+        maxRetries: 1,
+        baseDelayMs: 5000,
+        jitter: false,
+      });
+
+      (fetch as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          headers: new Headers({ 'Retry-After': '1', 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const requestPromise = retryClient.get('/retry-after-wins');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await requestPromise;
+      expect(fetch).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
+    });
+
+    it('doubles the backoff each attempt with jitter disabled', async () => {
+      vi.useFakeTimers();
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, {
+        maxRetries: 2,
+        baseDelayMs: 100,
+        maxDelayMs: 10000,
+        jitter: false,
+      });
+
+      (fetch as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const requestPromise = retryClient.get('/exponential');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // First retry after 100ms.
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetch).toHaveBeenCalledTimes(2);
+
+      // Second retry 200ms later, not sooner.
+      await vi.advanceTimersByTimeAsync(199);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await requestPromise;
+      expect(fetch).toHaveBeenCalledTimes(3);
+      vi.useRealTimers();
+    });
+
+    it('caps the backoff at maxDelayMs with jitter disabled', async () => {
+      vi.useFakeTimers();
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, {
+        maxRetries: 2,
+        baseDelayMs: 1000,
+        maxDelayMs: 1500,
+        jitter: false,
+      });
+
+      (fetch as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const requestPromise = retryClient.get('/capped');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetch).toHaveBeenCalledTimes(2);
+
+      // Second attempt would be 2000ms uncapped; the 1500ms ceiling applies.
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await requestPromise;
+      expect(fetch).toHaveBeenCalledTimes(3);
+      vi.useRealTimers();
+    });
+
+    it('keeps jittered delays within ±25% of the computed backoff', async () => {
+      vi.useFakeTimers();
+      const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.999999);
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, {
+        maxRetries: 1,
+        baseDelayMs: 400,
+      });
+
+      (fetch as any)
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve(null),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const requestPromise = retryClient.get('/jittered');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // With random ~= 1 the delay is ~125% of 400ms = 500ms.
+      await vi.advanceTimersByTimeAsync(499);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2);
+      await requestPromise;
+      expect(fetch).toHaveBeenCalledTimes(2);
+
+      randomSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
+    it('applies backoff between retries on network errors', async () => {
+      vi.useFakeTimers();
+      const retryClient = new HttpClient(baseUrl, undefined, 10000, {
+        maxRetries: 1,
+        baseDelayMs: 100,
+        jitter: false,
+      });
+
+      (fetch as any)
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: () => Promise.resolve({ ok: true }),
+        });
+
+      const requestPromise = retryClient.get('/network-flake');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(99);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await requestPromise;
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ ok: true });
       vi.useRealTimers();
     });
   });
