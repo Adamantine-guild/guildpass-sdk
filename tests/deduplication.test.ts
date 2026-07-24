@@ -274,7 +274,7 @@ describe('deduplication opt-out', () => {
     const params = { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' };
     const results = await Promise.all([
       ...Array.from({ length: 4 }, () => client.access.checkAccess(params)),
-      client.access.checkAccess(params, { deduplicate: false }),
+      client.access.checkAccess(params, { deduplicate: false } as any),
     ]);
 
     expect(results).toHaveLength(5);
@@ -289,7 +289,7 @@ describe('deduplication opt-out', () => {
 
     const params = { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' };
     const results = await Promise.all(
-      Array.from({ length: 3 }, () => client.access.checkAccess(params, { deduplicate: true })),
+      Array.from({ length: 3 }, () => client.access.checkAccess(params, { deduplicate: true } as any)),
     );
 
     expect(results).toHaveLength(3);
