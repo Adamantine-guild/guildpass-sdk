@@ -21,6 +21,7 @@ export class RolesService {
     private readonly http: HttpClient,
     private readonly validateResponses = false,
     private readonly access?: AccessService,
+    private readonly strictAddressChecksum = false,
   ) {}
 
   /**
@@ -59,7 +60,7 @@ export class RolesService {
   public async getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<any> {
     const { walletAddress, guildId, cursor, limit } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
 
     const path = `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/roles`;

@@ -118,6 +118,7 @@ export class GuildPassClient {
     );
 
     const validateResponses = this.config.validateResponses ?? false;
+    const strictAddressChecksum = this.config.strictAddressChecksum ?? false;
     
     // IMPORTANT: Instantiate Contracts first so we can pass it to Access
     const rawContracts = new ContractClient(this.config, this.http);
@@ -131,10 +132,11 @@ export class GuildPassClient {
       rawContracts, 
       this.config.hooks?.onDiscrepancy,
       verifySignedResponses,
-      trustedSignerAddress
+      trustedSignerAddress,
+      strictAddressChecksum,
     );
-    const rawMembership = new MembershipService(this.http, validateResponses);
-    const rawRoles = new RolesService(this.http, validateResponses, rawAccess);
+    const rawMembership = new MembershipService(this.http, validateResponses, strictAddressChecksum);
+    const rawRoles = new RolesService(this.http, validateResponses, rawAccess, strictAddressChecksum);
     const rawGuilds = new GuildsService(
       this.http, 
       validateResponses,
@@ -191,7 +193,7 @@ export class GuildPassClient {
    * Useful when a wallet's on-chain state has changed (e.g., token transfer).
    */
   public async invalidateWalletCache(walletAddress: string): Promise<void> {
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
     if (!this.cache) return;
     const wallet = normaliseAddress(walletAddress);
     try {

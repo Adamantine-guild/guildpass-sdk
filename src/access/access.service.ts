@@ -34,7 +34,8 @@ export class AccessService {
     private readonly contracts?: ContractClient,
     private readonly onDiscrepancy?: (payload: DiscrepancyHookPayload) => void | Promise<void>,
     private readonly verifySignedResponses = false,
-    private readonly trustedSignerAddress?: string
+    private readonly trustedSignerAddress?: string,
+    private readonly strictAddressChecksum = false,
   ) {}
 
   public async checkAccess(params: AccessCheckParams): Promise<AccessCheckResult>;
@@ -42,7 +43,7 @@ export class AccessService {
   public async checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult | { data: AccessCheckResult; meta: ResponseMetadata}> {
     const { walletAddress, guildId, resourceId } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
     validateResourceId(resourceId);
 
@@ -189,7 +190,7 @@ export class AccessService {
   ): Promise<AccessCheckBatchResult[] | AccessCheckBatchByResourceResult> {
     if (!Array.isArray(input)) {
       const { walletAddress, guildId, resourceIds } = input;
-      validateAddress(walletAddress);
+      validateAddress(walletAddress, { strict: this.strictAddressChecksum });
       validateGuildId(guildId);
       if (!Array.isArray(resourceIds) || resourceIds.length === 0) {
         throw new GuildPassConfigError('resourceIds array must not be empty', GuildPassErrorCode.INVALID_INPUT);
@@ -311,7 +312,7 @@ export class AccessService {
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId, roleId } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
     validateRoleId(roleId);
 
@@ -345,4 +346,3 @@ export class AccessService {
   }
   // GuildPass SDK: End of logic containment structure block.
 }
-

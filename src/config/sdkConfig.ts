@@ -53,6 +53,8 @@ export type GuildPassClientConfig = {
   fetch?: FetchLike;
   rateLimit?: RateLimitConfig;
   validateResponses?: boolean;
+  /** Enforces EIP-55 checksums for all addresses accepted by the SDK. @default false */
+  strictAddressChecksum?: boolean;
   cache?: CacheAdapter;
   cacheTtl?: number;
   /**
@@ -179,6 +181,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throwConfigError('deduplication must be a boolean', 'deduplication', 'invalid_type', config.deduplication);
   }
 
+  if (config.strictAddressChecksum !== undefined && typeof config.strictAddressChecksum !== 'boolean') {
+    throwConfigError('strictAddressChecksum must be a boolean', 'strictAddressChecksum', 'invalid_type', config.strictAddressChecksum);
+  }
+
   if (config.contractProvider !== undefined) {
     const provider = config.contractProvider;
     const required = ['ethCall', 'batchEthCall'] as const;
@@ -195,7 +201,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.multicallAddress !== undefined) {
     try {
-      validateAddress(config.multicallAddress);
+      validateAddress(config.multicallAddress, { strict: config.strictAddressChecksum });
     } catch {
       throw new GuildPassConfigError(
         'Invalid multicallAddress: expected a valid EVM address',
@@ -225,7 +231,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.trustedSignerAddress !== undefined) {
     try {
-      validateAddress(config.trustedSignerAddress);
+      validateAddress(config.trustedSignerAddress, { strict: config.strictAddressChecksum });
     } catch {
       throw new GuildPassConfigError(
         'Invalid trustedSignerAddress: expected a valid EVM address',
@@ -331,7 +337,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   validateContractReadConsensus(config.contractReadConsensus);
 
-  validateChainsConfig(config.chains);
+  validateChainsConfig(config.chains, config.strictAddressChecksum);
 
   const transport = config.fetch ?? globalThis.fetch;
   if (typeof transport !== 'function') {
@@ -339,7 +345,7 @@ export function validateConfig(config: GuildPassClientConfig): void {
   }
 }
 
-function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
+function validateChainsConfig(chains?: Record<number, ChainConfig>, strictAddressChecksum = false): void {
   if (!chains) return;
 
   for (const [chainIdKey, chainConfig] of Object.entries(chains)) {
@@ -384,7 +390,7 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
 
     if (chainConfig.contractAddress !== undefined) {
       try {
-        validateAddress(chainConfig.contractAddress);
+        validateAddress(chainConfig.contractAddress, { strict: strictAddressChecksum });
       } catch (err: any) {
         throw new GuildPassConfigError(
           `Invalid chains[${chainIdKey}].contractAddress: expected a valid EVM address`,
@@ -402,7 +408,7 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
 
     if (chainConfig.multicallAddress !== undefined) {
       try {
-        validateAddress(chainConfig.multicallAddress);
+        validateAddress(chainConfig.multicallAddress, { strict: strictAddressChecksum });
       } catch (err: any) {
         throw new GuildPassConfigError(
           `Invalid chains[${chainIdKey}].multicallAddress: expected a valid EVM address`,

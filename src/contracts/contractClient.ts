@@ -423,7 +423,7 @@ export class ContractClient {
     const chainConfig = this.getChainConfig(chainId);
     const contractAddress = params.contractAddress ?? chainConfig.contractAddress;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
 
     if (!contractAddress) {
       throw new GuildPassConfigError(
@@ -432,7 +432,7 @@ export class ContractClient {
       );
     }
 
-    validateAddress(contractAddress);
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
     const result = await this.resolveSingleEthCall(
@@ -466,7 +466,7 @@ export class ContractClient {
         GuildPassErrorCode.INVALID_CONFIG,
       );
     }
-    validateAddress(contractAddress);
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     const result = await provider.ethCall({ to: contractAddress, data: DECIMALS_SELECTOR }, options);
 
@@ -518,7 +518,7 @@ export class ContractClient {
     options?: RequestOptions,
   ): Promise<MembershipTokenBalancesResult> {
     const { walletAddress, contractAddress } = params;
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
 
     // Collect every chain ID we should query.
     const chainIds: number[] = [];
@@ -578,8 +578,8 @@ export class ContractClient {
     const { walletAddress, chainId, contractAddress } = params;
     const chainConfig = this.getChainConfig(chainId);
 
-    validateAddress(walletAddress);
-    validateAddress(contractAddress);
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
     const result = await this.resolveSingleEthCall(
@@ -608,8 +608,8 @@ export class ContractClient {
     const { walletAddress, tokenId, chainId, contractAddress } = params;
     const chainConfig = this.getChainConfig(chainId);
 
-    validateAddress(walletAddress);
-    validateAddress(contractAddress);
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     const data = `${ERC721_OWNER_OF_SELECTOR}${encodeUint256Argument(tokenId, 'tokenId')}`;
     const result = await this.resolveSingleEthCall(
@@ -638,8 +638,8 @@ export class ContractClient {
     const { walletAddress, tokenId, chainId, contractAddress } = params;
     const chainConfig = this.getChainConfig(chainId);
 
-    validateAddress(walletAddress);
-    validateAddress(contractAddress);
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     const data = `${ERC1155_BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}${encodeUint256Argument(tokenId, 'tokenId')}`;
     const result = await this.resolveSingleEthCall(
@@ -682,7 +682,7 @@ export class ContractClient {
       );
     }
 
-    validateAddress(contractAddress);
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     const signature = buildFunctionSignature(abi);
     const selector = getFunctionSelector(signature);
@@ -728,7 +728,7 @@ export class ContractClient {
       );
     }
 
-    validateAddress(contractAddress);
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
     const data = `${GET_GUILD_OWNER_SELECTOR}${encodeGuildId(guildId)}`;
 
     const result = await this.resolveSingleEthCall(
@@ -1213,7 +1213,7 @@ export class ContractClient {
           GuildPassErrorCode.INVALID_INPUT,
         );
       }
-      validateAddress(call.to);
+      validateAddress(call.to, { strict: this.config.strictAddressChecksum });
     }
 
     // Resolve precedence at the leaf path so chunked recursion also routes
@@ -1261,7 +1261,7 @@ export class ContractClient {
 
     // Validate all addresses upfront
     for (const addr of walletAddresses) {
-      validateAddress(addr);
+      validateAddress(addr, { strict: this.config.strictAddressChecksum });
     }
 
     const chainConfig = this.getChainConfig(chainId);
@@ -1285,7 +1285,7 @@ export class ContractClient {
       );
     }
 
-    validateAddress(contractAddress);
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     // Build the batch calls
     const calls: BatchEthCallItem[] = walletAddresses.map((addr) => ({
@@ -1370,7 +1370,7 @@ export class ContractClient {
       );
     }
 
-    validateAddress(contractAddress);
+    validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
     // Build the batch calls
     const calls: BatchEthCallItem[] = guildIds.map((gid) => ({

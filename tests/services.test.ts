@@ -969,3 +969,48 @@ describe('Service Modules', () => {
     });
   });
 });
+
+describe('strictAddressChecksum', () => {
+  const nonChecksummedAddress = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
+
+  it('rejects non-checksummed addresses in AccessService', async () => {
+    const client = new GuildPassClient({
+      apiUrl: 'https://api.test.com',
+      strictAddressChecksum: true,
+    });
+
+    await expect(client.access.checkAccess({
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+      resourceId: 'res_1',
+    })).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+  });
+
+  it('rejects non-checksummed addresses in MembershipService', async () => {
+    const client = new GuildPassClient({
+      apiUrl: 'https://api.test.com',
+      strictAddressChecksum: true,
+    });
+
+    await expect(client.membership.getMembership({
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+    })).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+  });
+
+  it('accepts non-checksummed addresses by default', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ hasAccess: true }),
+      headers: new Headers(),
+    });
+    const client = new GuildPassClient({ apiUrl: 'https://api.test.com', fetch });
+
+    await expect(client.access.checkAccess({
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+      resourceId: 'res_1',
+    })).resolves.toEqual({ hasAccess: true });
+  });
+});
