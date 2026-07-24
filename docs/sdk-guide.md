@@ -576,8 +576,9 @@ const access = await client.access.checkAccess(
 | `maxDelayMs` | `5000` | Backoff will never exceed this value. |
 | `retryableStatuses` | `[429, 500, 502, 503, 504]` | 4xx errors other than 429 are not retried. |
 | `allowMutatingRetry` | `false` | POST/PUT/PATCH/DELETE are **not** retried unless this is `true`. |
+| `jitter` | `true` | Randomizes each backoff by ±25% so many clients do not retry in lockstep. Set to `false` for deterministic delays (e.g. in tests). |
 
-The SDK respects the `Retry-After` response header on 429 responses, waiting the server-specified duration before retrying rather than using the computed backoff.
+The SDK respects the `Retry-After` response header on retryable responses, waiting the server-specified duration before retrying rather than using the computed backoff. Every retry waits at least the computed backoff (or `Retry-After`, when present), whether or not a `rateLimit` bucket is configured.
 
 Non-idempotent methods (POST, PATCH) are never retried unless you explicitly set `allowMutatingRetry: true`. Only enable this when you are certain the operation is safe to repeat.
   hooks: {
