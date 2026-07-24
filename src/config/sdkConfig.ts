@@ -35,6 +35,16 @@ export type GuildPassClientConfig = {
   chains?: Record<number, ChainConfig>;
   apiKey?: string;
   timeoutMs?: number;
+  /**
+   * Client-wide default request timeout in milliseconds. Applied to every
+   * request that doesn't pass its own per-request `timeoutMs`, and rejects
+   * with a `TIMEOUT` error when exceeded.
+   *
+   * Preferred over `timeoutMs` (which is kept for backward compatibility).
+   * If both are set they must be equal; `defaultTimeoutMs` wins when only it
+   * is provided.
+   */
+  defaultTimeoutMs?: number;
   /** Global retry policy applied to all requests. Defaults to no retries. */
   retry?: RetryConfig;
   hooks?: HttpHooks;
@@ -117,6 +127,14 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.timeoutMs !== undefined && (typeof config.timeoutMs !== 'number' || config.timeoutMs <= 0)) {
     throwConfigError('timeoutMs must be a positive number', 'timeoutMs', 'invalid_type', config.timeoutMs);
+  }
+
+  if (config.defaultTimeoutMs !== undefined && (typeof config.defaultTimeoutMs !== 'number' || config.defaultTimeoutMs <= 0 || !Number.isFinite(config.defaultTimeoutMs))) {
+    throwConfigError('defaultTimeoutMs must be a positive finite number', 'defaultTimeoutMs', 'invalid_type', config.defaultTimeoutMs);
+  }
+
+  if (config.defaultTimeoutMs !== undefined && config.timeoutMs !== undefined && config.defaultTimeoutMs !== config.timeoutMs) {
+    throwConfigError('defaultTimeoutMs and timeoutMs are aliases; set only one, or set both to the same value', 'defaultTimeoutMs', 'conflict', config.defaultTimeoutMs);
   }
 
   if (config.cacheTtl !== undefined && (typeof config.cacheTtl !== 'number' || config.cacheTtl < 0 || !Number.isFinite(config.cacheTtl))) {
