@@ -50,6 +50,7 @@ export type HttpClientConfig = {
   hooks?: HttpHooks;
   middleware?: Middleware[];
   fetch?: FetchLike;
+  transport?: import('../network/transport.types').HttpTransport;
   metadata?: ClientMetadata;
   rateLimit?: RateLimitConfig;
 };

@@ -9,22 +9,12 @@ import {
 } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type { ResponseMeta } from '../types/common';
-import {
-  ClientMetadata,
-  FetchLike,
-  HttpClientConfig,
-  HttpHooks,
-  HttpRequestOptions,
-  HttpResponse,
-  RequestHookPayload,
-  ResponseMetadata,
-  RetryConfig,
-  Middleware,
-} from './http.types';
+import type { ClientMetadata, FetchLike, HttpClientConfig, HttpHooks, HttpRequestOptions, HttpResponse, RequestHookPayload, ResponseMetadata, RetryConfig } from './http.types';
 import { TokenBucket } from './tokenBucket';
 import { runRequestPipeline, runResponsePipeline, runErrorPipeline } from '../middleware/middleware.pipeline';
-import type { RequestMiddlewarePayload, ResponseMiddlewarePayload, ErrorMiddlewarePayload } from '../middleware/middleware.types';
-import type { Middleware } from './http.types';
+import type { RequestMiddlewarePayload, ResponseMiddlewarePayload, ErrorMiddlewarePayload, Middleware } from '../middleware/middleware.types';
+import type { HttpTransport, TransportResponse } from '../network/transport.types';
+import { FetchTransport } from '../network/fetchTransport';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
@@ -37,22 +27,24 @@ const META_HEADERS: Array<{ headerName: string; metaKey: keyof ResponseMeta }> =
   { headerName: 'x-trace-id', metaKey: 'traceId' },
 ];
 
-function extractResponseMeta(response: Response, durationMs: number): ResponseMeta {
+function extractResponseMeta(response: Response | TransportResponse, durationMs: number): ResponseMeta {
   const meta: ResponseMeta = { status: response.status, durationMs };
   
-  const requestId = response.headers.get('x-request-id');
+  const getHeader = (name: string) => 'getHeader' in response ? response.getHeader(name) : (response.headers?.get ? response.headers.get(name) : null);
+
+  const requestId = getHeader('x-request-id');
   if (requestId) meta.requestId = requestId;
 
-  const correlationId = response.headers.get('x-correlation-id');
+  const correlationId = getHeader('x-correlation-id');
   if (correlationId) meta.correlationId = correlationId;
 
-  const traceparent = response.headers.get('traceparent');
+  const traceparent = getHeader('traceparent');
   if (traceparent) {
     meta.traceparent = traceparent;
     meta.traceId = traceparent; // Bridges tests expecting traceId to capture traceparent
   }
 
-  const traceId = response.headers.get('x-trace-id');
+  const traceId = getHeader('x-trace-id');
   if (traceId) {
     meta.traceId = traceId;
   }
@@ -185,30 +177,31 @@ function isJsonContentType(contentType: string | null): boolean {
   return contentType.toLowerCase().includes('application/json');
 }
 
-function buildInvalidResponseError(response: Response, reason: 'unexpected_content_type' | 'malformed_json'): GuildPassResponseValidationError {
-  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
+function buildInvalidResponseError(response: Response | TransportResponse, reason: 'unexpected_content_type' | 'malformed_json'): GuildPassResponseValidationError {
+  const contentType = 'getHeader' in response ? response.getHeader('Content-Type') : (response.headers?.get ? response.headers.get('Content-Type') : null);
   const message = reason === 'unexpected_content_type' ? `Invalid response: expected JSON but received ${contentType || 'unknown'}` : 'Invalid response: received malformed JSON';
   return new GuildPassResponseValidationError(message, GuildPassErrorCode.INVALID_RESPONSE, response.status, { reason, contentType });
 }
 
-async function parseJsonResponse<T>(response: Response): Promise<T> {
+async function parseJsonResponse<T>(response: Response | TransportResponse): Promise<T> {
   try { return await response.json() as T; } catch (error) {
     if (isEmptyJsonBodyError(error)) return undefined as T;
     throw buildInvalidResponseError(response, 'malformed_json');
   }
 }
 
-async function parseSuccessResponse<T>(response: Response): Promise<T> {
-  const contentLength = response.headers?.get ? response.headers.get('Content-Length') : null;
+async function parseSuccessResponse<T>(response: Response | TransportResponse): Promise<T> {
+  const contentLength = 'getHeader' in response ? response.getHeader('Content-Length') : (response.headers?.get ? response.headers.get('Content-Length') : null);
   if (response.status === 204 || response.status === 205 || contentLength === '0') return undefined as T;
-  if (!isJsonContentType(response.headers?.get ? response.headers.get('Content-Type') : null)) throw buildInvalidResponseError(response, 'unexpected_content_type');
+  const contentType = 'getHeader' in response ? response.getHeader('Content-Type') : (response.headers?.get ? response.headers.get('Content-Type') : null);
+  if (!isJsonContentType(contentType)) throw buildInvalidResponseError(response, 'unexpected_content_type');
   return parseJsonResponse<T>(response);
 }
 
-async function parseErrorResponse(response: Response): Promise<unknown> {
-  const contentLength = response.headers?.get ? response.headers.get('Content-Length') : null;
+async function parseErrorResponse(response: Response | TransportResponse): Promise<unknown> {
+  const contentLength = 'getHeader' in response ? response.getHeader('Content-Length') : (response.headers?.get ? response.headers.get('Content-Length') : null);
   if (response.status === 204 || response.status === 205 || contentLength === '0') return null;
-  const contentType = response.headers?.get ? response.headers.get('Content-Type') : null;
+  const contentType = 'getHeader' in response ? response.getHeader('Content-Type') : (response.headers?.get ? response.headers.get('Content-Type') : null);
   if (!isJsonContentType(contentType)) return { code: GuildPassErrorCode.INVALID_RESPONSE, message: 'Endpoint returned a non-JSON error response', meta: { contentType } };
   try { return await response.json(); } catch { return { code: GuildPassErrorCode.INVALID_RESPONSE, message: 'Endpoint returned malformed JSON in an error response', meta: { contentType } }; }
 }
@@ -226,6 +219,7 @@ export class HttpClient {
   private readonly hooks?: HttpHooks;
   private readonly middleware: Middleware[];
   private readonly fetchTransport?: FetchLike;
+  private readonly transport: HttpTransport;
   private readonly metadata?: ClientMetadata;
   private readonly tokenBucket?: TokenBucket;
 
@@ -245,6 +239,7 @@ export class HttpClient {
         this.hooks = configOrHooks.hooks;
         this.middleware = configOrHooks.middleware ?? [];
         this.fetchTransport = configOrHooks.fetch;
+        this.transport = configOrHooks.transport ?? new FetchTransport(this.fetchTransport);
         this.metadata = configOrHooks.metadata;
         if (configOrHooks.rateLimit) this.tokenBucket = new TokenBucket(configOrHooks.rateLimit);
       } else if (isRetryConfig(configOrHooks)) {
@@ -253,6 +248,7 @@ export class HttpClient {
         this.hooks = configOrHooks;
       }
     }
+    if (!this.transport) this.transport = new FetchTransport(this.fetchTransport);
     if (!this.middleware) this.middleware = [];
   }
 
@@ -371,10 +367,8 @@ export class HttpClient {
       }
 
       try {
-        const transport = this.fetchTransport ?? globalThis.fetch;
-        if (typeof transport !== 'function') throw new GuildPassConfigError('A fetch-compatible transport is required.', GuildPassErrorCode.INVALID_CONFIG);
-
-        const response = await transport(url.toString(), {
+        const response = await this.transport.execute({
+          url: url.toString(),
           method,
           headers: requestHeaders,
           body: body ? JSON.stringify(body) : undefined,
@@ -384,10 +378,20 @@ export class HttpClient {
         clearTimeout(timeoutId);
         if (onAbort) signal!.removeEventListener('abort', onAbort);
 
+        const getRetryAfter = () => {
+          const val = response.getHeader('Retry-After');
+          if (!val) return null;
+          const seconds = Number(val);
+          if (!isNaN(seconds)) return seconds * 1000;
+          const date = Date.parse(val);
+          if (!isNaN(date)) return Math.max(0, date - Date.now());
+          return null;
+        };
+
         if (!response.ok) {
           const isRetryable = canRetry && retryConfig.retryableStatuses.includes(response.status);
           if (isRetryable && attempt < retryConfig.maxRetries) {
-            const retryAfter = getRetryAfterMs(response.headers);
+            const retryAfter = getRetryAfter();
             const backoff = computeBackoffMs(retryConfig, attempt);
             this.tokenBucket?.onRateLimited(retryAfter ?? undefined);
             // Always wait before retrying: the server's Retry-After wins when
@@ -400,9 +404,10 @@ export class HttpClient {
           }
 
           const errorData = await parseErrorResponse(response);
-          const errorMeta = extractMeta({ data: undefined, status: response.status, headers: response.headers }, Date.now() - startTime);
+          const errorHeadersObj = response.getHeaders();
+          const errorMeta = extractMeta({ data: undefined, status: response.status, headers: errorHeadersObj as any }, Date.now() - startTime);
           const httpError = GuildPassApiError.fromHttpError(response.status, errorData, {
-            retryAfterMs: getRetryAfterMs(response.headers),
+            retryAfterMs: getRetryAfter(),
           });
           httpError.requestMeta = errorMeta;
           throw httpError;
@@ -410,10 +415,11 @@ export class HttpClient {
 
         const data = await parseSuccessResponse<T>(response);
         const durationMs = Date.now() - startTime;
+        const responseHeadersObj = response.getHeaders();
 
         if (this.hooks?.onResponse) {
           try {
-            await this.hooks.onResponse({ ...hookPayload, status: response.status, durationMs, responseHeaders: redactHeaders(response.headers) });
+            await this.hooks.onResponse({ ...hookPayload, status: response.status, durationMs, responseHeaders: redactHeaders(responseHeadersObj as any) });
           } catch (err) { console.error('GuildPass SDK: onResponse hook failed', err); }
         }
 
@@ -426,7 +432,7 @@ export class HttpClient {
               response: {
                 status: response.status,
                 data,
-                headers: Object.fromEntries(response.headers?.entries?.() ?? []),
+                headers: responseHeadersObj,
                 durationMs,
               },
             });
@@ -438,7 +444,9 @@ export class HttpClient {
         this.tokenBucket?.onSuccess();
         const meta = options.includeMeta ? extractResponseMeta(response, durationMs) : undefined;
 
-        return { data, status: response.status, headers: response.headers, meta };
+        // Note: the headers object we return is the plain object instead of native Headers,
+        // which might break types if it strictly expects Headers. We cast for compatibility.
+        return { data, status: response.status, headers: responseHeadersObj as any, meta };
 
       } catch (error: any) {
         clearTimeout(timeoutId);
