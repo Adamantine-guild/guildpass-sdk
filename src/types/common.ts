@@ -49,4 +49,5 @@ export type AccessRequirement = {
   address?: Address;
   id?: string;
   minAmount?: string;
+  standard?: 'ERC721' | 'ERC1155';
 };
