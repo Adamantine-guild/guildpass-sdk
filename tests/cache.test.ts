@@ -345,11 +345,27 @@ describe('GuildPassClient – cache integration', () => {
     expect(await adapter.get('roles:getRoles:prime-guild')).toBeNull();
   });
 
-  it('invalidateGuildCache is a no-op when no adapter is configured', async () => {
+it('invalidateGuildCache is a no-op when no adapter is configured', async () => {
     const client = new GuildPassClient(BASE_CONFIG);
     await expect(client.invalidateGuildCache('any')).resolves.toBeUndefined();
   });
 
+  // Regression test for #283: pins the acceptance criteria directly against
+  // InMemoryCacheAdapter.deleteByPrefix so a future refactor can't silently
+  // reintroduce a full-cache-scan fallback for this adapter.
+  it('[#283] invalidateGuildCache removes every prime-guild entry and no others', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('access:checkAccess:prime-guild:docs:0xabc', true);
+    await adapter.set('roles:getRoles:prime-guild', ['admin']);
+    await adapter.set('access:checkAccess:other-guild:docs:0xabc', true);
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    await client.invalidateGuildCache('prime-guild');
+
+    expect(await adapter.get('access:checkAccess:prime-guild:docs:0xabc')).toBeNull();
+    expect(await adapter.get('roles:getRoles:prime-guild')).toBeNull();
+    expect(await adapter.get('access:checkAccess:other-guild:docs:0xabc')).toBe(true);
+  });
   it('clearCache clears the entire adapter store', async () => {
     const adapter = new InMemoryCacheAdapter();
     await adapter.set('a', 1);
