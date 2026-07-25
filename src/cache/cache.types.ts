@@ -43,10 +43,14 @@ export interface CacheAdapter {
   /**
    * Delete all entries whose key starts with the given prefix.
    *
-   * **Optional** — the SDK falls back to a less efficient strategy when this
-   * method is absent (e.g. deleting known exact keys or clearing the entire
-   * cache). Implementing this enables granular per-guild and per-wallet cache
-   * invalidation without flushing unrelated entries.
+   * **Optional, by design** — kept off the required contract so minimal
+   * custom adapters (a plain object, a single-key KV store) still satisfy
+   * `CacheAdapter` without implementing prefix scanning.
+   *
+   * Strongly recommended: without it, {@link GuildPassClient.invalidateGuildCache}
+   * and {@link GuildPassClient.invalidateWalletCache} fall back to exact-key
+   * deletion or a full {@link CacheAdapter.clear}, which is slower and can
+   * evict unrelated entries. `InMemoryCacheAdapter` implements it below.
    *
    * Must never throw.
    */
