@@ -215,8 +215,14 @@ await client.roles.getRoles({ guildId: 'guild-1' });
 
 ## Address Normalization and Checksums
 
-The SDK automatically normalizes addresses to lowercase for consistency and accepts both lowercase and mixed-case addresses by default.
-You can also use the exported utilities to format or strictly validate EIP-55 checksum addresses:
+Lowercase is the SDK's canonical internal form: it backs cache keys and every address
+comparison, so `normaliseAddress` returns lowercase by default. Pass `{ checksum: true }`
+when you want the EIP-55 checksummed form instead — typically for display.
+
+`validateAddress` verifies the EIP-55 checksum automatically when the address is supplied
+in mixed case, since mixed case is what carries checksum information. An all-lowercase or
+all-uppercase address carries none, so it is accepted unchanged. `{ strict: true }` still
+forces the check on any casing.
 
 ```typescript
 import {
@@ -226,8 +232,15 @@ import {
   validateAddress,
 } from '@guildpass/sdk';
 
-// Convert to lowercase
-const clean = normaliseAddress('0xabc...');
+// Canonical lowercase form (default) — safe for cache keys and comparisons
+const clean = normaliseAddress('0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045');
+// '0xd8da6bf26964af9d7eed9e03e53415d37aa96045'
+
+// Opt-in EIP-55 checksummed form, for display
+const display = normaliseAddress('0xd8da6bf26964af9d7eed9e03e53415d37aa96045', {
+  checksum: true,
+});
+// '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
 
 // Convert to EIP-55 Checksum
 const checksummed = toChecksumAddress('0xabc...');
@@ -235,7 +248,14 @@ const checksummed = toChecksumAddress('0xabc...');
 // Check if an address has a valid checksum
 const isValid = isChecksumAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // true
 
-// Strict validation mode (throws if checksum is invalid)
+// Mixed case → the checksum is verified automatically
+validateAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // ok
+validateAddress('0xD8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // throws INVALID_ADDRESS
+
+// All-lowercase / all-uppercase carry no checksum information → accepted as before
+validateAddress('0xd8da6bf26964af9d7eed9e03e53415d37aa96045'); // ok
+
+// Strict validation mode (forces the check regardless of casing)
 validateAddress('0xd8da...', { strict: true });
 ```
 

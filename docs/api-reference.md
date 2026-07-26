@@ -612,6 +612,60 @@ On HTTP errors, `GuildPassError.requestMeta` carries the same metadata for corre
 
 ---
 
+## Address Utilities
+
+Exported from the root package and from `@guildpass/sdk/utils`.
+
+### `normaliseAddress(address: string, options?: { checksum?: boolean })`
+
+Returns the canonical form of an address.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `checksum` | `boolean` | `false` | When `true`, returns the EIP-55 checksummed form instead of lowercase. |
+
+By default the address is trimmed and lowercased. Lowercase is the SDK's canonical
+internal form — `GuildPassClient` derives its cache keys from it and `areAddressesEqual`
+compares through it — so the default must stay lowercase for any value used as a key or
+in a comparison. Use `{ checksum: true }` for display output only.
+
+If `checksum: true` is passed a string that is not a well-formed `0x` + 40 hex-digit
+address, the trimmed lowercase form is returned rather than a meaningless checksum.
+`normaliseAddress` never throws; use `validateAddress` to reject malformed input.
+
+```typescript
+normaliseAddress('  0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045  ');
+// '0xd8da6bf26964af9d7eed9e03e53415d37aa96045'
+
+normaliseAddress('0xd8da6bf26964af9d7eed9e03e53415d37aa96045', { checksum: true });
+// '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
+```
+
+### `validateAddress(address: string, options?: { strict?: boolean })`
+
+Throws `GuildPassConfigError` with `GuildPassErrorCode.INVALID_ADDRESS` if the address is
+not a well-formed `0x` + 40 hex-digit string, or `GuildPassErrorCode.INVALID_INPUT` if it
+is empty. Returns `void` otherwise.
+
+The EIP-55 checksum is verified automatically when the hex payload is **mixed case**,
+because only mixed case carries checksum information. All-lowercase and all-uppercase
+addresses carry none and are accepted without a checksum check.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `strict` | `boolean` | `false` | Forces the checksum check on any casing, including all-lowercase. |
+
+A checksum failure throws `INVALID_ADDRESS` with `details.reason === 'checksum_failed'`.
+
+```typescript
+validateAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // ok — valid checksum
+validateAddress('0xD8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // throws — bad checksum
+validateAddress('0xd8da6bf26964af9d7eed9e03e53415d37aa96045'); // ok — no checksum info
+validateAddress('0xd8da6bf26964af9d7eed9e03e53415d37aa96045', { strict: true }); // throws
+```
+
+---
+
 ## Error Handling
 
 Every error the SDK throws is an instance of `GuildPassError`, but you

@@ -74,7 +74,7 @@ describe('Service Modules', () => {
         headers: new Headers(),
       });
 
-      const mixedCaseAddress = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+      const mixedCaseAddress = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
       await client.access.checkAccess({
         walletAddress: mixedCaseAddress,
         guildId: 'guild_1',
@@ -359,7 +359,7 @@ describe('Service Modules', () => {
         headers: new Headers(),
       });
 
-      const mixedCaseAddress = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+      const mixedCaseAddress = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
       await client.roles.getUserRoles({
         guildId: 'guild_1',
         walletAddress: mixedCaseAddress,
@@ -488,7 +488,7 @@ describe('Service Modules', () => {
           headers: new Headers(),
         });
 
-        const mixedCase = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+        const mixedCase = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
         await client.roles.hasRole({
           walletAddress: mixedCase,
           guildId: 'guild_1',

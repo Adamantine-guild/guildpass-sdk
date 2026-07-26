@@ -9,7 +9,10 @@ import checkAccessSuccess from './fixtures/access/check-access-success.json';
 import checkRoleAccessSuccess from './fixtures/access/check-role-access-success.json';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
-const mixedCaseAddress = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+// Mixed case on purpose, to prove the service lowercases it before building a
+// request. The value must carry a valid EIP-55 checksum, since validateAddress
+// verifies the checksum of any mixed-case address it is given.
+const mixedCaseAddress = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 
 function createService(response: unknown) {
   const get = vi.fn().mockResolvedValue(response);

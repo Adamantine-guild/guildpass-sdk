@@ -1147,7 +1147,9 @@ export interface NonceStore {
 }
 
 // @public
-export const normaliseAddress: (address: string) => string;
+export const normaliseAddress: (address: string, options?: {
+    checksum?: boolean;
+}) => string;
 
 // @public
 export type OrRule = {

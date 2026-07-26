@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 
-const mixedCaseAddress = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+// Mixed case on purpose, to prove the services lowercase it before building a
+// URL. The value must carry a valid EIP-55 checksum, since validateAddress
+// verifies the checksum of any mixed-case address it is given.
+const mixedCaseAddress = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 const normalisedAddress = mixedCaseAddress.toLowerCase();
 
 function createClient(responseBody: unknown = {}) {
