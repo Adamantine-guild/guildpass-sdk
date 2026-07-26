@@ -1,0 +1,68 @@
+# wrangler.toml — Cloudflare Workers configuration for the GuildPass example
+#
+# Prerequisites:
+#   1. Install Wrangler: pnpm add -D wrangler   (or npm/yarn)
+#   2. Authenticate:     npx wrangler login
+#   3. Create the KV namespace (one-time):
+#        npx wrangler kv:namespace create GUILDPASS_KV
+#      Copy the returned `id` into the [[kv_namespaces]] block below.
+#
+# Environment variables that contain secrets (GUILDPASS_API_KEY) should be
+# set via the Wrangler CLI or the Workers dashboard — never committed to source
+# control.  The values below are placeholders for local development only.
+
+name            = "guildpass-worker-example"
+main            = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+# ---------------------------------------------------------------------------
+# Workers KV namespace binding
+# Replace the `id` value with the output of:
+#   npx wrangler kv:namespace create GUILDPASS_KV
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding  = "GUILDPASS_KV"
+id       = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+# Uncomment the line below for local `wrangler dev` — create a preview
+# namespace with:  npx wrangler kv:namespace create GUILDPASS_KV --preview
+# preview_id = "REPLACE_WITH_YOUR_KV_PREVIEW_NAMESPACE_ID"
+
+# ---------------------------------------------------------------------------
+# Non-secret environment variables
+# These are safe to commit. Adjust values for your deployment target.
+# ---------------------------------------------------------------------------
+[vars]
+GUILDPASS_API_URL   = "https://api.guildpass.xyz"
+GUILDPASS_CHAIN_ID  = "8453"       # Base Mainnet — change to 1 for Ethereum
+GUILDPASS_CACHE_TTL = "30000"      # 30 s in milliseconds
+
+# ---------------------------------------------------------------------------
+# Secret binding — DO NOT set the real value here.
+# Set it via the CLI instead:
+#   npx wrangler secret put GUILDPASS_API_KEY
+# For local dev you can add it to a .dev.vars file (gitignored):
+#   echo 'GUILDPASS_API_KEY=your-dev-key' >> .dev.vars
+# ---------------------------------------------------------------------------
+# GUILDPASS_API_KEY is intentionally absent from [vars] — it is a secret.
+
+# ---------------------------------------------------------------------------
+# Local development overrides (applied only during `wrangler dev`)
+# ---------------------------------------------------------------------------
+[env.development]
+name = "guildpass-worker-example-dev"
+
+[env.development.vars]
+GUILDPASS_API_URL   = "https://api.guildpass.xyz"
+GUILDPASS_CHAIN_ID  = "8453"
+GUILDPASS_CACHE_TTL = "5000"       # Shorter TTL during local dev
+
+# ---------------------------------------------------------------------------
+# Production overrides (applied during `wrangler deploy --env production`)
+# ---------------------------------------------------------------------------
+[env.production]
+name = "guildpass-worker-example"
+
+[env.production.vars]
+GUILDPASS_API_URL   = "https://api.guildpass.xyz"
+GUILDPASS_CHAIN_ID  = "8453"
+GUILDPASS_CACHE_TTL = "60000"      # 60 s TTL in production
