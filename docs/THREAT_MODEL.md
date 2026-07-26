@@ -286,7 +286,8 @@ The cache-adapter boundary is currently partially documented (see `docs/cache-ad
 
 | Scenario | Code Path | Impact |
 |----------|-----------|--------|
-| `validateAddress` receives a string that passes regex but fails EIP-55 checksum | Checksum check only when `strict: true` | Safe — by design, strict mode is opt-in |
+| `validateAddress` receives a mixed-case string that passes regex but fails EIP-55 checksum | Checksum verified automatically whenever the hex payload is mixed case | Safe — a corrupted or tampered checksummed address is now rejected by default, not just under `strict: true` |
+| `validateAddress` receives an all-lowercase or all-uppercase string that is not a real address | No checksum check — a uniformly cased address carries no EIP-55 information to verify | Accepted by design; only the format is enforced. Callers that control the casing of their input can opt into `strict: true` to require a checksummed address |
 | `validateGuildId` receives a 10MB string | `guildId.trim().length` would compute a very long string, but only `.length` (O(1)) and `.trim()` (O(n)) | **Gap** — no maximum length, allowing very long strings to propagate to downstream functions like `encodeBytes32` |
 | `validateResourceId` with a string full of null bytes (`\0`) | Passes all checks (non-empty string) | **Gap** — potential issues in downstream consumers that use this in file paths or SQL queries (though the SDK doesn't do either) |
 | `throwValidationError` with sensitive field names | Checks `sensitiveKeys.includes(field.toLowerCase())` → deletes `details.value` | Safe |

@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Changed
+- **`validateAddress` now verifies the EIP-55 checksum automatically for mixed-case addresses** — resolves [#394](https://github.com/Adamantine-Guild/guildpass-sdk/issues/394). Previously the checksum was only checked under `{ strict: true }`, so a mixed-case address with a corrupted checksum (a typo, a truncated copy-paste, a tampered value) passed validation silently.
+  - Detection follows the intent of EIP-55: only a mixed-case hex payload carries checksum information, so only that case is verified. An all-lowercase or all-uppercase address carries none and is accepted exactly as before — no regression for the common lowercase path.
+  - `{ strict: true }` is unchanged and still forces the check on any casing, including all-lowercase.
+  - Failures keep the existing error shape: `GuildPassErrorCode.INVALID_ADDRESS` with `reason: 'checksum_failed'`.
+  - This is a behavior change only for input that is mixed-case *and* fails its checksum — input that was previously accepted by mistake. Any address a wallet or block explorer produces is correctly checksummed and keeps working.
 - **`validateResponses` now defaults to `true`** (was `false`). Every response from `AccessService.checkAccess`/`checkRoleAccess`, `MembershipService.getMembership`, `RolesService.getRoles`/`getUserRoles`, and `GuildsService.getGuild`/`getGuildConfig` is now shape-checked before being returned, out of the box — no config needed. Set `validateResponses: false` on `GuildPassClientConfig` to restore the previous unchecked behavior.
   - Unknown/extra response fields are always passed through untouched (never stripped, never rejected) — see the passthrough policy in [`docs/serialization-validation.md`](docs/serialization-validation.md). Only a missing required field or a wrong primitive type fails validation.
   - Fixed two over-strict validation bugs found while making this the default, both of which would have rejected common, legitimate API responses:
@@ -15,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - This is a behavior change for any consumer relying on receiving a malformed/incomplete API response unchecked; per this project's pre-1.0 versioning policy (see README → Versioning) this ships as a **minor** bump.
 
 ### Added
+- **`normaliseAddress(address, { checksum })`** — opt-in EIP-55 checksummed output, part of [#394](https://github.com/Adamantine-Guild/guildpass-sdk/issues/394). `normaliseAddress(addr, { checksum: true })` returns the checksummed form for display; the default (no options) still returns lowercase and is unchanged.
+  - The lowercase default is deliberate and load-bearing: `GuildPassClient` builds cache keys from `normaliseAddress`, and `areAddressesEqual` compares through it. Emitting mixed-case by default would split cache entries for the same wallet across casings.
+  - Purely additive — the parameter is optional, so every existing call site keeps its current behavior and type.
+  - No new runtime dependency: reuses the `js-sha3` keccak-256 already used by `toChecksumAddress`.
 - **Unified request/response validation layer.** Every HTTP domain service call (`AccessService.checkAccess`/`checkRoleAccess`, `MembershipService.getMembership`, `RolesService.getRoles`/`getUserRoles`, `GuildsService.getGuild`/`getGuildConfig`) now validates its request parameters structurally before transmission, pairing the response-shape guards that already existed for each model. See [`docs/serialization-validation.md`](docs/serialization-validation.md) for the schema/error/unknown-field policy.
   - New: `assertValidRequest`, and per-model guards `isAccessCheckParams`, `isRoleAccessCheckParams`, `isMembershipParams`, `isGetRolesParams`, `isGetUserRolesParams`, `isGetGuildParams` (exported from the root package, mirroring the existing `responseGuards`/`assertValidResponse`).
   - No new runtime dependency — built on the existing zero-dependency combinator DSL in `src/validation/schema.ts`.
