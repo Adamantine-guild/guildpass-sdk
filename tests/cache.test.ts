@@ -56,10 +56,18 @@ describe('GuildPassClient – cache integration', () => {
   const mockGuild = {
     id: 'prime-guild',
     name: 'Prime Guild',
-    ownerAddress: '0xowner',
+    ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
     chainId: 1,
   };
-  const mockAccess = { hasAccess: true, reason: null };
+  const mockAccess = {
+    hasAccess: true,
+    walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+    guildId: 'g1',
+    resourceId: 'res1',
+    requiredRoles: [],
+    matchedRoles: [],
+    reason: null,
+  };
 
   function buildMockAdapter(): CacheAdapter & { _store: Map<string, unknown> } {
     const store = new Map<string, { value: unknown; expiresAt: number | null }>();
@@ -409,7 +417,7 @@ it('invalidateGuildCache is a no-op when no adapter is configured', async () => 
   });
 
   describe('Resilience - cache failures', () => {
-    const mockGuild = { id: 'g1', name: 'G1', ownerAddress: '0x1', chainId: 1 };
+    const mockGuild = { id: 'g1', name: 'G1', ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', chainId: 1 };
 
     it('falls back to network if cache.get() fails', async () => {
       const adapter = buildMockAdapter();
@@ -485,7 +493,15 @@ it('invalidateGuildCache is a no-op when no adapter is configured', async () => 
 });
 
 describe('GuildPassClient – cache-key collision resistance', () => {
-  const mockAccess = { hasAccess: true, reason: null };
+  const mockAccess = {
+    hasAccess: true,
+    walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+    guildId: 'g1',
+    resourceId: 'res1',
+    requiredRoles: [],
+    matchedRoles: [],
+    reason: null,
+  };
   const wallet = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
 
   it('does not collide when a guildId/resourceId split shifts across the delimiter', async () => {
@@ -661,10 +677,10 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
    * (line 167-168: exact-key deletion) and invalidateWalletCache
    * (line 190-191: full clear).
    */
-  function createMinimalAdapter(): CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn> } {
+  function createMinimalAdapter(): CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn<[], Promise<void>>> } {
     const store = new Map<string, unknown>();
     const clearSpy = vi.fn(async () => { store.clear(); });
-    const adapter: CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn> } = {
+    const adapter: CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn<[], Promise<void>>> } = {
       _store: store as unknown as Map<string, unknown>,
       clearSpy,
       async get<T>(key: string): Promise<T | null> {
@@ -689,7 +705,7 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
   it('invalidateGuildCache falls back to exact-key deletion when adapter lacks deleteByPrefix', async () => {
     const adapter = createMinimalAdapter();
     const deleteSpy = vi.spyOn(adapter, 'delete');
-    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0x1', chainId: 1 };
+    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', chainId: 1 };
 
     // Populate exact-prefix keys that the SDK computes
     await adapter.set('guilds:getGuild:prime-guild', mockGuild);
@@ -707,7 +723,7 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
 
   it('invalidateGuildCache fallback misses composite/nested keys (expected limitation)', async () => {
     const adapter = createMinimalAdapter();
-    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0x1', chainId: 1 };
+    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', chainId: 1 };
 
     // Composite keys with wallet/resource suffixes
     await adapter.set('access:checkAccess:prime-guild:premium-docs:0xabc', { hasAccess: true });

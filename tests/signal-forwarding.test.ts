@@ -171,7 +171,14 @@ describe('Mid-batch cancellation — checkAccessBatch', () => {
       return new Promise((resolve, reject) => {
         const delay = isFirst ? 5 : 200;
         const timer = setTimeout(() => {
-          resolve(new Response(JSON.stringify({ allowed: true }), {
+          resolve(new Response(JSON.stringify({
+            hasAccess: true,
+            walletAddress: validAddress,
+            guildId: 'guild_1',
+            resourceId: 'res_0',
+            requiredRoles: [],
+            matchedRoles: [],
+          }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }));

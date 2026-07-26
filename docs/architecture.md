@@ -300,6 +300,30 @@ The SDK includes a resilient caching layer that wraps service methods.
 - **Resilience**: Caching is non-blocking and failure-tolerant. Cache errors are isolated from the main request flow.
 - **Observability**: Developers can monitor cache health via lifecycle hooks.
 
+**In-flight request coalescing.** When `deduplication` is enabled (the
+default), concurrent calls with identical arguments share a single
+underlying HTTP request instead of each issuing their own — see
+`GuildPassClient.coalesce()`/`withCache()` in `src/client/GuildPassClient.ts`.
+Two exceptions, both there to stop one caller's request from affecting an
+unrelated caller's:
+
+- **A caller-supplied `signal` opts that call out of coalescing by
+  default.** If two callers share the same cache key but only one passes an
+  `AbortSignal`, they get independent requests — otherwise the signalled
+  caller aborting would reject the other caller too, who never asked to be
+  cancelled. Pass `deduplicate: true` explicitly to opt back in despite a
+  signal being present; `deduplicate: false` always opts out.
+- **`checkAccessBatch` never coalesces its items with each other or with a
+  concurrent lone `checkAccess` call**, regardless of the `deduplication`
+  config — see the `neverCoalesce` proxy in
+  `GuildPassClient.buildCachedAccessService()`. Cache reads/writes still
+  happen per item; only in-flight sharing is skipped.
+
+`deduplicate` is a client-orchestration-only option — it is never present in
+the object handed to the underlying service method or `HttpClient` (see
+`stripDeduplicate()` in `GuildPassClient.ts`), so it can't leak into request
+options a service forwards to the transport.
+
 ## Data Flow
 
 1. Developer initializes `GuildPassClient` with an optional `cache`.
@@ -308,7 +332,10 @@ The SDK includes a resilient caching layer that wraps service methods.
    - The SDK attempts to retrieve the value from the `cache`.
    - If successful (cache hit), the value is returned immediately.
    - If a cache failure occurs, the SDK logs the error via hooks and proceeds to the network.
-4. Service validates input using `src/utils/validation.ts`.
+4. Service validates input — a structural schema check first (for the
+   subset of models covered so far, see
+   [`docs/serialization-validation.md`](./serialization-validation.md)),
+   then the field-level checks in `src/utils/validation.ts`.
 5. Service calls `HttpClient` with the appropriate path and params.
 6. `HttpClient` executes the fetch request.
 7. If successful:

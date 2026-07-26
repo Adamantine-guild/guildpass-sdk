@@ -8,7 +8,6 @@
  * @module siwe
  */
 
-import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type {
   SiweMessage,
@@ -23,9 +22,6 @@ import {
   ecRecover,
   publicKeyToAddress,
   hashPersonalMessage,
-  hexToBytes,
-  keccak256Bytes,
-  bigintToBytes32,
 } from '../crypto/secp256k1';
 
 /** Maximum length of a raw SIWE message string (10 KB). */
@@ -439,7 +435,7 @@ export function generateSiweNonce(): string {
     // Uses a lazy dynamic import that bundlers for Edge/browser targets will
     // tree-shake away, so it never blocks Edge compatibility.
     if (isNodeEnvironment()) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const nodeCrypto = require('node:crypto') as typeof import('node:crypto');
       return nodeCrypto.randomBytes(1)[0];
     }

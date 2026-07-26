@@ -109,7 +109,14 @@ describe('Per-request retry configuration', () => {
         status: 503,
         headers: { 'Content-Type': 'application/json' },
       }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ hasAccess: true }), {
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hasAccess: true,
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        guildId: 'guild-1',
+        resourceId: 'resource-1',
+        requiredRoles: [],
+        matchedRoles: [],
+      }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }));
@@ -120,6 +127,7 @@ describe('Per-request retry configuration', () => {
       retry: {
         maxRetries: 3,
         baseDelayMs: 375,
+        jitter: false,
       },
     });
 

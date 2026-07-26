@@ -72,7 +72,15 @@ describe('emitSecurityConfigWarnings', () => {
 });
 
 describe('access cache TTL enforcement', () => {
-  const mockAccess = { hasAccess: true, reason: null };
+  const mockAccess = {
+    hasAccess: true,
+    walletAddress: WALLET,
+    guildId: 'prime-guild',
+    resourceId: 'premium-docs',
+    requiredRoles: [],
+    matchedRoles: [],
+    reason: null,
+  };
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -118,7 +126,7 @@ describe('access cache TTL enforcement', () => {
     const mockGuild = {
       id: 'prime-guild',
       name: 'Prime Guild',
-      ownerAddress: '0xowner',
+      ownerAddress: WALLET,
       chainId: 1,
     };
 

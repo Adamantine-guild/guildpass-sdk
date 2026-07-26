@@ -140,10 +140,18 @@ describe('GuildPassClient', () => {
   });
 
   it('should pass a custom fetch transport through to SDK requests', async () => {
+    const mockResult = {
+      hasAccess: true,
+      walletAddress: '0x742d35cc6634c0532925a3b844bc9e7595f0beef',
+      guildId: 'guild-1',
+      resourceId: 'resource-1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
     const transport = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ hasAccess: true }),
+      json: () => Promise.resolve(mockResult),
       headers: new Headers(),
     });
     const globalFetch = vi.fn();
@@ -160,7 +168,7 @@ describe('GuildPassClient', () => {
       resourceId: 'resource-1',
     });
 
-    expect(result).toEqual({ hasAccess: true });
+    expect(result).toEqual(mockResult);
     expect(transport).toHaveBeenCalled();
     expect(transport).toHaveBeenCalledWith(
       expect.stringContaining('/access/check'),

@@ -31,7 +31,6 @@ describe('TokenBucket', () => {
     await bucket.acquire();
 
     // Next call should wait ~500ms
-    const start = Date.now();
     const p = bucket.acquire();
     vi.advanceTimersByTime(499);
     // Should still be waiting
@@ -92,7 +91,12 @@ describe('TokenBucket', () => {
     // Retry-After: 2000ms means at most 0.5 req/s, so set to 0.4 req/s
     bucket.onRateLimited(2000);
 
-    await bucket.acquire(); // consume token
+    // onRateLimited(2000) also sets a hard 2000ms throttle that blocks every
+    // acquisition (even burst-capacity ones) until it elapses, so this first
+    // acquire() needs fake time advanced before it resolves.
+    const first = bucket.acquire(); // consume token
+    await vi.advanceTimersByTimeAsync(2000);
+    await first;
 
     // Next token should take ~2500ms (1/0.4 = 2500ms)
     const p = bucket.acquire();

@@ -53,6 +53,19 @@ export type GuildPassClientConfig = {
   fetch?: FetchLike;
   transport?: import('../network/transport.types').HttpTransport;
   rateLimit?: RateLimitConfig;
+  /**
+   * Validates every API response against its expected shape before
+   * returning it to the caller — see `docs/serialization-validation.md`.
+   * Unknown/extra fields are always passed through untouched; only missing
+   * required fields or wrong primitive types fail validation. On mismatch,
+   * throws `GuildPassResponseValidationError` (code `INVALID_RESPONSE`)
+   * naming the offending field, endpoint, and what was received.
+   *
+   * Set to `false` to restore the pre-validation behavior of returning
+   * whatever the server sent, unchecked.
+   *
+   * @default true
+   */
   validateResponses?: boolean;
   /** Enforces EIP-55 checksums for all addresses accepted by the SDK. @default false */
   strictAddressChecksum?: boolean;

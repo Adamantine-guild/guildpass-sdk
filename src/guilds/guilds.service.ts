@@ -4,7 +4,9 @@ import { HttpClient } from '../http/httpClient';
 import { validateGuildId } from '../utils/validation';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
+import { assertValidRequest } from '../validation/assertRequest';
 import { isGuild, isGuildConfig } from '../validation/responseGuards';
+import { isGetGuildParams } from '../validation/requestGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 import { verifySignedPayload, SignedEnvelope } from '../security';
@@ -27,9 +29,10 @@ export class GuildsService {
    * Fetches basic guild information.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getGuild(params: GetGuildParams): Promise<Guild>;
   public async getGuild(params: GetGuildParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: Guild; meta: ResponseMetadata }>;
+  public async getGuild(params: GetGuildParams, options?: RequestOptions): Promise<Guild>;
   public async getGuild(params: GetGuildParams, options?: RequestOptions): Promise<Guild | { data: Guild; meta: ResponseMetadata }> {
+    assertValidRequest(params, isGetGuildParams, 'GetGuildParams', { endpoint: 'GET /guilds/:id' });
     // GuildPass SDK: Local block-scoped constant reference.
     const { guildId } = params;
     validateGuildId(guildId);
@@ -65,9 +68,6 @@ export class GuildsService {
    * Fetches full guild configuration including theme and social links.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getGuildConfig<T extends RequestOptions | undefined = undefined>(
-    params: GetGuildParams,
-  ): Promise<GuildConfig>;
   public async getGuildConfig(
     params: GetGuildParams,
     options: RequestOptions & { includeMeta: true },
@@ -75,7 +75,12 @@ export class GuildsService {
   public async getGuildConfig(
     params: GetGuildParams,
     options?: RequestOptions,
+  ): Promise<GuildConfig>;
+  public async getGuildConfig(
+    params: GetGuildParams,
+    options?: RequestOptions,
   ): Promise<GuildConfig | { data: GuildConfig; meta: ResponseMetadata }> {
+    assertValidRequest(params, isGetGuildParams, 'GetGuildParams', { endpoint: 'GET /guilds/:id/config' });
     // GuildPass SDK: Define internal reference identifier.
     const { guildId } = params;
     validateGuildId(guildId);

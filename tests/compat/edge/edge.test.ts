@@ -103,9 +103,7 @@ describe('secp256k1 - Edge Runtime', () => {
   });
 
   it('should perform ECDSA recovery', async () => {
-    const { ecRecover, hexToBytes, hashPersonalMessage, publicKeyToAddress } = await import(
-      '../../../src/crypto/secp256k1'
-    );
+    const { ecRecover } = await import('../../../src/crypto/secp256k1');
 
     // Test with a known signature structure (not verifying real sig, just the function)
     const msgHash = new Uint8Array(32);
@@ -297,7 +295,7 @@ describe('GuildPassClient - Edge Runtime', () => {
       cacheTtl: 60_000,
     });
 
-    expect(client.cache).toBeDefined(); // eslint-disable-line
+    expect((client as any).cache).toBeDefined();
     expect(client.access).toBeDefined();
     expect(client.membership).toBeDefined();
     expect(client.roles).toBeDefined();

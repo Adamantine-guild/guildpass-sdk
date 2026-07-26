@@ -10,7 +10,15 @@ function mockFetch(headers?: Record<string, string>) {
   return vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: () => Promise.resolve({ ok: true }),
+    json: () =>
+      Promise.resolve({
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild-1',
+        resourceId: 'res-1',
+        requiredRoles: [],
+        matchedRoles: [],
+      }),
     headers: new Headers(headers ?? { 'Content-Type': 'application/json' }),
   });
 }

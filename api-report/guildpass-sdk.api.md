@@ -24,9 +24,29 @@ export type AbiParameter = {
 export const ACCESS_CONTROL_INTERFACE_ID = "0x7965db0b";
 
 // @public (undocumented)
+export type AccessCheckBatchByResourceParams = {
+    walletAddress: string;
+    guildId: string;
+    resourceIds: string[];
+};
+
+// @public (undocumented)
+export type AccessCheckBatchByResourceResult = Record<string, AccessCheckBatchResourceEntry>;
+
+// @public (undocumented)
 export type AccessCheckBatchOptions = {
     concurrency?: number;
     failFast?: boolean;
+    adaptiveConcurrency?: boolean;
+};
+
+// @public (undocumented)
+export type AccessCheckBatchResourceEntry = {
+    status: 'fulfilled';
+    value: AccessCheckResult;
+} | {
+    status: 'rejected';
+    error: Error;
 };
 
 // @public (undocumented)
@@ -69,6 +89,7 @@ export type AccessRequirement = {
     address?: Address;
     id?: string;
     minAmount?: string;
+    standard?: 'ERC721' | 'ERC1155';
 };
 
 // @public
@@ -78,9 +99,7 @@ export type AccessRule = AccessCheckRule | TokenBalanceAtLeastRule | HasRoleRule
 export class AccessService {
     // Warning: (ae-forgotten-export) The symbol "HttpClient" needs to be exported by the entry point index.d.ts
     // Warning: (ae-forgotten-export) The symbol "DiscrepancyHookPayload" needs to be exported by the entry point index.d.ts
-    constructor(http: HttpClient, validateResponses?: boolean, contracts?: ContractClient | undefined, onDiscrepancy?: ((payload: DiscrepancyHookPayload) => void | Promise<void>) | undefined);
-    // (undocumented)
-    checkAccess(params: AccessCheckParams): Promise<AccessCheckResult>;
+    constructor(http: HttpClient, validateResponses?: boolean, contracts?: ContractClient | undefined, onDiscrepancy?: ((payload: DiscrepancyHookPayload) => void | Promise<void>) | undefined, verifySignedResponses?: boolean, trustedSignerAddress?: string | undefined, strictAddressChecksum?: boolean);
     // (undocumented)
     checkAccess(params: AccessCheckParams, options: RequestOptions & {
         includeMeta: true;
@@ -88,10 +107,12 @@ export class AccessService {
         data: AccessCheckResult;
         meta: ResponseMetadata;
     }>;
-    checkAccessBatch(items: AccessCheckParams[], options?: AccessCheckBatchOptions & RequestOptions): Promise<AccessCheckBatchResult[]>;
-    checkAccessVerified(params: AccessCheckParams, options: VerifiedAccessCheckOptions): Promise<VerifiedAccessCheckResult>;
     // (undocumented)
-    checkRoleAccess(params: RoleAccessCheckParams): Promise<boolean>;
+    checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult>;
+    checkAccessBatch(items: AccessCheckParams[], options?: AccessCheckBatchOptions & RequestOptions): Promise<AccessCheckBatchResult[]>;
+    // (undocumented)
+    checkAccessBatch(params: AccessCheckBatchByResourceParams, options?: AccessCheckBatchOptions & RequestOptions): Promise<AccessCheckBatchByResourceResult>;
+    checkAccessVerified(params: AccessCheckParams, options: VerifiedAccessCheckOptions): Promise<VerifiedAccessCheckResult>;
     // (undocumented)
     checkRoleAccess(params: RoleAccessCheckParams, options: RequestOptions & {
         includeMeta: true;
@@ -99,6 +120,8 @@ export class AccessService {
         data: boolean;
         meta: ResponseMetadata;
     }>;
+    // (undocumented)
+    checkRoleAccess(params: RoleAccessCheckParams, options?: RequestOptions): Promise<boolean>;
 }
 
 // @public
@@ -154,8 +177,13 @@ export type AndRule = {
 // @public
 export const areAddressesEqual: (addr1: string, addr2: string) => boolean;
 
+// Warning: (ae-forgotten-export) The symbol "ExplainingValidator" needs to be exported by the entry point index.d.ts
+//
 // @public
-export function assertValidResponse<T>(value: unknown, guard: (value: unknown) => value is T, typeName: string): T;
+export function assertValidRequest<T>(value: unknown, guard: ((value: unknown) => value is T) & Partial<ExplainingValidator<T>>, typeName: string, context?: RequestValidationContext): T;
+
+// @public
+export function assertValidResponse<T>(value: unknown, guard: ((value: unknown) => value is T) & Partial<ExplainingValidator<T>>, typeName: string, context?: ResponseValidationContext): T;
 
 // @public
 export const BALANCE_OF_SELECTOR = "0x70a08231";
@@ -178,6 +206,9 @@ export type BlockTag = number | 'safe' | 'finalized';
 
 // @public
 export const buildFunctionSignature: (abi: AbiFunction) => string;
+
+// @public
+export function buildGuildRoleDelegationTypedData(domain: EIP712Domain, delegation: GuildRoleDelegation): EIP712TypedData;
 
 // @public
 export interface CacheAdapter {
@@ -218,6 +249,30 @@ export type ChainConfig = {
 // @public (undocumented)
 export function connectWallet(provider: EIP1193Provider): Promise<string[]>;
 
+// @public
+export type ConsensusMismatchDetails = {
+    totalProviders: number;
+    successfulCount: number;
+    failedCount: number;
+    quorum: number;
+    groups: ConsensusMismatchGroup[];
+    failures: ConsensusMismatchFailure[];
+};
+
+// @public
+export type ConsensusMismatchFailure = {
+    url: string;
+    code: string;
+    message: string;
+};
+
+// @public
+export type ConsensusMismatchGroup = {
+    value: string;
+    urls: string[];
+    count: number;
+};
+
 // @public (undocumented)
 export class ContractClient {
     constructor(config: GuildPassClientConfig, http?: HttpClient);
@@ -246,6 +301,19 @@ export interface ContractProvider {
     batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
     ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown>;
 }
+
+// @public
+export type ContractReadConsensus = {
+    providers: string[];
+    minProviders: number;
+};
+
+// @public
+export function createMiddleware(name: string, handlers: {
+    onRequest?: (payload: RequestMiddlewarePayload) => void | Promise<void>;
+    onResponse?: (payload: ResponseMiddlewarePayload) => void | Promise<void>;
+    onError?: (payload: ErrorMiddlewarePayload) => void | Promise<void>;
+}): Middleware;
 
 // @public (undocumented)
 export const DECIMALS_SELECTOR = "0x313ce567";
@@ -278,6 +346,57 @@ export interface EIP1193Provider {
     }): Promise<any>;
 }
 
+// @public
+export interface EIP712Domain {
+    // (undocumented)
+    chainId?: number | bigint;
+    // (undocumented)
+    name?: string;
+    // (undocumented)
+    salt?: string;
+    // (undocumented)
+    verifyingContract?: string;
+    // (undocumented)
+    version?: string;
+}
+
+// @public (undocumented)
+export type EIP712Message = Record<string, EIP712Value>;
+
+// @public
+export interface EIP712TypedData {
+    // (undocumented)
+    domain: EIP712Domain;
+    // (undocumented)
+    message: EIP712Message;
+    // (undocumented)
+    primaryType: string;
+    // (undocumented)
+    types: EIP712Types;
+}
+
+// @public
+export interface EIP712TypeProperty {
+    // (undocumented)
+    name: string;
+    // (undocumented)
+    type: string;
+}
+
+// @public
+export type EIP712Types = Record<string, EIP712TypeProperty[]>;
+
+// @public
+export type EIP712Value = unknown;
+
+// @public
+export interface EIP712VerifyResult {
+    code?: string;
+    error?: string;
+    signer?: string;
+    success: boolean;
+}
+
 // Warning: (ae-forgotten-export) The symbol "AbiParameter_2" needs to be exported by the entry point index.d.ts
 //
 // @public
@@ -297,6 +416,9 @@ export const encodeInterfaceId: (interfaceId: string) => string;
 
 // @public
 export const encodePathSegment: (segment: string) => string;
+
+// @public
+export function encodeType(primaryType: string, types: EIP712Types): string;
 
 // @public (undocumented)
 export const encodeUint256Argument: (value: string, label?: string) => string;
@@ -346,6 +468,14 @@ export type ErrorHookPayload = RequestHookPayload & {
 };
 
 // @public
+export interface ErrorMiddlewarePayload {
+    durationMs?: number;
+    error: Error;
+    // (undocumented)
+    request: RequestMiddlewarePayload;
+}
+
+// @public
 export type EthCallRequest = {
     to: string;
     data: string;
@@ -356,6 +486,13 @@ export function evaluateRule(client: RuleEvaluationClient, rule: AccessRule, con
 
 // @public (undocumented)
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+// @public (undocumented)
+export class FetchTransport implements HttpTransport {
+    constructor(fetchFn?: FetchLike | undefined);
+    // (undocumented)
+    execute(request: TransportRequest): Promise<TransportResponse>;
+}
 
 // @public
 export const formatIsoDate: (date: string | number | Date) => string;
@@ -415,6 +552,9 @@ export type Guild = {
     chainId: number;
 };
 
+// @public
+export const GUILD_ROLE_DELEGATION_TYPES: EIP712Types;
+
 // @public (undocumented)
 export type GuildConfig = {
     id: string;
@@ -441,6 +581,29 @@ export type GuildOwnersBatchParams = {
     chunkConcurrency?: number;
 };
 
+// @public
+export class GuildPassApiError extends GuildPassError {
+    constructor(message: string, code: GuildPassErrorCode, status: number, details?: any);
+    static fromHttpError(status: number, details?: any, options?: {
+        retryAfterMs?: number | null;
+    }): GuildPassApiError;
+}
+
+// @public
+export class GuildPassAuthenticationError extends GuildPassApiError {
+    constructor(message: string, details?: any);
+}
+
+// @public
+export class GuildPassAuthorizationError extends GuildPassApiError {
+    constructor(message: string, details?: any);
+}
+
+// @public
+export class GuildPassCancellationError extends GuildPassNetworkError {
+    constructor(message?: string, details?: any);
+}
+
 // @public (undocumented)
 export class GuildPassClient {
     constructor(config: GuildPassClientConfig);
@@ -449,7 +612,7 @@ export class GuildPassClient {
     clearCache(): Promise<void>;
     // (undocumented)
     readonly contracts: ContractClient;
-    getConfig(): Omit<GuildPassClientConfig, 'apiKey'>;
+    getConfig(): PublicClientConfig;
     // (undocumented)
     readonly guilds: GuildsService;
     invalidateGuildCache(guildId: string): Promise<void>;
@@ -458,6 +621,57 @@ export class GuildPassClient {
     readonly membership: MembershipService;
     // (undocumented)
     readonly roles: RolesService;
+}
+
+// @public (undocumented)
+export class GuildPassClientBuilder {
+    constructor(apiUrl?: string);
+    // (undocumented)
+    build(): GuildPassClient;
+    // (undocumented)
+    withApiKey(apiKey: string): this;
+    // (undocumented)
+    withApiUrl(apiUrl: string): this;
+    // (undocumented)
+    withBatchStrategy(strategy: 'jsonrpc' | 'multicall3'): this;
+    // (undocumented)
+    withCache(cache: CacheAdapter, ttlMs?: number): this;
+    // (undocumented)
+    withChain(chainId: number, chainConfig: ChainConfig): this;
+    // (undocumented)
+    withClientMetadata(name: string, version: string): this;
+    // (undocumented)
+    withContractProvider(provider: ContractProvider): this;
+    // (undocumented)
+    withContractReadConsensus(consensus: ContractReadConsensus): this;
+    // (undocumented)
+    withDeduplication(enabled: boolean): this;
+    // (undocumented)
+    withFetch(fetchFn: FetchLike): this;
+    // (undocumented)
+    withHooks(hooks: HttpHooks): this;
+    // (undocumented)
+    withMiddleware(middleware: Middleware[]): this;
+    // Warning: (ae-forgotten-export) The symbol "RateLimitConfig" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    withRateLimit(rateLimit: RateLimitConfig): this;
+    // (undocumented)
+    withRetry(retry: RetryConfig): this;
+    // (undocumented)
+    withRpcUrl(rpcUrl: string): this;
+    // (undocumented)
+    withRpcUrls(rpcUrls: string[]): this;
+    // (undocumented)
+    withSignedResponses(enabled: boolean, trustedSignerAddress?: string): this;
+    // (undocumented)
+    withStrictAddressChecksum(enabled: boolean): this;
+    // (undocumented)
+    withStrictInterfaceChecking(enabled: boolean): this;
+    // (undocumented)
+    withTimeout(timeoutMs: number): this;
+    // (undocumented)
+    withTransport(transport: HttpTransport): this;
 }
 
 // @public (undocumented)
@@ -473,18 +687,31 @@ export type GuildPassClientConfig = {
     chains?: Record<number, ChainConfig>;
     apiKey?: string;
     timeoutMs?: number;
+    defaultTimeoutMs?: number;
     retry?: RetryConfig;
     hooks?: HttpHooks;
+    middleware?: Middleware[];
     fetch?: FetchLike;
+    transport?: HttpTransport;
     rateLimit?: RateLimitConfig;
     validateResponses?: boolean;
+    strictAddressChecksum?: boolean;
     cache?: CacheAdapter;
     cacheTtl?: number;
+    deduplication?: boolean;
     sendClientMetadata?: boolean;
     clientName?: string;
     clientVersion?: string;
     strictInterfaceChecking?: boolean;
+    verifySignedResponses?: boolean;
+    trustedSignerAddress?: string;
+    contractReadConsensus?: ContractReadConsensus;
 };
+
+// @public
+export class GuildPassConfigError extends GuildPassError {
+    constructor(message: string, code?: GuildPassErrorCode, status?: number, details?: any);
+}
 
 // @public (undocumented)
 export class GuildPassError extends Error {
@@ -498,6 +725,14 @@ export class GuildPassError extends Error {
     requestMeta?: ResponseMetadata;
     // (undocumented)
     readonly status?: number;
+    toJSON(): {
+        name: string;
+        message: string;
+        code: GuildPassErrorCode;
+        status: number | undefined;
+        requestMeta: ResponseMetadata | undefined;
+        details: unknown;
+    };
 }
 
 // @public (undocumented)
@@ -508,6 +743,17 @@ export enum GuildPassErrorCode {
     CACHE_ERROR = "CACHE_ERROR",
     // (undocumented)
     CONFLICT = "CONFLICT",
+    CONSENSUS_MISMATCH = "CONSENSUS_MISMATCH",
+    // (undocumented)
+    EIP712_EXPIRED = "EIP712_EXPIRED",
+    // (undocumented)
+    EIP712_INVALID_SIGNATURE = "EIP712_INVALID_SIGNATURE",
+    // (undocumented)
+    EIP712_INVALID_TYPED_DATA = "EIP712_INVALID_TYPED_DATA",
+    // (undocumented)
+    EIP712_REPLAY_DETECTED = "EIP712_REPLAY_DETECTED",
+    // (undocumented)
+    EIP712_SIGNER_MISMATCH = "EIP712_SIGNER_MISMATCH",
     // (undocumented)
     HTTP_ERROR = "HTTP_ERROR",
     // (undocumented)
@@ -545,7 +791,41 @@ export enum GuildPassErrorCode {
     // (undocumented)
     UNAUTHORISED = "UNAUTHORISED",
     // (undocumented)
-    UNKNOWN_ERROR = "UNKNOWN_ERROR"
+    UNKNOWN_ERROR = "UNKNOWN_ERROR",
+    // (undocumented)
+    UNVERIFIABLE_RESPONSE = "UNVERIFIABLE_RESPONSE"
+}
+
+// @public
+export class GuildPassNetworkError extends GuildPassError {
+    constructor(message: string, code?: GuildPassErrorCode, details?: any);
+}
+
+// @public
+export class GuildPassRateLimitError extends GuildPassApiError {
+    constructor(message: string, details?: any);
+    // (undocumented)
+    retryAfterMs?: number;
+}
+
+// @public
+export class GuildPassResponseValidationError extends GuildPassError {
+    constructor(message: string, code?: GuildPassErrorCode, status?: number, details?: any);
+}
+
+// @public
+export class GuildPassServerError extends GuildPassApiError {
+    constructor(message: string, status: number, details?: any);
+}
+
+// @public
+export class GuildPassTimeoutError extends GuildPassNetworkError {
+    constructor(message: string, details?: any);
+}
+
+// @public
+export class GuildPassValidationError extends GuildPassApiError {
+    constructor(message: string, code: GuildPassErrorCode, status: number, details?: any);
 }
 
 // @public (undocumented)
@@ -556,26 +836,45 @@ export type GuildRole = {
     requirements?: AccessRequirement[];
 };
 
+// @public
+export interface GuildRoleDelegation {
+    delegate: string;
+    delegator: string;
+    expiry: bigint | number;
+    guildId: string;
+    nonce: bigint | number;
+    roleId: string;
+}
+
 // @public (undocumented)
 export class GuildsService {
-    constructor(http: HttpClient, validateResponses?: boolean);
-    getGuild(params: GetGuildParams): Promise<Guild>;
-    // (undocumented)
+    constructor(http: HttpClient, validateResponses?: boolean, verifySignedResponses?: boolean, trustedSignerAddress?: string | undefined);
     getGuild(params: GetGuildParams, options: RequestOptions & {
         includeMeta: true;
     }): Promise<{
         data: Guild;
         meta: ResponseMetadata;
     }>;
-    getGuildConfig<T extends RequestOptions | undefined = undefined>(params: GetGuildParams): Promise<GuildConfig>;
     // (undocumented)
+    getGuild(params: GetGuildParams, options?: RequestOptions): Promise<Guild>;
     getGuildConfig(params: GetGuildParams, options: RequestOptions & {
         includeMeta: true;
     }): Promise<{
         data: GuildConfig;
         meta: ResponseMetadata;
     }>;
+    // (undocumented)
+    getGuildConfig(params: GetGuildParams, options?: RequestOptions): Promise<GuildConfig>;
 }
+
+// @public
+export function hashDomain(domain: EIP712Domain): Uint8Array;
+
+// @public
+export function hashStruct(primaryType: string, data: EIP712Message, types: EIP712Types): Uint8Array;
+
+// @public
+export function hashTypedData(typedData: EIP712TypedData): Uint8Array;
 
 // @public (undocumented)
 export function hasInjectedWallet(): boolean;
@@ -613,7 +912,9 @@ export const HEX_32_BYTES_LENGTH = 64;
 export type HttpClientConfig = {
     retry?: RetryConfig;
     hooks?: HttpHooks;
+    middleware?: Middleware[];
     fetch?: FetchLike;
+    transport?: HttpTransport;
     metadata?: ClientMetadata;
     rateLimit?: RateLimitConfig;
 };
@@ -657,6 +958,12 @@ export type HttpResponse<T = any> = {
     meta?: ResponseMeta;
 };
 
+// @public (undocumented)
+export interface HttpTransport {
+    // (undocumented)
+    execute(request: TransportRequest): Promise<TransportResponse>;
+}
+
 // @public
 export class InMemoryCacheAdapter implements CacheAdapter {
     // (undocumented)
@@ -690,10 +997,22 @@ export class InMemoryNonceStore implements NonceStore {
 // Warning: (ae-forgotten-export) The symbol "Validator" needs to be exported by the entry point index.d.ts
 //
 // @public
+export const isAccessCheckParams: Validator<AccessCheckParams>;
+
+// @public
 export const isAccessCheckResult: Validator<AccessCheckResult>;
 
 // @public
 export const isChecksumAddress: (address: string) => boolean;
+
+// @public
+export const isGetGuildParams: Validator<GetGuildParams>;
+
+// @public
+export const isGetRolesParams: Validator<GetRolesParams>;
+
+// @public
+export const isGetUserRolesParams: Validator<GetUserRolesParams>;
 
 // @public
 export const isGuild: Validator<Guild>;
@@ -712,6 +1031,17 @@ export const isGuildRoleArray: Validator<GuildRole[]>;
 
 // @public
 export const isMembership: Validator<Membership>;
+
+// @public
+export const isMembershipParams: Validator<MembershipParams>;
+
+// @public
+export const isRoleAccessCheckParams: Validator<RoleAccessCheckParams>;
+
+// @public
+export const isRoleCheckResult: Validator<{
+    hasRole: boolean;
+}>;
 
 // @public
 export class JsonRpcContractProvider implements ContractProvider {
@@ -747,15 +1077,15 @@ export type MembershipParams = {
 
 // @public (undocumented)
 export class MembershipService {
-    constructor(http: HttpClient, validateResponses?: boolean);
-    getMembership<T extends RequestOptions | undefined = undefined>(params: MembershipParams): Promise<Membership>;
-    // (undocumented)
+    constructor(http: HttpClient, validateResponses?: boolean, strictAddressChecksum?: boolean);
     getMembership(params: MembershipParams, options: RequestOptions & {
         includeMeta: true;
     }): Promise<{
         data: Membership;
         meta: ResponseMetadata;
     }>;
+    // (undocumented)
+    getMembership(params: MembershipParams, options?: RequestOptions): Promise<Membership>;
     isMember<T extends RequestOptions | undefined = undefined>(params: MembershipParams, options?: T): Promise<T extends {
         includeMeta: true;
     } ? {
@@ -777,6 +1107,14 @@ export type MembershipTokenBalancesResult = Record<number, ChainBalanceResult>;
 //
 // @internal
 export function mergeRpcUrls(rpcUrl?: string, rpcUrls?: string[]): string[];
+
+// @public
+export interface Middleware {
+    name: string;
+    onError?(payload: ErrorMiddlewarePayload): void | Promise<void>;
+    onRequest?(payload: RequestMiddlewarePayload): void | Promise<void>;
+    onResponse?(payload: ResponseMiddlewarePayload): void | Promise<void>;
+}
 
 // @public
 export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
@@ -831,6 +1169,9 @@ export type PaginatedResult<T> = {
 export function parseSiweMessage(raw: string): SiweParseResult;
 
 // @public
+export type PublicClientConfig = Omit<GuildPassClientConfig, 'apiKey' | 'fetch' | 'transport' | 'hooks' | 'contractProvider' | 'cache' | 'middleware'>;
+
+// @public
 export type ReadContractParams = {
     contractAddress: string;
     abi: AbiFunction;
@@ -856,6 +1197,14 @@ export type RequestHookPayload = {
     headers: Record<string, string>;
 };
 
+// @public
+export interface RequestMiddlewarePayload {
+    body?: unknown;
+    headers: Record<string, string>;
+    method: HttpMethod;
+    path: string;
+}
+
 // @public (undocumented)
 export type RequestOptions = {
     timeoutMs?: number;
@@ -863,7 +1212,14 @@ export type RequestOptions = {
     signal?: AbortSignal;
     includeMeta?: boolean;
     idempotencyKey?: string;
+    deduplicate?: boolean;
+    confirmations?: BlockTag;
 };
+
+// @public
+export interface RequestValidationContext {
+    endpoint?: string;
+}
 
 // @public
 export const REQUIREMENT_TYPE_INTERFACE_IDS: Record<string, string | undefined>;
@@ -897,6 +1253,21 @@ export type ResponseMetadata = {
     durationMs: number;
 };
 
+// @public
+export interface ResponseMiddlewarePayload {
+    data: unknown;
+    durationMs: number;
+    // (undocumented)
+    request: RequestMiddlewarePayload;
+    responseHeaders: Record<string, string>;
+    status: number;
+}
+
+// @public
+export interface ResponseValidationContext {
+    endpoint?: string;
+}
+
 // @public (undocumented)
 export type RetryConfig = {
     maxRetries?: number;
@@ -904,6 +1275,7 @@ export type RetryConfig = {
     maxDelayMs?: number;
     retryableStatuses?: number[];
     allowMutatingRetry?: boolean;
+    jitter?: boolean;
 };
 
 // @public (undocumented)
@@ -922,7 +1294,7 @@ export type RoleRequirementParams = {
 
 // @public (undocumented)
 export class RolesService {
-    constructor(http: HttpClient, validateResponses?: boolean, access?: AccessService | undefined);
+    constructor(http: HttpClient, validateResponses?: boolean, access?: AccessService | undefined, strictAddressChecksum?: boolean);
     getRoles(params: GetRolesParams & ({
         cursor: string;
     } | {
@@ -1104,6 +1476,37 @@ export type TokenBalancesBatchParams = {
     chunkConcurrency?: number;
 };
 
+// @public (undocumented)
+export interface TransportRequest {
+    // (undocumented)
+    body?: string;
+    // (undocumented)
+    headers: Record<string, string>;
+    // (undocumented)
+    method: string;
+    // (undocumented)
+    signal?: AbortSignal;
+    // (undocumented)
+    url: string;
+}
+
+// @public (undocumented)
+export interface TransportResponse {
+    // (undocumented)
+    getHeader(name: string): string | null;
+    // (undocumented)
+    getHeaders(): Record<string, string>;
+    // (undocumented)
+    json<T = any>(): Promise<T>;
+    // (undocumented)
+    ok: boolean;
+    // (undocumented)
+    status: number;
+}
+
+// @public
+export function typeHash(primaryType: string, types: EIP712Types): Uint8Array;
+
 // @public
 export type UrlCapabilities = {
     supportsJsonRpcBatch: boolean;
@@ -1131,6 +1534,11 @@ export const validateConfigField: (field: string, value: any, rules: {
     required?: boolean;
     expectedType?: string;
 }) => void;
+
+// Warning: (ae-internal-missing-underscore) The name "validateContractReadConsensus" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export function validateContractReadConsensus(consensus: ContractReadConsensus | undefined): void;
 
 // @public
 export const validateGuildId: (guildId: string) => void;
@@ -1169,15 +1577,27 @@ export type VerifiedAccessCheckResult = {
 };
 
 // @public
+export function verifyGuildRoleDelegationSignature(domain: EIP712Domain, delegation: GuildRoleDelegation, signature: string, options?: {
+    checkExpiry?: boolean;
+}): EIP712VerifyResult;
+
+// @public
+export function verifyGuildRoleDelegationWithReplayProtection(domain: EIP712Domain, delegation: GuildRoleDelegation, signature: string, nonceStore: NonceStore, options?: {
+    checkExpiry?: boolean;
+}): Promise<EIP712VerifyResult>;
+
+// @public
 export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult;
 
 // @public
 export function verifySiweSignatureWithReplayProtection(params: SiweVerifyParams, nonceStore: NonceStore): Promise<SiweVerifyResult>;
 
+// @public
+export function verifyTypedDataSignature(domain: EIP712Domain, types: EIP712Types, primaryType: string, message: EIP712Message, signature: string, expectedSigner: string): EIP712VerifyResult;
+
 // Warnings were encountered during analysis:
 //
-// dist/common-uwB90XDn.d.ts:79:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
-// dist/roles.types-BfOMglGu.d.ts:109:5 - (ae-forgotten-export) The symbol "RateLimitConfig" needs to be exported by the entry point index.d.ts
+// dist/common-CabkBCAt.d.ts:224:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

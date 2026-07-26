@@ -6,7 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+- **`validateResponses` now defaults to `true`** (was `false`). Every response from `AccessService.checkAccess`/`checkRoleAccess`, `MembershipService.getMembership`, `RolesService.getRoles`/`getUserRoles`, and `GuildsService.getGuild`/`getGuildConfig` is now shape-checked before being returned, out of the box — no config needed. Set `validateResponses: false` on `GuildPassClientConfig` to restore the previous unchecked behavior.
+  - Unknown/extra response fields are always passed through untouched (never stripped, never rejected) — see the passthrough policy in [`docs/serialization-validation.md`](docs/serialization-validation.md). Only a missing required field or a wrong primitive type fails validation.
+  - Fixed two over-strict validation bugs found while making this the default, both of which would have rejected common, legitimate API responses:
+    - `AccessCheckResult.requiredRoles`/`matchedRoles` were validated as `nonEmptyArray()`, rejecting the legitimate empty-array case (public resource with no required roles, or a denial with no matched roles). Both are now `array()`.
+    - The `optional()` schema combinator only accepted `undefined`, not `null`, for an absent field — but a JSON API response can only omit a key or send `null`; it has no way to produce a literal `undefined`. Every optional field across every response guard (`AccessCheckResult.reason`, `Guild.description`, etc.) now accepts `null` too.
+  - This is a behavior change for any consumer relying on receiving a malformed/incomplete API response unchecked; per this project's pre-1.0 versioning policy (see README → Versioning) this ships as a **minor** bump.
+
 ### Added
+- **Unified request/response validation layer.** Every HTTP domain service call (`AccessService.checkAccess`/`checkRoleAccess`, `MembershipService.getMembership`, `RolesService.getRoles`/`getUserRoles`, `GuildsService.getGuild`/`getGuildConfig`) now validates its request parameters structurally before transmission, pairing the response-shape guards that already existed for each model. See [`docs/serialization-validation.md`](docs/serialization-validation.md) for the schema/error/unknown-field policy.
+  - New: `assertValidRequest`, and per-model guards `isAccessCheckParams`, `isRoleAccessCheckParams`, `isMembershipParams`, `isGetRolesParams`, `isGetUserRolesParams`, `isGetGuildParams` (exported from the root package, mirroring the existing `responseGuards`/`assertValidResponse`).
+  - No new runtime dependency — built on the existing zero-dependency combinator DSL in `src/validation/schema.ts`.
+  - Backward compatible: request guards are structural-only (type/presence checks) and run before, not instead of, the existing field-level validators (`validateAddress`, `validateGuildId`, ...), so no existing error code or message changes for any input that was already valid or already rejected.
+- `RequestOptions.confirmations?: BlockTag` is now part of the public type (previously used internally via an `as any` cast in `JsonRpcContractProvider`, undocumented and inaccessible to TypeScript consumers).
 - **SIWE (Sign-In With Ethereum) helpers** — resolves [#158](https://github.com/Adamantine-Guild/guildpass-sdk/issues/158).
   - `formatSiweMessage(msg)` — formats a `SiweMessage` object into a canonical EIP-4361 string ready for wallet signing.
   - `parseSiweMessage(raw)` — parses a raw EIP-4361 string into a typed `SiweMessage`; returns a `SiweParseResult` (never throws).
@@ -23,6 +36,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Opt-in invariant: when the config is unset, every method falls back to its previous behaviour (single-URL JSON-RPC + failover or Multicall3 — zero behaviour change).
   - Precedence chain: `contractProvider` > `contractReadConsensus` > default.
   - Per-item batch quorum: items whose front-runner is below `minProviders` become `{ status: "error", error: "Consensus mismatch at batch index i: ..." }` rather than throwing the whole batch.
+
+### Fixed
+- **`pnpm build` was broken** on `main` (missing `constantTimeEqual` export from `src/utils/index.ts`, `Middleware` type not re-exported from `http.types.ts`, a `strictPropertyInitialization` violation in `HttpClient`, an ethers v5-only import path in `src/utils/merkleTree.ts`, stale v5-style `ethers.providers.Provider`/`BigNumber` usage in `src/contracts/contractHelpers.ts`, and a `Headers` typing mismatch in `src/network/fetchTransport.ts`). All fixed; `pnpm build`, `pnpm typecheck`, and `pnpm lint` are green again.
+- **`FetchTransport` captured `globalThis.fetch` once, at construction time**, instead of resolving it lazily per request. A `fetch` installed or replaced after the client was constructed (a polyfill, or `vi.stubGlobal` in tests) was silently never used — the client kept issuing requests through whatever `fetch` existed when it was built.
+- **Cross-caller cancellation leak in request coalescing**: two concurrent calls sharing a cache key but only one carrying an `AbortSignal` shared a single in-flight request, so aborting the signalled caller also rejected the other, unrelated caller. A signal now opts a call out of coalescing by default (override with `deduplicate: true`); `checkAccessBatch` never coalesces its items with each other or with a concurrent lone call.
+- **Errors on HTTP error responses (4xx/5xx) never carried `requestMeta`** (`requestId`, `correlationId`, `traceId`) — `extractMeta()` expected a `Headers`-like object with `.get()`, but was called with the plain `Record<string, string>` returned by `TransportResponse.getHeaders()`, so every lookup silently returned `undefined`.
+- **A pre-aborted `AbortSignal` threw a generic `GuildPassNetworkError`** instead of the more specific `GuildPassCancellationError` that every other cancellation path already threw.
+- Several service method overloads (`getMembership`, `getGuild`, `getGuildConfig`, `checkAccess`, `checkRoleAccess`) were missing the general `(params, options?: RequestOptions)` overload declaration — TypeScript consumers calling them with plain options (`{ timeoutMs }`, `{ signal }`, `{ retry }`, no `includeMeta`) got a real compile error in their own code, even though the call worked fine at runtime.
+- `scripts/check-bundle-size.mjs` didn't mark `ethers`/`viem` as external, so `pnpm size` either crashed or wildly overstated every entry's size by bundling the full libraries into the measurement.
 
 ## [0.1.0] - 2026-06-29
 

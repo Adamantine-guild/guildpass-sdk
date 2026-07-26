@@ -83,7 +83,7 @@ describe('ContractProvider abstraction', () => {
     const client = new GuildPassClient({
       apiUrl: BASE_URL,
       contractAddress: CONTRACT,
-      contractProvider: { ethCall: vi.fn(), batchEthCall },
+      contractProvider: { ethCall: vi.fn(), batchEthCall: batchEthCall as any },
     });
 
     const results = await client.contracts.getMembershipTokenBalancesBatch({
@@ -293,7 +293,7 @@ describe('chunk concurrency', () => {
     new GuildPassClient({
       apiUrl: BASE_URL,
       contractAddress: CONTRACT,
-      contractProvider: { ethCall: vi.fn(), batchEthCall },
+      contractProvider: { ethCall: vi.fn(), batchEthCall: batchEthCall as any },
     });
 
   // Helper: produce N distinct wallet addresses for batch input.

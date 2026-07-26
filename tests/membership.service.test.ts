@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MembershipService } from '../src/membership/membership.service';
 import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
@@ -19,6 +19,13 @@ describe('MembershipService validation errors', () => {
     await expect(
       service.getMembership({ walletAddress: 'not-an-address', guildId: 'guild_1' }),
     ).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-object params value via the request schema', async () => {
+    const { get, service } = createService(getMembershipSuccess);
+
+    await expect(service.getMembership(null as any)).rejects.toBeInstanceOf(GuildPassConfigError);
     expect(get).not.toHaveBeenCalled();
   });
 });

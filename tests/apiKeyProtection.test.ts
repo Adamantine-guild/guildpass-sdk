@@ -4,7 +4,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HttpClient } from '../src/http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassClient } from '../src/client/GuildPassClient';
-import { GuildPassErrorCode } from '../src/errors/errorCodes';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -344,7 +343,14 @@ describe('ContractClient RPC API key protection', () => {
 
   it('should still include X-API-Key in regular SDK API calls alongside contract calls', async () => {
     fetchMock
-      .mockResolvedValueOnce(mockJsonResponse({ hasAccess: true }))  // checkAccess
+      .mockResolvedValueOnce(mockJsonResponse({                      // checkAccess
+        hasAccess: true,
+        walletAddress: WALLET,
+        guildId: 'guild-1',
+        resourceId: 'res-1',
+        requiredRoles: [],
+        matchedRoles: [],
+      }))
       .mockResolvedValueOnce(mockJsonResponse({                      // getGuildOwner
         result: `0x000000000000000000000000${'9'.repeat(40)}`,
       }));

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MerkleTree } from '../../src/utils/merkleTree';
-import { validateWhitelistRequirement } from '../../src/validators/whitelistValidator';
 
 // Mock data
 const testAddresses = [
@@ -9,8 +8,6 @@ const testAddresses = [
   '0x3456789012345678901234567890123456789012',
   '0x4567890123456789012345678901234567890123',
 ];
-
-const mockGuildId = 'guild_test_123';
 
 describe('Merkle Whitelist Rotation', () => {
   let tree: MerkleTree;
@@ -64,10 +61,8 @@ describe('Merkle Whitelist Rotation', () => {
 
   it('should handle addresses not in the tree', () => {
     const nonWhitelistedAddress = '0x9999999999999999999999999999999999999999';
-    const proofForNonMember = tree.getProof(nonWhitelistedAddress);
-    // Note: In a real implementation, getProof would throw for non-members
-    
-    // Verify that non-members don't have valid proofs
+
+    // getProof throws for non-members rather than returning an empty/invalid proof.
     expect(() => tree.getProof(nonWhitelistedAddress)).toThrow();
   });
 

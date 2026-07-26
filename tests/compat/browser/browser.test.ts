@@ -9,7 +9,14 @@ describe('GuildPass SDK - Browser (JSDOM) Compatibility', () => {
   it('should support a custom fetch transport', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ hasAccess: true }),
+      json: async () => ({
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'test-guild',
+        resourceId: 'test-resource',
+        requiredRoles: [],
+        matchedRoles: [],
+      }),
     });
 
     const originalFetch = globalThis.fetch;

@@ -492,7 +492,6 @@ describe('WebSocketContractProvider', () => {
       vi.useFakeTimers();
 
       // Use a mock where we can verify no more WebSockets are created.
-      let wsCount = 0;
       const MockLimitedWS = class {
         readyState = WebSocket.CONNECTING;
         onopen: any = null;
@@ -503,7 +502,6 @@ describe('WebSocketContractProvider', () => {
         url: string;
 
         constructor(url: string) {
-          wsCount++;
           this.url = url;
         }
 
@@ -519,8 +517,6 @@ describe('WebSocketContractProvider', () => {
         baseDelayMs: 100,
         maxDelayMs: 500,
       });
-
-      const initialCount = wsCount; // 1
 
       // Force close 3 times (initial + 2 reconnects = 3 total, then stop).
       for (let i = 0; i < 3; i++) {

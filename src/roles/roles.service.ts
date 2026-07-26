@@ -6,7 +6,9 @@ import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
+import { assertValidRequest } from '../validation/assertRequest';
 import { isGuildRoleArray } from '../validation/responseGuards';
+import { isGetRolesParams, isGetUserRolesParams } from '../validation/requestGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Pull in package or module bindings.
@@ -33,6 +35,7 @@ export class RolesService {
   public async getRoles(params: GetRolesParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: GuildRole[]; meta: ResponseMetadata }>;
   public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
   public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<any> {
+    assertValidRequest(params, isGetRolesParams, 'GetRolesParams', { endpoint: 'GET /guilds/:id/roles' });
     const { guildId, cursor, limit } = params;
     validateGuildId(guildId);
 
@@ -58,6 +61,7 @@ export class RolesService {
   public async getUserRoles(params: GetUserRolesParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: GuildRole[]; meta: ResponseMetadata }>;
   public async getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
   public async getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<any> {
+    assertValidRequest(params, isGetUserRolesParams, 'GetUserRolesParams', { endpoint: 'GET /guilds/:id/members/:address/roles' });
     const { walletAddress, guildId, cursor, limit } = params;
 
     validateAddress(walletAddress, { strict: this.strictAddressChecksum });

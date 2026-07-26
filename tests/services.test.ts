@@ -28,7 +28,14 @@ describe('Service Modules', () => {
 
   describe('AccessService', () => {
     it('should call checkAccess endpoint', async () => {
-      const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+      const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -52,7 +59,14 @@ describe('Service Modules', () => {
     });
 
     it('should normalise wallet address in query parameters', async () => {
-      const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+      const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
       (fetch as any).mockResolvedValue({
         ok: true,
         status: 200,
@@ -102,7 +116,14 @@ describe('Service Modules', () => {
 
     describe('checkAccessBatch', () => {
       it('should process multiple access checks and preserve order', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         (fetch as any).mockResolvedValue({
           ok: true,
           status: 200,
@@ -124,7 +145,14 @@ describe('Service Modules', () => {
       });
 
       it('should handle partial failures without discarding successes', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         let callCount = 0;
         (fetch as any).mockImplementation(() => {
           callCount++;
@@ -158,7 +186,14 @@ describe('Service Modules', () => {
       });
 
       it('should fail fast if configured', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         let callCount = 0;
         (fetch as any).mockImplementation(() => {
           callCount++;
@@ -188,7 +223,14 @@ describe('Service Modules', () => {
       });
 
       it('should catch validation errors per item', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         (fetch as any).mockResolvedValue({
           ok: true,
           status: 200,
@@ -211,7 +253,12 @@ describe('Service Modules', () => {
 
   describe('MembershipService', () => {
     it('should call membership endpoint', async () => {
-      const mockMembership = { isActive: true, roles: ['member'] };
+      const mockMembership = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        isActive: true,
+        roles: ['member'],
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -491,7 +538,12 @@ describe('Service Modules', () => {
 
   describe('GuildsService', () => {
     it('should fetch guild info', async () => {
-      const mockGuild = { id: 'guild_1', name: 'Test Guild' };
+      const mockGuild = {
+        id: 'guild_1',
+        name: 'Test Guild',
+        ownerAddress: '0x1234567890123456789012345678901234567890',
+        chainId: 1,
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -504,7 +556,12 @@ describe('Service Modules', () => {
     });
 
     it('should URL-encode guild IDs in guild endpoint paths', async () => {
-      const mockGuild = { id: 'guild/1', name: 'Encoded Guild' };
+      const mockGuild = {
+        id: 'guild/1',
+        name: 'Encoded Guild',
+        ownerAddress: '0x1234567890123456789012345678901234567890',
+        chainId: 1,
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -531,11 +588,31 @@ describe('Service Modules', () => {
       });
     });
 
-    it('is off by default, so malformed responses are passed through unchanged', async () => {
+    it('is on by default, so a malformed response is rejected without any config', async () => {
       const malformedResult = { hasAccess: true };
       mockJsonResponse(malformedResult);
 
-      const result = await client.access.checkAccess({
+      // `client` (outer beforeEach) sets no `validateResponses` at all —
+      // proves validation runs out of the box, not just when opted in.
+      await expect(
+        client.access.checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_RESPONSE });
+    });
+
+    it('validateResponses: false restores passing malformed responses through unchanged', async () => {
+      const nonValidatingClient = new GuildPassClient({
+        apiUrl: 'https://api.test.com',
+        fetch: mockFetch,
+        validateResponses: false,
+      });
+      const malformedResult = { hasAccess: true };
+      mockJsonResponse(malformedResult);
+
+      const result = await nonValidatingClient.access.checkAccess({
         walletAddress: '0x1234567890123456789012345678901234567890',
         guildId: 'guild_1',
         resourceId: 'res_1',
@@ -676,9 +753,14 @@ describe('Service Modules', () => {
     });
 
     it('passes a malformed checkRoleAccess response through when validation is off', async () => {
+      const nonValidatingClient = new GuildPassClient({
+        apiUrl: 'https://api.test.com',
+        fetch: mockFetch,
+        validateResponses: false,
+      });
       mockJsonResponse({ hasRole: 'yes' });
 
-      const result = await client.access.checkRoleAccess({
+      const result = await nonValidatingClient.access.checkRoleAccess({
         walletAddress: '0x1234567890123456789012345678901234567890',
         guildId: 'guild_1',
         roleId: 'role_1',
@@ -999,10 +1081,18 @@ describe('strictAddressChecksum', () => {
   });
 
   it('accepts non-checksummed addresses by default', async () => {
+    const mockResult = {
+      hasAccess: true,
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+      resourceId: 'res_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ hasAccess: true }),
+      json: () => Promise.resolve(mockResult),
       headers: new Headers(),
     });
     const client = new GuildPassClient({ apiUrl: 'https://api.test.com', fetch });
@@ -1011,6 +1101,6 @@ describe('strictAddressChecksum', () => {
       walletAddress: nonChecksummedAddress,
       guildId: 'guild_1',
       resourceId: 'res_1',
-    })).resolves.toEqual({ hasAccess: true });
+    })).resolves.toEqual(mockResult);
   });
 });
