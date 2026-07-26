@@ -12,10 +12,15 @@ describe('Transport Abstraction', () => {
             ok: true,
             getHeader: () => null,
             getHeaders: () => ({ 'content-type': 'application/json' }),
-            json: async () => ({
-              isVerified: true,
-              result: true,
-            }),
+            json: async <T = any>() =>
+              ({
+                hasAccess: true,
+                walletAddress: '0x1234567890123456789012345678901234567890',
+                guildId: 'guild-1',
+                resourceId: 'res-1',
+                requiredRoles: [],
+                matchedRoles: [],
+              } as T),
           };
         }
         return {
@@ -23,7 +28,7 @@ describe('Transport Abstraction', () => {
           ok: false,
           getHeader: () => null,
           getHeaders: () => ({ 'content-type': 'application/json' }),
-          json: async () => ({ error: 'Not Found' }),
+          json: async <T = any>() => ({ error: 'Not Found' } as T),
         };
       }
     }
@@ -43,7 +48,7 @@ describe('Transport Abstraction', () => {
     });
 
     expect(executeSpy).toHaveBeenCalled();
-    expect(result.isVerified).toBe(true);
-    expect(result.result).toBe(true);
+    expect(result.hasAccess).toBe(true);
+    expect(result.walletAddress).toBe('0x1234567890123456789012345678901234567890');
   });
 });

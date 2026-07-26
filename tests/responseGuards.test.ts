@@ -56,6 +56,14 @@ describe('isAccessCheckResult', () => {
     expect(isAccessCheckResult({ ...valid, reason: 'Some reason' })).toBe(true);
     expect(isAccessCheckResult({ ...valid, reason: undefined })).toBe(true);
   });
+
+  it('returns true when reason is null (a JSON API sends null for an absent field, not undefined)', () => {
+    expect(isAccessCheckResult({ ...valid, reason: null })).toBe(true);
+  });
+
+  it('returns true when requiredRoles/matchedRoles are empty arrays (public resource / full denial are valid, common results)', () => {
+    expect(isAccessCheckResult({ ...valid, requiredRoles: [], matchedRoles: [] })).toBe(true);
+  });
 });
 
 describe('isMembership', () => {

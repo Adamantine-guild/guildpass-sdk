@@ -3,7 +3,8 @@ import { GuildPassClient } from './GuildPassClient';
 import type { HttpTransport } from '../network/transport.types';
 import type { CacheAdapter } from '../cache/cache.types';
 import type { ContractProvider } from '../contracts/providers/provider.types';
-import type { FetchLike, HttpHooks, Middleware, RateLimitConfig, RetryConfig } from '../http/http.types';
+import type { FetchLike, HttpHooks, RateLimitConfig, RetryConfig } from '../http/http.types';
+import type { Middleware } from '../middleware/middleware.types';
 import type { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
 
 export class GuildPassClientBuilder {

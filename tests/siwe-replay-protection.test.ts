@@ -19,8 +19,8 @@ import { describe, it, expect } from 'vitest';
 import {
   InMemoryNonceStore,
   verifySiweSignatureWithReplayProtection,
+  type NonceStore,
 } from '../src/siwe';
-import type { NonceStore } from '../src/siwe';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 
 // ---------------------------------------------------------------------------

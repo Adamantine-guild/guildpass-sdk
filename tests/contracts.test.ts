@@ -7,7 +7,6 @@ import { GuildPassErrorCode } from '../src/errors/errorCodes';
 import { GuildPassError } from '../src/errors/GuildPassError';
 import {
   BALANCE_OF_SELECTOR,
-  ERC1155_BALANCE_OF_SELECTOR,
   GET_GUILD_OWNER_SELECTOR,
   encodeAddressArgument,
   encodeGuildId,

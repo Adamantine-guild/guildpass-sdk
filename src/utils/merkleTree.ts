@@ -1,5 +1,4 @@
-import { ethers } from 'ethers';
-import { keccak256 } from 'ethers/lib/utils';
+import { keccak256 } from 'ethers';
 
 export interface MerkleProof {
   path: string[];

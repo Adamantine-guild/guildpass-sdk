@@ -23,7 +23,15 @@ describe('Per-request timeout behavior (#10)', () => {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ hasAccess: true, matchedRoles: [] }),
+        json: () =>
+          Promise.resolve({
+            hasAccess: true,
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: 'guild_1',
+            resourceId: 'resource_1',
+            requiredRoles: [],
+            matchedRoles: [],
+          }),
         headers: new Headers(),
       });
     });
@@ -154,7 +162,15 @@ describe('Per-request timeout behavior (#10)', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ hasAccess: true, matchedRoles: [] }),
+      json: () =>
+          Promise.resolve({
+            hasAccess: true,
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: 'guild_1',
+            resourceId: 'resource_1',
+            requiredRoles: [],
+            matchedRoles: [],
+          }),
       headers: new Headers(),
     });
 
@@ -165,6 +181,13 @@ describe('Per-request timeout behavior (#10)', () => {
       resourceId: 'res_1',
     });
 
-    expect(result).toEqual({ hasAccess: true, matchedRoles: [] });
+    expect(result).toEqual({
+      hasAccess: true,
+      walletAddress: '0x1234567890123456789012345678901234567890',
+      guildId: 'guild_1',
+      resourceId: 'resource_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    });
   });
 });

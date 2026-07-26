@@ -12,20 +12,13 @@ import type { ResponseMeta } from '../types/common';
 import type { ClientMetadata, FetchLike, HttpClientConfig, HttpHooks, HttpRequestOptions, HttpResponse, RequestHookPayload, ResponseMetadata, RetryConfig } from './http.types';
 import { TokenBucket } from './tokenBucket';
 import { runRequestPipeline, runResponsePipeline, runErrorPipeline } from '../middleware/middleware.pipeline';
-import type { RequestMiddlewarePayload, ResponseMiddlewarePayload, ErrorMiddlewarePayload, Middleware } from '../middleware/middleware.types';
+import type { RequestMiddlewarePayload, Middleware } from '../middleware/middleware.types';
 import type { HttpTransport, TransportResponse } from '../network/transport.types';
 import { FetchTransport } from '../network/fetchTransport';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
 const SENSITIVE_HEADERS = new Set(['authorization', 'x-api-key', 'cookie', 'set-cookie']);
-
-const META_HEADERS: Array<{ headerName: string; metaKey: keyof ResponseMeta }> = [
-  { headerName: 'x-request-id', metaKey: 'requestId' },
-  { headerName: 'x-correlation-id', metaKey: 'correlationId' },
-  { headerName: 'traceparent', metaKey: 'traceparent' },
-  { headerName: 'x-trace-id', metaKey: 'traceId' },
-];
 
 function extractResponseMeta(response: Response | TransportResponse, durationMs: number): ResponseMeta {
   const meta: ResponseMeta = { status: response.status, durationMs };
@@ -131,17 +124,6 @@ function computeBackoffMs(config: Required<RetryConfig>, attempt: number): numbe
   return Math.max(0, Math.round(base + jitter));
 }
 
-function getRetryAfterMs(headers: Headers): number | null {
-  if (!headers || typeof headers.get !== 'function') return null;
-  const header = headers.get('Retry-After');
-  if (!header) return null;
-  const seconds = Number(header);
-  if (!isNaN(seconds)) return seconds * 1000;
-  const date = Date.parse(header);
-  if (!isNaN(date)) return Math.max(0, date - Date.now());
-  return null;
-}
-
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -207,7 +189,10 @@ async function parseErrorResponse(response: Response | TransportResponse): Promi
 }
 
 function extractMeta(response: HttpResponse, durationMs: number): ResponseMetadata {
-  const safeGet = (key: string) => response.headers?.get?.(key) ?? undefined;
+  // `response.headers` may be a real `Headers` instance (has `.get()`) or a
+  // plain `Record<string, string>` (e.g. from `TransportResponse.getHeaders()`).
+  const headers = response.headers as unknown as (Headers & Record<string, undefined>) | Record<string, string> | undefined;
+  const safeGet = (key: string) => (typeof headers?.get === 'function' ? headers.get(key) : headers?.[key]) ?? undefined;
   return { requestId: safeGet('x-request-id'), correlationId: safeGet('x-correlation-id'), traceId: safeGet('traceparent'), status: response.status, durationMs };
 }
 
@@ -217,9 +202,9 @@ export class HttpClient {
   private readonly timeoutMs: number;
   private readonly globalRetry?: RetryConfig;
   private readonly hooks?: HttpHooks;
-  private readonly middleware: Middleware[];
+  private readonly middleware!: Middleware[];
   private readonly fetchTransport?: FetchLike;
-  private readonly transport: HttpTransport;
+  private readonly transport!: HttpTransport;
   private readonly metadata?: ClientMetadata;
   private readonly tokenBucket?: TokenBucket;
 
@@ -337,7 +322,7 @@ export class HttpClient {
     }
     // ────────────────────────────────────────────────────────────────────
 
-    if (signal?.aborted) throw new GuildPassNetworkError('Request cancelled by caller', GuildPassErrorCode.REQUEST_CANCELLED);
+    if (signal?.aborted) throw new GuildPassCancellationError();
 
     const startTime = Date.now();
     const hookPayload: RequestHookPayload = { method, path, headers: redactHeaders(requestHeaders) };

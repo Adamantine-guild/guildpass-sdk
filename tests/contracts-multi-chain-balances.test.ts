@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
-import { ContractClient, encodeAddressArgument } from '../src/contracts/contractClient';
+import { ContractClient } from '../src/contracts/contractClient';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
 
 const WALLET = '0x1234567890123456789012345678901234567890';
@@ -10,9 +10,6 @@ const BASE_URL = 'https://api.test.com';
 
 const BALANCE_ETH = '1000000000000000000'; // 1e18
 const BALANCE_BASE = '500000000000000000'; // 0.5e18
-
-const encodedWallet = encodeAddressArgument(WALLET);
-const BALANCE_OF_SELECTOR = '0x70a08231';
 
 function rpcSuccessResponse(balance: string) {
   return {

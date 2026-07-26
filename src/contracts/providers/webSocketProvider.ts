@@ -272,7 +272,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
           subs.add(subId);
           this.contractSubs.set(normalizedAddress, subs);
         },
-        reject: (err: Error) => {
+        reject: (_err: Error) => {
           clearTimeout(timer);
           this.pending.delete(id);
           this.unconfirmedSubs.delete(id);

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { GuildsService } from '../src/guilds/guilds.service';
 import { GuildPassConfigError } from '../src/errors/errorTypes';
 import type { HttpClient } from '../src/http/httpClient';
@@ -16,6 +16,20 @@ describe('GuildsService validation errors', () => {
     const { get, service } = createService(getGuildSuccess);
 
     await expect(service.getGuild({ guildId: '' })).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-object params value for getGuild via the request schema', async () => {
+    const { get, service } = createService(getGuildSuccess);
+
+    await expect(service.getGuild(undefined as any)).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-object params value for getGuildConfig via the request schema', async () => {
+    const { get, service } = createService(getGuildConfigSuccess);
+
+    await expect(service.getGuildConfig(undefined as any)).rejects.toBeInstanceOf(GuildPassConfigError);
     expect(get).not.toHaveBeenCalled();
   });
 });

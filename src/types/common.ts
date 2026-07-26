@@ -42,6 +42,12 @@ export type RequestOptions = {
    * Only applies to idempotent read operations; mutations are never deduplicated.
    */
   deduplicate?: boolean;
+  /**
+   * Requests a historical or confirmed read instead of the chain's `latest`
+   * state for contract read calls. See {@link BlockTag}. Ignored for
+   * non-contract (plain HTTP) requests.
+   */
+  confirmations?: BlockTag;
 };
 
 export type AccessRequirement = {

@@ -7,7 +7,9 @@ import {
 } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
+import { assertValidRequest } from '../validation/assertRequest';
 import { isAccessCheckResult, isRoleCheckResult } from '../validation/responseGuards';
+import { isAccessCheckParams, isRoleAccessCheckParams } from '../validation/requestGuards';
 import type { RequestOptions } from '../types/common';
 import { verifySignedPayload, SignedEnvelope } from '../security';
 import type { ResponseMetadata, DiscrepancyHookPayload } from '../http/http.types';
@@ -38,9 +40,10 @@ export class AccessService {
     private readonly strictAddressChecksum = false,
   ) {}
 
-  public async checkAccess(params: AccessCheckParams): Promise<AccessCheckResult>;
   public async checkAccess(params: AccessCheckParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: AccessCheckResult; meta: ResponseMetadata }>;
+  public async checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult>;
   public async checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult | { data: AccessCheckResult; meta: ResponseMetadata}> {
+    assertValidRequest(params, isAccessCheckParams, 'AccessCheckParams', { endpoint: 'GET /access/check' });
     const { walletAddress, guildId, resourceId } = params;
 
     validateAddress(walletAddress, { strict: this.strictAddressChecksum });
@@ -300,15 +303,17 @@ export class AccessService {
 
   public async checkRoleAccess(
     params: RoleAccessCheckParams,
-  ): Promise<boolean>;
-  public async checkRoleAccess(
-    params: RoleAccessCheckParams,
     options: RequestOptions & { includeMeta: true },
   ): Promise<{ data: boolean; meta: ResponseMetadata }>;
   public async checkRoleAccess(
     params: RoleAccessCheckParams,
     options?: RequestOptions,
+  ): Promise<boolean>;
+  public async checkRoleAccess(
+    params: RoleAccessCheckParams,
+    options?: RequestOptions,
   ): Promise<boolean | { data: boolean; meta: ResponseMetadata }> {
+    assertValidRequest(params, isRoleAccessCheckParams, 'RoleAccessCheckParams', { endpoint: 'GET /access/role-check' });
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId, roleId } = params;
 

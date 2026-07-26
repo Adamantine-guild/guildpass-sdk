@@ -155,15 +155,21 @@ export function address(): ExplainingValidator<string> {
 // ---------------------------------------------------------------------------
 
 /**
- * Wraps an inner validator to also accept `undefined`.
+ * Wraps an inner validator to also accept `undefined` or `null`.
  * Useful for optional object fields.
+ *
+ * Both are treated as "absent": a JSON API response can only omit a key
+ * (giving `undefined` once accessed) or send it as `null` — it has no way
+ * to produce a literal `undefined`, so accepting only `undefined` here
+ * would reject the far more common real-world shape of an absent optional
+ * field.
  */
 export function optional<T>(inner: Validator<T>): ExplainingValidator<T | undefined> {
   return withExplain(
     (value: unknown): value is T | undefined =>
-      value === undefined || inner(value),
+      value === undefined || value === null || inner(value),
     (value, path = '$') =>
-      value === undefined ? null : explainInner(inner, value, path),
+      value === undefined || value === null ? null : explainInner(inner, value, path),
   );
 }
 

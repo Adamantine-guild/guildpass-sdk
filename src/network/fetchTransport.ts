@@ -4,15 +4,20 @@ import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 
 export class FetchTransport implements HttpTransport {
-  constructor(private readonly fetchFn: FetchLike = globalThis.fetch) {
+  // No default here: resolving `globalThis.fetch` happens lazily in
+  // `execute()` instead of being captured once at construction time, so a
+  // `fetch` installed or replaced (e.g. polyfilled, or swapped in tests via
+  // `vi.stubGlobal`) after this transport is constructed is still picked up.
+  constructor(private readonly fetchFn?: FetchLike) {
   }
 
   public async execute(request: TransportRequest): Promise<TransportResponse> {
-    if (typeof this.fetchFn !== 'function') {
+    const fetchFn = this.fetchFn ?? globalThis.fetch;
+    if (typeof fetchFn !== 'function') {
       throw new GuildPassConfigError('A fetch-compatible transport is required.', GuildPassErrorCode.INVALID_CONFIG);
     }
 
-    const response = await this.fetchFn(request.url, {
+    const response = await fetchFn(request.url, {
       method: request.method,
       headers: request.headers,
       body: request.body,
@@ -31,8 +36,8 @@ export class FetchTransport implements HttpTransport {
           response.headers.forEach((value, key) => {
             result[key] = value;
           });
-        } else if (response.headers?.entries) {
-          for (const [key, value] of response.headers.entries()) {
+        } else if ((response.headers as any)?.entries) {
+          for (const [key, value] of (response.headers as any).entries()) {
             result[key] = value;
           }
         }

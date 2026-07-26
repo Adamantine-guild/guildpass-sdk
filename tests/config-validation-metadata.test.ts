@@ -2,8 +2,6 @@
 import { describe, it, expect } from 'vitest';
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassError } from '../src/errors/GuildPassError';
-// GuildPass SDK: Import external module dependencies.
-import { GuildPassErrorCode } from '../src/errors/errorCodes';
 // GuildPass SDK: Pull in package or module bindings.
 import { validateConfig } from '../src/config/sdkConfig';
 

@@ -414,6 +414,67 @@ describe('AccessService', () => {
       });
     });
   });
+
+  describe('checkAccess request schema validation', () => {
+    it('rejects null params with an actionable GuildPassConfigError', async () => {
+      const { get, service } = createService(checkAccessSuccess);
+
+      await expect(service.checkAccess(null as any)).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_INPUT,
+      });
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-object params value', async () => {
+      const { get, service } = createService(checkAccessSuccess);
+
+      await expect(service.checkAccess('not-an-object' as any)).rejects.toBeInstanceOf(
+        GuildPassConfigError,
+      );
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it('names the malformed field and the endpoint in the error message', async () => {
+      const { service } = createService(checkAccessSuccess);
+
+      await expect(
+        service.checkAccess({ walletAddress: mixedCaseAddress, guildId: 'guild_1' } as any),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('GET /access/check'),
+      });
+    });
+
+    it('still surfaces the specific INVALID_ADDRESS code for a malformed-but-present address (schema check is structural only)', async () => {
+      const { get, service } = createService(checkAccessSuccess);
+
+      await expect(
+        service.checkAccess({
+          walletAddress: 'invalid-address',
+          guildId: 'guild_1',
+          resourceId: 'resource_1',
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+      expect(get).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('checkRoleAccess request schema validation', () => {
+    it('rejects a non-object params value', async () => {
+      const { get, service } = createService(checkRoleAccessSuccess);
+
+      await expect(service.checkRoleAccess(null as any)).rejects.toBeInstanceOf(GuildPassConfigError);
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it('still surfaces the specific INVALID_INPUT code for an empty roleId (schema check is structural only)', async () => {
+      const { get, service } = createService(checkRoleAccessSuccess);
+
+      await expect(
+        service.checkRoleAccess({ walletAddress: validAddress, guildId: 'guild_1', roleId: '' }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
+      expect(get).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('getAccessSummary', () => {

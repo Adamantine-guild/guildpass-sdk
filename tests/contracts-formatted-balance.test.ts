@@ -59,14 +59,18 @@ describe('formatUnits', () => {
 });
 
 describe('ContractClient token metadata', () => {
-  const client = new GuildPassClient({
-    apiUrl: 'https://api.test.com',
-    rpcUrl: RPC_URL,
-    contractAddress: CONTRACT,
-  });
+  let client: GuildPassClient;
 
   beforeEach(() => {
+    // Stub `fetch` before constructing the client: `FetchTransport`'s default
+    // parameter captures `globalThis.fetch` once, at construction time, so a
+    // client built before the stub is in place keeps using the real fetch.
     vi.stubGlobal('fetch', vi.fn());
+    client = new GuildPassClient({
+      apiUrl: 'https://api.test.com',
+      rpcUrl: RPC_URL,
+      contractAddress: CONTRACT,
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();

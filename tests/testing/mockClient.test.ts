@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createMockGuildPassClient } from '../../src/testing/mockClient';
+import { createMockGuildPassClient, type Public } from '../../src/testing/mockClient';
 import { DEFAULT_ACCESS_RESULT, DEFAULT_GUILD } from '../../src/testing/fixtures';
 import type { GuildPassClient } from '../../src/client/GuildPassClient';
-import type { Public } from '../../src/testing/mockClient';
 
 describe('MockGuildPassClient', () => {
   it('should implement the public interface of GuildPassClient at compile time', () => {

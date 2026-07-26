@@ -13,7 +13,15 @@ const accessParams = {
 const okAccessResponse = () => ({
   ok: true,
   status: 200,
-  json: () => Promise.resolve({ hasAccess: true, matchedRoles: [] }),
+  json: () =>
+    Promise.resolve({
+      hasAccess: true,
+      walletAddress: validAddress,
+      guildId: accessParams.guildId,
+      resourceId: accessParams.resourceId,
+      requiredRoles: [],
+      matchedRoles: [],
+    }),
   headers: new Headers(),
 });
 

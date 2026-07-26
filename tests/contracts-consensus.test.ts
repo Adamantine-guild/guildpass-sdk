@@ -50,6 +50,15 @@ const BALANCE_CALL_DATA = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(WALLET)
 
 const mockFetch = (): ReturnType<typeof vi.fn> => fetch as unknown as ReturnType<typeof vi.fn>;
 
+/** Minimal mocked `Response` shape shared by every route builder below. */
+type MockFetchResponse = {
+  ok: boolean;
+  status: number;
+  headers: Headers;
+  json: () => Promise<any>;
+  text: () => Promise<string>;
+};
+
 const jsonRpcOk = (result: string) => ({
   ok: true,
   status: 200,
@@ -71,6 +80,7 @@ const transientHttp = (status: number) => ({
   status,
   headers: new Headers(),
   json: () => Promise.resolve({ message: `HTTP ${status}` }),
+  text: () => Promise.resolve(JSON.stringify({ message: `HTTP ${status}` })),
 });
 
 const contractRevert = () => ({
@@ -78,6 +88,7 @@ const contractRevert = () => ({
   status: 200,
   headers: new Headers({ 'Content-Type': 'application/json' }),
   json: () => Promise.resolve({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: 'execution reverted' } }),
+  text: () => Promise.resolve(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: 'execution reverted' } })),
 });
 
 /**
@@ -85,9 +96,14 @@ const contractRevert = () => ({
  * The keys are exact-match substrings the request URL must include.
  */
 const urlMock = (
-  routes: Record<string, () => ReturnType<typeof jsonRpcOk>>,
-  defaultRoute: () => ReturnType<typeof jsonRpcOk> = () =>
-    ({ ok: false, status: 500, headers: new Headers(), json: () => Promise.resolve({ message: 'no route' }) }) as any,
+  routes: Record<string, () => MockFetchResponse>,
+  defaultRoute: () => MockFetchResponse = () => ({
+    ok: false,
+    status: 500,
+    headers: new Headers(),
+    json: () => Promise.resolve({ message: 'no route' }),
+    text: () => Promise.resolve(JSON.stringify({ message: 'no route' })),
+  }),
 ) => {
   const fn = vi.fn(async (url: string) => {
     for (const [key, builder] of Object.entries(routes)) {
@@ -749,6 +765,7 @@ describe('batch consensus (per-item quorum)', () => {
     status: 200,
     headers: new Headers({ 'Content-Type': 'application/json' }),
     json: () => Promise.resolve(items.map((i) => ({ jsonrpc: '2.0', ...i }))),
+    text: () => Promise.resolve(JSON.stringify(items.map((i) => ({ jsonrpc: '2.0', ...i })))),
   });
 
   it('all providers agree on every batch item → all items succeed', async () => {
