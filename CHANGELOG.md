@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Security
+- **Hardened JSON-RPC response decoding against malformed and adversarial node responses** — resolves [#401](https://github.com/Adamantine-Guild/guildpass-sdk/issues/401). `aggregate3` return decoding interpreted node-controlled offsets and lengths with no validation, so a malformed envelope could decode into a plausible-looking result rather than an error: a reported success carrying no data, a reported contract revert that never happened, or an all-items-missing batch that looked like an honest partial response and therefore never triggered failover. An oversized array-length word also drove an effectively unbounded loop.
+  - Every offset, length and flag is now bounds- and alignment-checked before use, ABI words are parsed as `BigInt` instead of `parseInt` (which silently lost precision and returned `NaN` for unparseable input), and the array length is bounded by the number of calls actually requested. All rejections surface as `GuildPassErrorCode.INVALID_RESPONSE`.
+  - Revert-reason decoding no longer trusts an attacker-controlled string length; it is bounded by the data present and still degrades to a generic message instead of throwing.
+  - Added a **10 MiB cap** on any single `eth_call` result, checked against the payload length before decoding. A single call over the cap throws `INVALID_RESPONSE`; an oversized item inside a JSON-RPC batch becomes that item's error entry, preserving the per-item contract. Documented in [`docs/api-reference.md`](docs/api-reference.md) and [`SECURITY.md`](SECURITY.md).
+  - No public API change: the guards are internal and the per-item contract of `allowFailure=true` batches is unchanged.
+
 ### Changed
 - **`validateAddress` now verifies the EIP-55 checksum automatically for mixed-case addresses** — resolves [#394](https://github.com/Adamantine-Guild/guildpass-sdk/issues/394). Previously the checksum was only checked under `{ strict: true }`, so a mixed-case address with a corrupted checksum (a typo, a truncated copy-paste, a tampered value) passed validation silently.
   - Detection follows the intent of EIP-55: only a mixed-case hex payload carries checksum information, so only that case is verified. An all-lowercase or all-uppercase address carries none and is accepted exactly as before — no regression for the common lowercase path.

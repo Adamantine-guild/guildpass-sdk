@@ -560,6 +560,27 @@ provider-level failures throw `HTTP_ERROR`, undecodable results throw `INVALID_R
 and missing configuration throws `INVALID_CONFIG`. The default `JsonRpcContractProvider`
 is also exported from the root for advanced use.
 
+#### RPC response size cap
+
+Everything an RPC endpoint returns is untrusted input. The SDK therefore refuses to
+parse any single `eth_call` result larger than **10 MiB** (10,485,760 bytes), so a
+hostile or misbehaving node cannot force unbounded allocation. The limit is checked
+against the payload's length *before* any decoding work touches it.
+
+The value is an internal safety limit, not configurable API. It is far above any
+legitimate return: a 1,000-call Multicall3 batch of 32-byte results is roughly 100 KiB.
+
+- Single `eth_call` (including the Multicall3 `aggregate3` envelope): exceeding the cap
+  throws `INVALID_RESPONSE`, which the failover logic treats as an endpoint failure.
+- JSON-RPC batch: an oversized *item* is reported as that item's error entry and does not
+  fail its siblings, matching the existing per-item contract.
+
+Structurally malformed responses are rejected the same way — a non-hex body, a truncated
+ABI word, an offset that is not 32-byte aligned or points outside the payload, a
+`returnData` length that overruns the payload, or an array longer than the number of
+calls actually requested all raise `INVALID_RESPONSE` rather than decoding to a
+plausible-looking result.
+
 ### `batchEthCall(calls: BatchEthCallItem[], rpcUrl?: string, options?: RequestOptions & { maxBatchSize?: number, chunk?: boolean })`
 
 Low-level helper for sending multiple arbitrary `eth_call` requests in one
