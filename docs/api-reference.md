@@ -224,6 +224,26 @@ built-in methods. All methods participate in the same per-chain resolution
 (issue #1) and multi-RPC failover (issue #14) logic — no duplicate
 chain-selection code.
 
+### Per-chain configuration errors
+
+Entries in the `chains` map are **overrides, not replacements**: a partial entry inherits
+every field it does not declare from the top-level config, so
+`chains: { 8453: { contractAddress: '0x…' } }` still resolves the top-level `rpcUrl`.
+
+A chain is rejected only when the merge leaves no usable RPC endpoint. The resulting
+`INVALID_CONFIG` error names the chain and the missing fields — `No rpcUrl/contractAddress
+configured for chainId 8543` — and its `details` carry `field: 'chainId'`, a `missing`
+array, and `reason: 'NOT_FOUND'` (no entry for that chain) or `'INCOMPLETE'` (an entry
+exists but leaves a required field unset).
+
+A missing `contractAddress` alone does not fail chain resolution: it can be supplied per
+call via `params.contractAddress`, and the individual methods raise their own more specific
+errors (for example `contractAddress is required for guild owner lookup`).
+
+When a call supplies an explicit `chainId`, provider-level failures name it too
+(`No rpcUrl configured for chainId 8453`). Calls that do not name a chain keep the
+long-standing generic wording (`rpcUrl is required for contract calls`).
+
 ### `getGuildOwner(params: GuildOwnerParams)`
 
 Fetches the owner wallet address for a guild through the configured JSON-RPC
@@ -253,7 +273,7 @@ await client.contracts.getGuildOwner({
   > - A string of only ASCII decimal digits (e.g. `"42"`) is **always** integer mode; it is never encoded as UTF-8, even though `"42"` and the integer 42 produce different byte sequences.
   > - These rules are mutually exclusive: an input is classified by exactly one mode, eliminating all ambiguity.
 
-- **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config, `INVALID_INPUT` for invalid guild IDs (uint256 overflow or UTF-8 length > 32 bytes), `INVALID_ADDRESS` for invalid contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
+- **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config (naming the chain and missing field when a `chainId` is in play — see [Per-chain configuration errors](#per-chain-configuration-errors)), `INVALID_INPUT` for invalid guild IDs (uint256 overflow or UTF-8 length > 32 bytes), `INVALID_ADDRESS` for invalid contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
 
 ### `getMembershipTokenBalance(params: TokenBalanceParams)`
 
@@ -271,7 +291,7 @@ await client.contracts.getMembershipTokenBalance({
 - **Returns**: `Promise<string>`
 - **Requires**: `rpcUrl` and either `contractAddress` in client config or a per-call override
 - **Contract call**: `eth_call` to `balanceOf(address)`
-- **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config, `INVALID_ADDRESS` for invalid wallet or contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
+- **Errors**: throws `INVALID_CONFIG` for missing RPC/contract config (naming the chain and missing field when a `chainId` is in play — see [Per-chain configuration errors](#per-chain-configuration-errors)), `INVALID_ADDRESS` for invalid wallet or contract addresses, `HTTP_ERROR` for RPC failures, and `INVALID_RESPONSE` for malformed RPC return data
 
 ### `getERC20Balance(params: ERC20BalanceParams)`
 

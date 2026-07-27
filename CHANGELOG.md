@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **`chains` entries are now resolved as overrides instead of replacements** — resolves [#393](https://github.com/Adamantine-Guild/guildpass-sdk/issues/393). `resolveChainConfig` returned the matching `chains[chainId]` entry verbatim, so a partial entry such as `chains: { 8453: { contractAddress: '0x…' } }` silently discarded the top-level `rpcUrl` and the call failed with a generic error that never mentioned the chain. Every field a `chains` entry does not declare is now inherited from the top level, matching what the README has always documented.
+  - Fields are merged individually rather than by spreading, so a field an entry declares as `undefined` no longer clobbers a usable top-level value.
+  - Whether an RPC endpoint is present is decided through `mergeRpcUrls`, so a config supplying only `rpcUrls` is no longer misreported as missing `rpcUrl`.
+  - Unresolvable chains now throw `INVALID_CONFIG` naming the chain and the missing fields — `No rpcUrl/contractAddress configured for chainId 8543` — with `details.missing` and `details.reason` of `'NOT_FOUND'` (no entry) or `'INCOMPLETE'` (entry present but insufficient).
+  - **Behaviour change:** a `chains` map that lacks the requested chain no longer throws unconditionally; it throws only when the top-level fallback also leaves no usable RPC endpoint. A missing `contractAddress` alone never fails chain resolution, since it can be supplied per call and the individual methods raise their own more specific errors.
+  - Provider-level RPC errors name the chain when the caller passed an explicit `chainId` (`No rpcUrl configured for chainId 8453`). Calls that do not name a chain keep the existing `rpcUrl is required for contract calls` wording unchanged.
+
 ### Security
 - **Hardened JSON-RPC response decoding against malformed and adversarial node responses** — resolves [#401](https://github.com/Adamantine-Guild/guildpass-sdk/issues/401). `aggregate3` return decoding interpreted node-controlled offsets and lengths with no validation, so a malformed envelope could decode into a plausible-looking result rather than an error: a reported success carrying no data, a reported contract revert that never happened, or an all-items-missing batch that looked like an honest partial response and therefore never triggered failover. An oversized array-length word also drove an effectively unbounded loop.
   - Every offset, length and flag is now bounds- and alignment-checked before use, ABI words are parsed as `BigInt` instead of `parseInt` (which silently lost precision and returned `NaN` for unparseable input), and the array length is bounded by the number of calls actually requested. All rejections surface as `GuildPassErrorCode.INVALID_RESPONSE`.

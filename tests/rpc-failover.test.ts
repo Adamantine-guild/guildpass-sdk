@@ -212,6 +212,131 @@ describe('resolveChainConfig rpcUrls propagation', () => {
 });
 
 // ---------------------------------------------------------------------------
+// resolveChainConfig — override precedence and unresolvable chains (#393)
+// ---------------------------------------------------------------------------
+
+describe('resolveChainConfig override precedence (#393)', () => {
+  it('lets a chains entry override the top-level value', () => {
+    const cfg = resolveChainConfig(
+      {
+        apiUrl: BASE_URL,
+        rpcUrl: FALLBACK_RPC,
+        contractAddress: CONTRACT,
+        chains: { 8453: { rpcUrl: PRIMARY_RPC } },
+      },
+      8453,
+    );
+
+    expect(cfg.rpcUrl).toBe(PRIMARY_RPC);
+  });
+
+  it('inherits unset fields from the top level for a partial entry', () => {
+    // The core of the bug: a chains entry that only sets `contractAddress` used to
+    // be returned verbatim, silently dropping the top-level `rpcUrl`.
+    const cfg = resolveChainConfig(
+      {
+        apiUrl: BASE_URL,
+        rpcUrl: FALLBACK_RPC,
+        multicallAddress: OWNER,
+        chains: { 8453: { contractAddress: CONTRACT } },
+      },
+      8453,
+    );
+
+    expect(cfg.rpcUrl).toBe(FALLBACK_RPC);
+    expect(cfg.contractAddress).toBe(CONTRACT);
+    expect(cfg.multicallAddress).toBe(OWNER);
+  });
+
+  it('does not let an explicitly undefined entry field clobber the top level', () => {
+    // This is why the merge is field-by-field rather than `{ ...topLevel, ...entry }`.
+    const cfg = resolveChainConfig(
+      {
+        apiUrl: BASE_URL,
+        rpcUrl: PRIMARY_RPC,
+        contractAddress: CONTRACT,
+        chains: { 8453: { rpcUrl: undefined } },
+      },
+      8453,
+    );
+
+    expect(cfg.rpcUrl).toBe(PRIMARY_RPC);
+  });
+
+  it('returns the top-level config untouched when there is no chains map', () => {
+    const cfg = resolveChainConfig(
+      { apiUrl: BASE_URL, rpcUrl: PRIMARY_RPC, contractAddress: CONTRACT },
+      8453,
+    );
+
+    expect(cfg).toEqual({
+      rpcUrl: PRIMARY_RPC,
+      rpcUrls: undefined,
+      contractAddress: CONTRACT,
+      multicallAddress: undefined,
+    });
+  });
+
+  it('resolves a chain whose endpoints come only from rpcUrls', () => {
+    // The trap: checking `!merged.rpcUrl` instead of merging would report a false
+    // "missing rpcUrl" here, since the singular field is never set.
+    const cfg = resolveChainConfig(
+      {
+        apiUrl: BASE_URL,
+        contractAddress: CONTRACT,
+        chains: { 8453: { rpcUrls: [PRIMARY_RPC, FALLBACK_RPC] } },
+      },
+      8453,
+    );
+
+    expect(cfg.rpcUrls).toEqual([PRIMARY_RPC, FALLBACK_RPC]);
+  });
+
+  it('names the chain and the missing fields when the chainId is not configured', async () => {
+    await expect(async () =>
+      resolveChainConfig(
+        { apiUrl: BASE_URL, chains: { 8453: { rpcUrl: PRIMARY_RPC } } },
+        8543,
+      ),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: 'No rpcUrl/contractAddress configured for chainId 8543',
+      details: {
+        field: 'chainId',
+        reason: 'NOT_FOUND',
+        value: 8543,
+        missing: ['rpcUrl', 'contractAddress'],
+      },
+    });
+  });
+
+  it('reports INCOMPLETE when the entry exists but leaves no usable endpoint', async () => {
+    await expect(async () =>
+      resolveChainConfig(
+        { apiUrl: BASE_URL, chains: { 8453: { contractAddress: CONTRACT } } },
+        8453,
+      ),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: 'No rpcUrl configured for chainId 8453',
+      details: { field: 'chainId', reason: 'INCOMPLETE', missing: ['rpcUrl'] },
+    });
+  });
+
+  it('does not throw for a missing contractAddress alone', () => {
+    // `contractAddress` has a per-call override and its own downstream errors, so
+    // omitting it is a legitimate configuration and must resolve, not throw.
+    const cfg = resolveChainConfig(
+      { apiUrl: BASE_URL, chains: { 8453: { rpcUrl: PRIMARY_RPC } } },
+      8453,
+    );
+
+    expect(cfg.rpcUrl).toBe(PRIMARY_RPC);
+    expect(cfg.contractAddress).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // JsonRpcContractProvider — constructor validation
 // ---------------------------------------------------------------------------
 

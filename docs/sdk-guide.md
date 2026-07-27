@@ -291,12 +291,19 @@ const baseConfig = client.contracts.getChainConfig(8453);
 const defaultConfig = client.contracts.getChainConfig();
 ```
 
-When a `chains` map is provided, requesting an unlisted chain ID throws a `GuildPassError` with code `INVALID_CONFIG`:
+Entries in a `chains` map are overrides: a partial entry inherits the fields it does not
+declare from the top-level config. Requesting a chain only throws a `GuildPassError` with
+code `INVALID_CONFIG` when the merge leaves no usable RPC endpoint — and the error names
+the chain and the missing field:
 
 ```typescript
-// throws: No configuration found for chain ID 42161
+// throws: No rpcUrl/contractAddress configured for chainId 42161
 client.contracts.getChainConfig(42161);
 ```
+
+The error's `details` carry `reason: 'NOT_FOUND'` when the chain has no entry at all, or
+`reason: 'INCOMPLETE'` when it has one that leaves a required field unset, alongside a
+`missing` array naming the fields.
 
 The existing single-chain config (`rpcUrl` + `contractAddress` at the top level) remains fully backwards-compatible and is used as a fallback when no `chains` map is set.
 

@@ -200,7 +200,19 @@ export class ContractClient {
     const urls = mergeRpcUrls(cfg.rpcUrl, cfg.rpcUrls);
 
     if (urls.length === 0) {
-      throw new GuildPassConfigError(requiredMessage, GuildPassErrorCode.INVALID_CONFIG);
+      // Name the chain when the caller explicitly asked for one: someone who typos
+      // `8543` for `8453` needs to see which chain failed, not a generic message.
+      //
+      // Deliberately keyed on the caller-supplied `chainId` rather than the client's
+      // effective one. `GuildPassClient` defaults `config.chainId` to 1, so an
+      // effective id is *always* present and falling back to it would name "chainId 1"
+      // for every single-chain caller who never configured a chain — noise, and a
+      // breaking change to the long-standing wording. `params.chainId` is only set
+      // when the caller is genuinely doing multi-chain work, which is exactly when
+      // naming the chain helps.
+      const message =
+        chainId === undefined ? requiredMessage : `No rpcUrl configured for chainId ${chainId}`;
+      throw new GuildPassConfigError(message, GuildPassErrorCode.INVALID_CONFIG);
     }
 
     if (this.config.batchStrategy === 'multicall3') {

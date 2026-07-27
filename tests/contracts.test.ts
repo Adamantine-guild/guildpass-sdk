@@ -214,6 +214,64 @@ describe('ContractClient (Stubs)', () => {
       });
   });
 
+  it('should name the chain in the config error when the caller passes a chainId (#393)', async () => {
+    const clientWithoutRpc = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+    });
+
+    // Same client as the legacy test above; the only difference is that the caller
+    // asks for a specific chain, which is what earns the chain-named message.
+    await expect(
+      clientWithoutRpc.contracts.getGuildOwner({ guildId: 'guild_1', chainId: 8453 }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: 'No rpcUrl configured for chainId 8453',
+    });
+  });
+
+  it('should name the requested chain when it is absent from the chains map (#393)', async () => {
+    const clientWithChains = new GuildPassClient({
+      apiUrl: BASE_URL,
+      chains: { 8453: { rpcUrl: RPC_URL, contractAddress: CONTRACT } },
+    });
+
+    await expect(clientWithChains.contracts.getGuildOwner({ guildId: 'guild_1', chainId: 8543 }))
+      .rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_CONFIG,
+        message: 'No rpcUrl/contractAddress configured for chainId 8543',
+      });
+  });
+
+  it('should resolve a partial chains entry against the top-level fallback (#393)', async () => {
+    // End-to-end proof of the merge: the entry sets only `contractAddress`, so the
+    // top-level `rpcUrl` has to survive for the call to go out at all.
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: () => Promise.resolve({ result: `0x000000000000000000000000${OWNER.slice(2)}` }),
+    });
+
+    const clientPartial = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      chains: { 8453: { contractAddress: CONTRACT } },
+    });
+
+    await expect(
+      clientPartial.contracts.getGuildOwner({ guildId: 'guild_1', chainId: 8453 }),
+    ).resolves.toBe(OWNER);
+
+    // The top-level rpcUrl survived the merge — otherwise no request goes out.
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/rpc\.test\.com\/?$/),
+      expect.any(Object),
+    );
+    const request = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+    expect(request.params[0].to).toBe(CONTRACT);
+  });
+
   it('should throw a clear config error when contractAddress is missing for guild owner lookup', async () => {
     const clientWithoutContract = new GuildPassClient({
       apiUrl: BASE_URL,
