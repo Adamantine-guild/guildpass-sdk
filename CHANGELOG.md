@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+- **`InMemoryCacheAdapter` supports optional `maxEntries` LRU eviction** — resolves [#386](https://github.com/Adamantine-Guild/guildpass-sdk/issues/386). `new InMemoryCacheAdapter({ maxEntries: 5_000 })` caps the cache; once full, the least-recently-used entry is evicted on the next write. This closes a long-standing contradiction: [`docs/cache-adapters.md`](docs/cache-adapters.md) already documented a `ttl: undefined` entry as stored *"until explicitly deleted or evicted by LRU"*, but the adapter had no eviction of any kind.
+  - Recency is refreshed by `get` as well as `set`, so a frequently-read key survives even when it was inserted first. Both paths re-insert rather than overwrite: `Map.set` on an existing key keeps its original insertion position, which would have made the eviction order FIFO while still passing the simple cases.
+  - Within `get`, the TTL sweep runs before the recency refresh, so an expired entry is dropped rather than promoted to most-recently-used.
+  - New `size()` method reports the number of entries held. It **includes** entries whose TTL has elapsed but which have not been swept yet, since expiry is lazy and happens on read.
+  - `maxEntries` must be a positive integer; anything else throws `INVALID_CONFIG` at construction. Eviction itself never throws.
+  - Omitting `maxEntries` preserves the previous unbounded behaviour exactly — the recency bookkeeping is skipped entirely in that mode, so there is no added cost for existing users.
+  - `InMemoryCacheAdapterOptions` is exported for consumers who want to type their options.
+
 ### Fixed
 - **`chains` entries are now resolved as overrides instead of replacements** — resolves [#393](https://github.com/Adamantine-Guild/guildpass-sdk/issues/393). `resolveChainConfig` returned the matching `chains[chainId]` entry verbatim, so a partial entry such as `chains: { 8453: { contractAddress: '0x…' } }` silently discarded the top-level `rpcUrl` and the call failed with a generic error that never mentioned the chain. Every field a `chains` entry does not declare is now inherited from the top level, matching what the README has always documented.
   - Fields are merged individually rather than by spreading, so a field an entry declares as `undefined` no longer clobbers a usable top-level value.

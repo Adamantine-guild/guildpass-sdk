@@ -966,6 +966,7 @@ export interface HttpTransport {
 
 // @public
 export class InMemoryCacheAdapter implements CacheAdapter {
+    constructor(options?: InMemoryCacheAdapterOptions);
     // (undocumented)
     clear(): Promise<void>;
     // (undocumented)
@@ -976,6 +977,12 @@ export class InMemoryCacheAdapter implements CacheAdapter {
     get<T>(key: string): Promise<T | null>;
     // (undocumented)
     set<T>(key: string, value: T, ttl?: number): Promise<void>;
+    size(): number;
+}
+
+// @public
+export interface InMemoryCacheAdapterOptions {
+    maxEntries?: number;
 }
 
 // @public
