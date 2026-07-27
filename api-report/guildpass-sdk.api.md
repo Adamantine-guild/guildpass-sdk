@@ -347,6 +347,15 @@ export interface EIP1193Provider {
 }
 
 // @public
+export const EIP1271_MAGIC_VALUE = "0x1626ba7e";
+
+// @public
+export interface Eip1271Outcome {
+    reason?: string;
+    valid: boolean;
+}
+
+// @public
 export interface EIP712Domain {
     // (undocumented)
     chainId?: number | bigint;
@@ -1431,6 +1440,11 @@ export interface SiweParseResult {
 }
 
 // @public
+export interface SiweVerifyAsyncParams extends SiweVerifyParams {
+    contractProvider?: ContractProvider;
+}
+
+// @public
 export interface SiweVerifyParams {
     checkExpiry?: boolean;
     expectedDomain?: string;
@@ -1599,7 +1613,10 @@ export function verifyGuildRoleDelegationWithReplayProtection(domain: EIP712Doma
 export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult;
 
 // @public
-export function verifySiweSignatureWithReplayProtection(params: SiweVerifyParams, nonceStore: NonceStore): Promise<SiweVerifyResult>;
+export function verifySiweSignatureAsync(params: SiweVerifyAsyncParams): Promise<SiweVerifyResult>;
+
+// @public
+export function verifySiweSignatureWithReplayProtection(params: SiweVerifyAsyncParams, nonceStore: NonceStore): Promise<SiweVerifyResult>;
 
 // @public
 export function verifyTypedDataSignature(domain: EIP712Domain, types: EIP712Types, primaryType: string, message: EIP712Message, signature: string, expectedSigner: string): EIP712VerifyResult;

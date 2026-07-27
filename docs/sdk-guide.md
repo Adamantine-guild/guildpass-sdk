@@ -786,6 +786,15 @@ const result = await verifySiweSignatureWithReplayProtection(
   nonceStore,
 );
 
+// Smart-contract wallets: add a contractProvider and the same call additionally
+// falls back to EIP-1271 verification, so replay protection and contract-wallet
+// support compose instead of being mutually exclusive.
+//
+//   await verifySiweSignatureWithReplayProtection(
+//     { message: rawSiweMessage, signature, contractProvider },
+//     nonceStore,
+//   );
+
 if (result.success) {
   // First time through: verified and the nonce is now consumed.
 } else {
