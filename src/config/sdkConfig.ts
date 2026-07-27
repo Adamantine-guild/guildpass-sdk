@@ -558,21 +558,60 @@ export function mergeRpcUrls(rpcUrl?: string, rpcUrls?: string[]): string[] {
 }
 
 export function resolveChainConfig(config: GuildPassClientConfig, chainId: number): ChainConfig {
-  if (config.chains) {
-    if (Object.prototype.hasOwnProperty.call(config.chains, chainId)) {
-      return config.chains[chainId];
-    }
-    throw new GuildPassConfigError(
-      `No configuration found for chain ID ${chainId}`,
-      GuildPassErrorCode.INVALID_CONFIG,
-      undefined,
-      { field: 'chainId', reason: 'NOT_FOUND', value: chainId, valueType: 'number' }
-    );
-  }
-  return {
+  const topLevel: ChainConfig = {
     rpcUrl: config.rpcUrl,
     rpcUrls: config.rpcUrls,
     contractAddress: config.contractAddress,
     multicallAddress: config.multicallAddress,
   };
+
+  if (!config.chains) return topLevel;
+
+  const hasEntry = Object.prototype.hasOwnProperty.call(config.chains, chainId);
+  const entry = hasEntry ? config.chains[chainId] : undefined;
+
+  // `chains` entries are documented as per-chain *overrides* (see README), so an
+  // entry that sets only one field still inherits the rest from the top level.
+  // Merging field by field rather than spreading matters: `{ ...topLevel, ...entry }`
+  // would let a field the entry declares as `undefined` clobber a usable top-level
+  // value, which is replacement, not override.
+  const merged: ChainConfig = {
+    rpcUrl: entry?.rpcUrl ?? topLevel.rpcUrl,
+    rpcUrls: entry?.rpcUrls ?? topLevel.rpcUrls,
+    contractAddress: entry?.contractAddress ?? topLevel.contractAddress,
+    multicallAddress: entry?.multicallAddress ?? topLevel.multicallAddress,
+  };
+
+  const missing: string[] = [];
+  // `rpcUrl` and `rpcUrls` are interchangeable inputs to the same list, so the
+  // question is whether the merge yields any usable endpoint — not whether the
+  // singular field happens to be set. Using `!merged.rpcUrl` here would report a
+  // false "missing rpcUrl" for a config that only supplies `rpcUrls`.
+  const hasRpc = mergeRpcUrls(merged.rpcUrl, merged.rpcUrls).length > 0;
+  if (!hasRpc) missing.push('rpcUrl');
+  if (!merged.contractAddress) missing.push('contractAddress');
+
+  // Only a missing RPC endpoint makes the chain genuinely unresolvable. A missing
+  // `contractAddress` does not: it can be supplied per call (`params.contractAddress`),
+  // several methods take it as a required argument anyway, and the call sites raise
+  // their own more specific errors ("contractAddress is required for token balance
+  // lookup", etc.). Throwing on it here would reject configurations that work today.
+  // It is still named in the message when it is absent too, which is the combined
+  // case the issue quotes.
+  if (!hasRpc) {
+    throw new GuildPassConfigError(
+      `No ${missing.join('/')} configured for chainId ${chainId}`,
+      GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      {
+        field: 'chainId',
+        reason: hasEntry ? 'INCOMPLETE' : 'NOT_FOUND',
+        value: chainId,
+        valueType: 'number',
+        missing,
+      }
+    );
+  }
+
+  return merged;
 }
