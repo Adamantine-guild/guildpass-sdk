@@ -50,6 +50,147 @@ describe('InMemoryCacheAdapter specific details', () => {
 });
 
 // ---------------------------------------------------------------------------
+// InMemoryCacheAdapter maxEntries / LRU eviction (#386)
+// ---------------------------------------------------------------------------
+
+describe('InMemoryCacheAdapter maxEntries LRU eviction', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('evicts the least-recently-used entry once the cap is exceeded', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1);
+    await adapter.set('b', 2);
+    await adapter.set('c', 3);
+
+    expect(adapter.size()).toBe(2);
+    expect(await adapter.get('a')).toBeNull();
+    expect(await adapter.get('b')).toBe(2);
+    expect(await adapter.get('c')).toBe(3);
+  });
+
+  it('refreshes recency on read, so a re-read entry outlives a newer one', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1);
+    await adapter.set('b', 2);
+
+    // Touching 'a' must move it to the most-recently-used end. This is the case
+    // that still passes under a FIFO implementation only by accident: a plain
+    // `Map.set` refresh keeps the original insertion position, so 'a' would be
+    // evicted here instead of 'b'.
+    expect(await adapter.get('a')).toBe(1);
+
+    await adapter.set('c', 3);
+
+    expect(await adapter.get('a')).toBe(1);
+    expect(await adapter.get('b')).toBeNull();
+    expect(await adapter.get('c')).toBe(3);
+  });
+
+  it('refreshes recency on overwrite', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1);
+    await adapter.set('b', 2);
+    await adapter.set('a', 99); // overwrite counts as recent use
+
+    await adapter.set('c', 3);
+
+    expect(await adapter.get('a')).toBe(99);
+    expect(await adapter.get('b')).toBeNull();
+  });
+
+  it('is unbounded when maxEntries is omitted', async () => {
+    const adapter = new InMemoryCacheAdapter();
+
+    for (let i = 0; i < 1000; i += 1) {
+      await adapter.set(`k${i}`, i);
+    }
+
+    expect(adapter.size()).toBe(1000);
+    expect(await adapter.get('k0')).toBe(0);
+    expect(await adapter.get('k999')).toBe(999);
+  });
+
+  it('sweeps an expired entry on read instead of promoting it', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1, 100);
+    await adapter.set('b', 2);
+
+    vi.advanceTimersByTime(101);
+
+    // The TTL sweep runs before the recency refresh: 'a' is dropped, not moved
+    // to the most-recently-used end.
+    expect(await adapter.get('a')).toBeNull();
+    expect(adapter.size()).toBe(1);
+
+    // With 'a' already gone, adding 'c' fills the free slot rather than evicting 'b'.
+    await adapter.set('c', 3);
+
+    expect(await adapter.get('b')).toBe(2);
+    expect(await adapter.get('c')).toBe(3);
+    expect(adapter.size()).toBe(2);
+  });
+
+  it('handles maxEntries: 1 without evicting the entry just written', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 1 });
+
+    await adapter.set('a', 1);
+    expect(adapter.size()).toBe(1);
+    expect(await adapter.get('a')).toBe(1);
+
+    await adapter.set('b', 2);
+    expect(adapter.size()).toBe(1);
+    expect(await adapter.get('a')).toBeNull();
+    expect(await adapter.get('b')).toBe(2);
+  });
+
+  it('rejects an invalid maxEntries at construction', () => {
+    expect(() => new InMemoryCacheAdapter({ maxEntries: 0 })).toThrowError(
+      /maxEntries must be a positive integer/,
+    );
+    expect(() => new InMemoryCacheAdapter({ maxEntries: -5 })).toThrowError(
+      /maxEntries must be a positive integer/,
+    );
+    expect(() => new InMemoryCacheAdapter({ maxEntries: 1.5 })).toThrowError(
+      /maxEntries must be a positive integer/,
+    );
+
+    try {
+      new InMemoryCacheAdapter({ maxEntries: 0 });
+      expect.fail('expected the constructor to reject maxEntries: 0');
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('INVALID_CONFIG');
+    }
+  });
+
+  it('keeps deleteByPrefix working while a cap is active', async () => {
+    // This is the path GuildPassClient.invalidateWalletCache relies on; a
+    // regression here would silently stop cache invalidation from working.
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 10 });
+
+    await adapter.set('wallet:0xaaa:guild:1', 'x');
+    await adapter.set('wallet:0xaaa:guild:2', 'y');
+    await adapter.set('wallet:0xbbb:guild:1', 'z');
+
+    await adapter.deleteByPrefix('wallet:0xaaa:');
+
+    expect(await adapter.get('wallet:0xaaa:guild:1')).toBeNull();
+    expect(await adapter.get('wallet:0xaaa:guild:2')).toBeNull();
+    expect(await adapter.get('wallet:0xbbb:guild:1')).toBe('z');
+    expect(adapter.size()).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GuildPassClient cache integration
 // ---------------------------------------------------------------------------
 describe('GuildPassClient – cache integration', () => {

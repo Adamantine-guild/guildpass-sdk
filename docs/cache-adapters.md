@@ -44,7 +44,7 @@ interface CacheAdapter {
 
 | `ttl` parameter | Behaviour                                                       |
 | :-------------- | :-------------------------------------------------------------- |
-| `undefined`     | Never expire. Store until explicitly deleted or evicted by LRU. |
+| `undefined`     | Never expire. Store until explicitly deleted or evicted by LRU (see [`maxEntries`](#maxentries)). |
 | `0`             | Expires immediately — effectively disables caching.             |
 | `> 0`           | Expire after `ttl` milliseconds.                                |
 
@@ -239,6 +239,36 @@ export class MyMemoryAdapter implements CacheAdapter {
   }
 }
 ```
+
+### `maxEntries`
+
+The built-in `InMemoryCacheAdapter` is **unbounded by default**. Pass `maxEntries` to cap
+it; once the cap would be exceeded, the least-recently-used entry is evicted on the next
+write.
+
+```typescript
+import { GuildPassClient, InMemoryCacheAdapter } from '@guildpass/sdk';
+
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  cache: new InMemoryCacheAdapter({ maxEntries: 5_000 }),
+  cacheTtl: 60_000,
+});
+```
+
+- **Recency is refreshed on read as well as on write.** A key that keeps being read
+  survives even if it was inserted first — eviction order is LRU, not FIFO.
+- **`size()`** reports how many entries are currently held, *including* entries whose TTL
+  has already elapsed but which have not been swept yet. Expiry is lazy: an untouched
+  expired entry keeps its slot until it is read, overwritten, or evicted.
+- **`maxEntries` must be a positive integer.** Anything else throws `INVALID_CONFIG` at
+  construction rather than being silently ignored.
+- Omitting `maxEntries` keeps the previous unbounded behaviour exactly; the recency
+  bookkeeping is skipped entirely in that mode.
+
+This matters most in long-lived processes whose keys are per-wallet or per-guild (see
+[Invalidation](#invalidation)): the key space grows with your user base, so an unbounded
+map is effectively a slow memory leak.
 
 ## Using a custom adapter
 
