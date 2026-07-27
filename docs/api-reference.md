@@ -835,6 +835,58 @@ function publishRoot(root: string, version?: number): Promise<void>
 function rotateWhitelist(newRoot: string, version?: number): Promise<void>
 ```
 
+## SIWE (Sign-In With Ethereum)
+
+### `verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult`
+
+Synchronous EIP-4361 verification. Parses the message, checks domain, nonce,
+expiry and `notBefore`, then recovers the signer with secp256k1 and compares it
+against the address in the message. Purely local — **no network access**. Never
+throws: every failure comes back as `{ success: false, error, code }`.
+
+### `verifySiweSignatureAsync(params: SiweVerifyAsyncParams): Promise<SiweVerifyResult>`
+
+Same checks, plus an **EIP-1271 fallback for smart-contract wallets** (Safe,
+Argent, and account-abstraction wallets generally), which have no single ECDSA
+keypair to recover from and instead answer `isValidSignature(bytes32,bytes)`
+on-chain.
+
+```typescript
+import { verifySiweSignatureAsync } from '@guildpass/sdk';
+
+const result = await verifySiweSignatureAsync({
+  message: rawSiweMessage,
+  signature,
+  expectedDomain: 'example.com',
+  contractProvider, // any ContractProvider — this is what enables the fallback
+});
+```
+
+- **Requires RPC access**, unlike the synchronous function: when the fallback
+  runs it performs an `eth_call` against the address claimed by the message.
+  Omit `contractProvider` and the behaviour is identical to
+  `verifySiweSignature`, with no request made.
+- **The fallback only runs after a signature failure** (`SIWE_INVALID_SIGNATURE`).
+  A domain, nonce, expiry or `notBefore` failure is terminal and returned
+  unchanged — a contract signature cannot rescue a message addressed elsewhere.
+- **It covers every signature failure, not just an address mismatch.** An
+  EIP-1271 signature has no fixed length, so a multi-owner Safe signature is
+  rejected by the 65-byte guard before ECDSA recovery is even attempted.
+- **A valid EOA signature never touches the network** — the synchronous path
+  succeeds first.
+- **RPC failures do not reject.** A refused connection, a non-contract address
+  or a reverting `isValidSignature` all resolve to
+  `{ success: false, code: 'SIWE_INVALID_SIGNATURE' }`, preserving the
+  never-throws contract.
+- Verification succeeds only when the contract returns the EIP-1271 magic value
+  as a full 32-byte word (`0x1626ba7e` followed by 28 zero bytes), exported as
+  `EIP1271_MAGIC_VALUE`. A result that merely starts with the selector is
+  rejected.
+
+`verifySiweSignatureWithReplayProtection` accepts the same
+`SiweVerifyAsyncParams`, so EIP-1271 verification and replay protection compose:
+pass `contractProvider` and a smart-contract wallet gets both.
+
 ## EIP-712 (Typed-Data Signing)
 
 Generic `eth_signTypedData_v4` support — `encodeType` / `hashStruct` /

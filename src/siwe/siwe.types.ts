@@ -1,3 +1,6 @@
+// GuildPass SDK: Pull in package or module bindings.
+import type { ContractProvider } from '../contracts/providers/provider.types';
+
 /**
  * Represents a parsed EIP-4361 (Sign-In With Ethereum) message.
  *
@@ -75,6 +78,21 @@ export interface SiweVerifyResult {
    * Undefined on success.
    */
   code?: string;
+}
+
+/**
+ * Parameters accepted by the asynchronous verifiers, which can additionally
+ * fall back to EIP-1271 verification for smart-contract wallets.
+ */
+export interface SiweVerifyAsyncParams extends SiweVerifyParams {
+  /**
+   * Provider used to `eth_call` the claimed address's `isValidSignature`.
+   *
+   * Supplying this makes verification perform **network I/O**, unlike the
+   * purely local {@link verifySiweSignature}. Omit it and the asynchronous
+   * verifier behaves exactly like the synchronous one.
+   */
+  contractProvider?: ContractProvider;
 }
 
 /**
