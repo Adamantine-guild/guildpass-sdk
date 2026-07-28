@@ -110,7 +110,7 @@ export class GuildPassClient {
 
     this.http = new HttpClient(
       this.config.apiUrl,
-      this.config.apiKey,
+      this.config.authProvider ?? this.config.apiKey,
       this.config.defaultTimeoutMs ?? this.config.timeoutMs,
       {
         retry: this.config.retry,
@@ -119,6 +119,7 @@ export class GuildPassClient {
         fetch: this.config.fetch,
         transport: this.config.transport,
         rateLimit: this.config.rateLimit,
+        authProvider: this.config.authProvider,
         metadata: {
           sdkVersion: SDK_VERSION,
           clientName: this.config.clientName,

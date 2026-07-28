@@ -15,6 +15,7 @@ import { runRequestPipeline, runResponsePipeline, runErrorPipeline } from '../mi
 import type { RequestMiddlewarePayload, Middleware } from '../middleware/middleware.types';
 import type { HttpTransport, TransportResponse } from '../network/transport.types';
 import { FetchTransport } from '../network/fetchTransport';
+import type { AuthenticationProvider } from '../auth/AuthenticationProvider';
 
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE']);
 const DEFAULT_RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
@@ -198,7 +199,7 @@ function extractMeta(response: HttpResponse, durationMs: number): ResponseMetada
 
 export class HttpClient {
   private readonly baseUrl: string;
-  private readonly apiKey?: string;
+  private readonly authProvider?: AuthenticationProvider;
   private readonly timeoutMs: number;
   private readonly globalRetry?: RetryConfig;
   private readonly hooks?: HttpHooks;
@@ -210,12 +211,19 @@ export class HttpClient {
 
   constructor(
     baseUrl: string,
-    apiKey?: string,
+    apiKeyOrProvider?: string | AuthenticationProvider,
     timeoutMs = 10000,
     configOrHooks?: RetryConfig | HttpHooks | HttpClientConfig,
   ) {
     this.baseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-    this.apiKey = apiKey;
+    if (typeof apiKeyOrProvider === 'string' && apiKeyOrProvider.trim().length > 0) {
+      this.authProvider = {
+        getAuthorizationHeaders: () => ({ 'X-API-Key': apiKeyOrProvider })
+      };
+    } else if (typeof apiKeyOrProvider === 'object' && apiKeyOrProvider !== null) {
+      this.authProvider = apiKeyOrProvider;
+    }
+    
     this.timeoutMs = timeoutMs;
 
     if (configOrHooks) {
@@ -226,6 +234,9 @@ export class HttpClient {
         this.fetchTransport = configOrHooks.fetch;
         this.transport = configOrHooks.transport ?? new FetchTransport(this.fetchTransport);
         this.metadata = configOrHooks.metadata;
+        if ((configOrHooks as HttpClientConfig).authProvider && !this.authProvider) {
+          this.authProvider = (configOrHooks as HttpClientConfig).authProvider;
+        }
         if (configOrHooks.rateLimit) this.tokenBucket = new TokenBucket(configOrHooks.rateLimit);
       } else if (isRetryConfig(configOrHooks)) {
         this.globalRetry = configOrHooks;
@@ -267,9 +278,12 @@ export class HttpClient {
 
     const requestHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(this.apiKey && !isAbsolute ? { 'X-API-Key': this.apiKey } : {}),
       ...headers,
     };
+    
+    if (!isAbsolute && this.authProvider) {
+      Object.assign(requestHeaders, await this.authProvider.getAuthorizationHeaders());
+    }
 
     if (!isAbsolute && this.metadata?.sendClientMetadata !== false) {
       const sdkVersion = this.metadata?.sdkVersion;
@@ -374,6 +388,14 @@ export class HttpClient {
         };
 
         if (!response.ok) {
+          if (response.status === 401 && this.authProvider?.onUnauthorized) {
+            const shouldRetry = await this.authProvider.onUnauthorized();
+            if (shouldRetry) {
+              Object.assign(requestHeaders, await this.authProvider.getAuthorizationHeaders());
+              continue;
+            }
+          }
+          
           const isRetryable = canRetry && retryConfig.retryableStatuses.includes(response.status);
           if (isRetryable && attempt < retryConfig.maxRetries) {
             const retryAfter = getRetryAfter();
