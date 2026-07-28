@@ -749,7 +749,7 @@ export class ContractClient {
     return result;
   }
 
-  public getCircuitBreakerSnapshot(): Record<string, any> {
+  public getCircuitBreakerSnapshot(): Record<string, import('./providers/adaptive.types').UrlHealth> {
     // ContractClient doesn't hold the AdaptiveContractProvider directly if it is passed in,
     // but we can check if the contractProvider is AdaptiveContractProvider and has healthTracker.
     const provider = this.config.contractProvider as any;

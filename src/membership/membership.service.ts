@@ -57,7 +57,7 @@ export class MembershipService {
     });
 
     if (options?.includeMeta) {
-      const withMeta = result as { data: Membership; meta: ResponseMetadata };
+      const withMeta = result as any;
       const checkedData = this.validateResponses
         ? assertValidResponse(withMeta.data, isMembership, 'Membership', { endpoint: 'GET /membership' })
         : withMeta.data;

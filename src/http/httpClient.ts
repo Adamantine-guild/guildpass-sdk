@@ -237,16 +237,16 @@ export class HttpClient {
     if (!this.middleware) this.middleware = [];
   }
 
-  public async get<T>(path: string, options?: Omit<HttpRequestOptions, 'method' | 'body'>): Promise<any> {
+  public async get<T, O extends Omit<HttpRequestOptions, 'method' | 'body'> = Omit<HttpRequestOptions, 'method' | 'body'>>(path: string, options?: O): Promise<O extends { includeMeta: true } ? { data: T; meta: ResponseMetadata } : T> {
     const response = await this.request<T>(path, { ...options, method: 'GET' });
-    if (options?.includeMeta) return { data: response.data, meta: response.meta };
-    return response.data;
+    if (options?.includeMeta) return { data: response.data, meta: response.meta } as any;
+    return response.data as any;
   }
 
-  public async post<T, TBody = unknown>(path: string, body?: TBody, options?: Omit<HttpRequestOptions<TBody>, 'method' | 'body'>): Promise<any> {
+  public async post<T, TBody = unknown, O extends Omit<HttpRequestOptions<TBody>, 'method' | 'body'> = Omit<HttpRequestOptions<TBody>, 'method' | 'body'>>(path: string, body?: TBody, options?: O): Promise<O extends { includeMeta: true } ? { data: T; meta: ResponseMetadata } : T> {
     const response = await this.request<T, TBody>(path, { ...options, method: 'POST', body });
-    if (options?.includeMeta) return { data: response.data, meta: response.meta };
-    return response.data;
+    if (options?.includeMeta) return { data: response.data, meta: response.meta } as any;
+    return response.data as any;
   }
 
   private async request<T, TBody = unknown>(

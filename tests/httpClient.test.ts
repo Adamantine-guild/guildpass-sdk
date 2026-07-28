@@ -360,7 +360,7 @@ describe('HttpClient', () => {
         json: () => Promise.resolve({ error: 'quota exhausted' }),
       });
 
-      const failure = await noRetryClient.get('/rate-limited').catch((e) => e);
+      const failure = await noRetryClient.get('/rate-limited').catch((e: any) => e);
       expect(failure).toBeInstanceOf(GuildPassRateLimitError);
       expect(failure.code).toBe(GuildPassErrorCode.RATE_LIMITED);
       expect(failure.status).toBe(429);
