@@ -5,6 +5,7 @@ import {
   BALANCE_OF_SELECTOR,
   DECIMALS_SELECTOR,
   formatUnits,
+  parseUnits,
 } from '../src/contracts/contractClient';
 
 const WALLET = '0x1234567890123456789012345678901234567890';
@@ -55,6 +56,58 @@ describe('formatUnits', () => {
     expect(() => formatUnits('1.5', 6)).toThrow();
     expect(() => formatUnits('abc', 6)).toThrow();
     expect(() => formatUnits('100', -1)).toThrow();
+  });
+});
+
+describe('parseUnits', () => {
+  it('is the exact inverse of formatUnits (round-trip)', () => {
+    const cases: [string, number][] = [
+      ['1500000', 6],
+      ['250', 6],
+      ['1000000', 6],
+      ['0', 18],
+      ['123', 0],
+      ['12345678901234567890', 18],
+      ['1', 18],
+      ['999999999999999999', 18],
+      ['1000000000000000000', 18],
+    ];
+    for (const [raw, d] of cases) {
+      expect(parseUnits(formatUnits(raw, d), d)).toBe(raw);
+    }
+  });
+
+  it('converts a decimal string to base units', () => {
+    expect(parseUnits('1.5', 6)).toBe('1500000');
+    expect(parseUnits('1', 18)).toBe('1000000000000000000');
+    expect(parseUnits('0.00025', 6)).toBe('250');
+    expect(parseUnits('123', 0)).toBe('123');
+    expect(parseUnits('0', 18)).toBe('0');
+  });
+
+  it('handles integer input without a decimal point', () => {
+    expect(parseUnits('100', 6)).toBe('100000000');
+    expect(parseUnits('1', 0)).toBe('1');
+  });
+
+  it('strips leading zeros from the whole part', () => {
+    expect(parseUnits('00.5', 6)).toBe('500000');
+  });
+
+  it('rejects malformed input', () => {
+    expect(() => parseUnits('abc', 6)).toThrow();
+    expect(() => parseUnits('1.2.3', 6)).toThrow();
+    expect(() => parseUnits('', 6)).toThrow();
+  });
+
+  it('rejects excess fractional precision', () => {
+    expect(() => parseUnits('1.123', 2)).toThrow();
+    expect(() => parseUnits('0.12345', 3)).toThrow();
+  });
+
+  it('rejects negative or non-integer decimals', () => {
+    expect(() => parseUnits('1', -1)).toThrow();
+    expect(() => parseUnits('1', 1.5)).toThrow();
   });
 });
 

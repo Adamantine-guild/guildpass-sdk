@@ -84,6 +84,36 @@ export const formatUnits = (value: string, decimals: number): string => {
   return fraction ? `${whole}.${fraction}` : whole;
 };
 
+export const parseUnits = (value: string, decimals: number): string => {
+  if (decimals < 0 || !Number.isInteger(decimals)) {
+    throw new GuildPassConfigError('Decimals must be a non-negative integer', GuildPassErrorCode.INVALID_INPUT);
+  }
+
+  if (!/^\d+(\.\d+)?$/.test(value)) {
+    throw new GuildPassConfigError('Value must be a valid decimal string', GuildPassErrorCode.INVALID_INPUT);
+  }
+
+  const dotIndex = value.indexOf('.');
+  let result: string;
+  if (dotIndex === -1) {
+    result = value + '0'.repeat(decimals);
+  } else {
+    const whole = value.slice(0, dotIndex);
+    const fraction = value.slice(dotIndex + 1);
+
+    if (fraction.length > decimals) {
+      throw new GuildPassConfigError(
+        `Value has ${fraction.length} fractional digits but decimals is ${decimals}`,
+        GuildPassErrorCode.INVALID_INPUT,
+      );
+    }
+
+    const paddedFraction = fraction.padEnd(decimals, '0');
+    result = whole + paddedFraction;
+  }
+  return result.replace(/^0+/, '') || '0';
+};
+
 export {
   BALANCE_OF_SELECTOR,
   ERC1155_BALANCE_OF_SELECTOR,
