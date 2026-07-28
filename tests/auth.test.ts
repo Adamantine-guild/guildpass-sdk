@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GuildPassClient, AuthenticationProvider, ApiKeyAuthenticationProvider } from '../src';
-import { HttpClient } from '../src/http/httpClient';
 
 describe('Pluggable Authentication Providers', () => {
   let mockFetch: any;
