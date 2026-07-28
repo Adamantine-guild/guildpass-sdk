@@ -79,7 +79,7 @@ export class AccessService {
       : (rawData as AccessCheckResult);
 
     if (options?.includeMeta) {
-      return { data: validatedResult, meta: (response as any).meta } as { data: AccessCheckResult; meta: ResponseMetadata };
+      return { data: validatedResult, meta: (response as any).meta };
     }
 
     return validatedResult;
@@ -107,18 +107,19 @@ export class AccessService {
     const { requirement, chainId, throwOnDiscrepancy, ...requestOptions } = options;
 
     const [apiPromise, onChainPromise] = await Promise.allSettled([
-      this.checkAccess(params, requestOptions as any),
+      this.checkAccess(params, requestOptions as RequestOptions),
       this.contracts.validateRoleRequirement({
         walletAddress: params.walletAddress,
         requirement,
         chainId
-      }, requestOptions as any)
+      }, requestOptions as RequestOptions)
     ]);
 
     const apiResultRaw = apiPromise.status === 'fulfilled' ? apiPromise.value : null;
-    const apiResult = apiResultRaw && 'hasAccess' in (apiResultRaw as any)
-      ? (apiResultRaw as any as AccessCheckResult)
-      : (apiResultRaw as any)?.data ?? null;
+    let apiResult: AccessCheckResult | null = null;
+    if (apiResultRaw) {
+      apiResult = 'hasAccess' in apiResultRaw ? apiResultRaw : (apiResultRaw as any).data;
+    }
 
     const onChainResult = onChainPromise.status === 'fulfilled' ? onChainPromise.value : null;
 
@@ -227,8 +228,8 @@ export class AccessService {
           retry: options?.retry,
           signal: options?.signal,
         };
-        const result = await this.checkAccess(item, requestOptions as any);
-        results[index] = { input: item, status: 'fulfilled', value: result as any };
+        const result = await this.checkAccess(item, requestOptions);
+        results[index] = { input: item, status: 'fulfilled', value: result as AccessCheckResult };
       } catch (error) {
         if (failFast) hasFailed = true;
         results[index] = { 
@@ -335,7 +336,7 @@ export class AccessService {
     });
 
     if (options?.includeMeta) {
-      const r = result as { data: { hasRole: boolean }; meta: ResponseMetadata };
+      const r = result as any;
       const checkedData = this.validateResponses
         ? assertValidResponse(r.data, isRoleCheckResult, 'RoleCheckResult', { endpoint: 'GET /access/role-check' })
         : r.data;

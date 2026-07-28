@@ -103,7 +103,7 @@ export class RolesService {
           'Use GuildPassClient to obtain a properly configured RolesService.',
       );
     }
-    return this.access.checkRoleAccess(params, options as any) as any;
+    return this.access.checkRoleAccess(params, options);
   }
 
   private handlePaginatedResponse<T>(
