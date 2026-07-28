@@ -471,4 +471,12 @@ export class HttpClient {
       }
     }
   }
+
+  public getRateLimitStatus(): { throttlingUntil: number; currentRate: number } | null {
+    if (!this.tokenBucket) return null;
+    return {
+      throttlingUntil: this.tokenBucket.getThrottlingUntil(),
+      currentRate: this.tokenBucket.getCurrentRate(),
+    };
+  }
 }

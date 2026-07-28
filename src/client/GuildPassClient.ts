@@ -24,6 +24,7 @@ import type { AccessCheckParams, RoleAccessCheckParams, AccessCheckBatchOptions,
 import type { MembershipParams } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, HasRoleParams } from '../roles/roles.types';
 import type { GetGuildParams } from '../guilds/guilds.types';
+import { DiagnosticsModule } from '../diagnostics/DiagnosticsModule';
 
 /**
  * The main GuildPass SDK this.
@@ -84,6 +85,7 @@ export class GuildPassClient {
   public readonly guilds: GuildsService;
   // GuildPass SDK: Class member structure property or constructor.
   public readonly contracts: ContractClient;
+  public readonly diagnostics: DiagnosticsModule;
 
   // GuildPass SDK: Class member structure property or constructor.
   private readonly http: HttpClient;
@@ -162,6 +164,38 @@ export class GuildPassClient {
     this.roles = this.buildCachedRolesService(rawRoles);
     this.guilds = this.buildCachedGuildsService(rawGuilds);
     this.contracts = rawContracts;
+
+    this.diagnostics = new DiagnosticsModule();
+    this.diagnostics.registerInFlightRequests(() => this.inFlightRequests.size);
+    this.diagnostics.registerRateLimit(() => this.http.getRateLimitStatus());
+    this.diagnostics.registerCircuitBreakers(() => this.contracts.getCircuitBreakerSnapshot());
+
+    // Hook up rate limit events if token bucket exists
+    if (this.config.rateLimit) {
+      const originalOnThrottled = (this.config.rateLimit as any).onThrottled;
+      (this.config.rateLimit as any).onThrottled = (until: number) => {
+        this.diagnostics.emit('rateLimitThrottled', { throttlingUntil: until });
+        if (originalOnThrottled) originalOnThrottled(until);
+      };
+    }
+
+    // Hook up circuit breaker events if using adaptive provider
+    if (this.config.contractProvider && (this.config.contractProvider as any).healthTracker) {
+      const tracker = (this.config.contractProvider as any).healthTracker;
+      if (tracker && tracker.config) {
+        const originalOnCircuitOpen = tracker.config.onCircuitOpen;
+        const originalOnCircuitClosed = tracker.config.onCircuitClosed;
+        tracker.config.onCircuitOpen = (url: string, until: number) => {
+          this.diagnostics.emit('circuitOpen', { url, openUntil: until });
+          if (originalOnCircuitOpen) originalOnCircuitOpen(url, until);
+        };
+        tracker.config.onCircuitClosed = (url: string) => {
+          this.diagnostics.emit('circuitClosed', { url });
+          if (originalOnCircuitClosed) originalOnCircuitClosed(url);
+        };
+      }
+    }
+
     // GuildPass SDK: End of logic containment structure block.
   }
 
@@ -318,11 +352,17 @@ export class GuildPassClient {
     if (this.cache) {
       try {
         const cached = await this.cache.get<T>(key);
-        if (cached !== null) return cached;
+        if (cached !== null) {
+          this.diagnostics.recordCacheHit(key);
+          return cached;
+        }
       } catch (error: any) {
+        this.diagnostics.recordCacheError();
         this.handleCacheError('get', error, key);
       }
     }
+    
+    this.diagnostics.recordCacheMiss(key);
 
     const execute = async (): Promise<T> => {
       const result = await fn();
