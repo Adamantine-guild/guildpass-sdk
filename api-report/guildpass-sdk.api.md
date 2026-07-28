@@ -199,6 +199,7 @@ export type BatchItemResult = {
     status: 'success' | 'error';
     result?: string;
     error?: string;
+    code?: GuildPassErrorCode;
 };
 
 // @public
@@ -802,7 +803,8 @@ export enum GuildPassErrorCode {
     // (undocumented)
     UNKNOWN_ERROR = "UNKNOWN_ERROR",
     // (undocumented)
-    UNVERIFIABLE_RESPONSE = "UNVERIFIABLE_RESPONSE"
+    UNVERIFIABLE_RESPONSE = "UNVERIFIABLE_RESPONSE",
+    WS_CONNECTION_ERROR = "WS_CONNECTION_ERROR"
 }
 
 // @public
@@ -1623,7 +1625,7 @@ export function verifyTypedDataSignature(domain: EIP712Domain, types: EIP712Type
 
 // Warnings were encountered during analysis:
 //
-// dist/common-CabkBCAt.d.ts:224:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
+// dist/errorCodes-DSJwVyKn.d.ts:224:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

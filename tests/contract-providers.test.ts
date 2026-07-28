@@ -248,7 +248,9 @@ describe('adapter batch semantics', () => {
 
     expect(results).toEqual([
       { status: 'success', result: BALANCE_RESULT },
-      { status: 'error', error: 'boom' },
+      // The adapter's own `ethCall` wraps every provider failure as
+      // HTTP_ERROR, so the per-item entry inherits that classification.
+      { status: 'error', error: 'boom', code: GuildPassErrorCode.HTTP_ERROR },
     ]);
   });
 

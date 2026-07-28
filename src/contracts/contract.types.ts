@@ -1,5 +1,7 @@
 // GuildPass SDK: Import external module dependencies.
 import { AccessRequirement } from '../types/common';
+// Type-only: keeps this module fully erasable at build time.
+import type { GuildPassErrorCode } from '../errors/errorCodes';
 
 /** Per-chain RPC and contract address configuration. */
 export type ChainConfig = {
@@ -78,12 +80,43 @@ export type BatchEthCallItem = {
 /**
  * Result of a single item in a batch response.
  * On success, `status` is `'success'` and `result` contains the raw hex output.
- * On failure, `status` is `'error'` and `error` contains a descriptive message.
+ * On failure, `status` is `'error'`, `error` contains a descriptive message and
+ * `code` classifies the failure.
  */
 export type BatchItemResult = {
+  /** `'success'` when the call returned usable data, `'error'` when this item failed. */
   status: 'success' | 'error';
+  /** The call's return value. Present when `status` is `'success'`. */
   result?: string;
+  /**
+   * Human-readable description of why this item failed. Present when `status`
+   * is `'error'`. The exact wording is not a stable API — branch on
+   * {@link BatchItemResult.code} rather than matching this string.
+   */
   error?: string;
+  /**
+   * Machine-readable classification of the failure. Populated on every
+   * `'error'` entry produced by the SDK, and never set on a `'success'` entry.
+   *
+   * - `HTTP_ERROR` — the call reached the contract and was rejected: a revert,
+   *   or a JSON-RPC error envelope from the node. Deterministic; retrying the
+   *   same call against another endpoint will not change the outcome.
+   * - `INVALID_RESPONSE` — the node's response for this item was unusable:
+   *   missing, empty, wrong-typed, over the response size cap, or undecodable.
+   *   Another endpoint may well succeed.
+   * - `CONSENSUS_MISMATCH` — `contractReadConsensus` is configured and the
+   *   providers did not reach quorum for this item.
+   * - Any other {@link GuildPassErrorCode} propagated from a custom
+   *   `contractProvider`, falling back to `UNKNOWN_ERROR`.
+   *
+   * Note that pre-flight validation failures (an invalid address, an empty
+   * input array, a batch exceeding `maxBatchSize`) are **thrown** rather than
+   * reported here; this field classifies failures that occur during execution.
+   *
+   * Optional for backward compatibility: entries produced by a third-party
+   * {@link ContractProvider} implementation may omit it.
+   */
+  code?: GuildPassErrorCode;
 };
 
 /**

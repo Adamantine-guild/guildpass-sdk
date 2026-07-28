@@ -54,6 +54,8 @@ import {
   encodeAbiParams,
   validateAccessRequirement,
 } from './contractHelpers';
+import { batchItemError, ensureItemCodes } from './batchErrors';
+import { toErrorCode } from '../errors/toErrorCode';
 import { GuildPassClientConfig, resolveChainConfig, mergeRpcUrls } from '../config/sdkConfig';
 import { HttpClient } from '../http/httpClient';
 import { RequestOptions } from '../types/common';
@@ -965,10 +967,12 @@ export class ContractClient {
       } else {
         let totalVotes = 0;
         for (const g of groupByValue.values()) totalVotes += g.count;
-        results.push({
-          status: 'error',
-          error: `Consensus mismatch at batch index ${i}: largest agreeing group returned ${winningCount} matching value(s) (quorum: ${minProviders}, total successful votes: ${totalVotes}).`,
-        });
+        results.push(
+          batchItemError(
+            `Consensus mismatch at batch index ${i}: largest agreeing group returned ${winningCount} matching value(s) (quorum: ${minProviders}, total successful votes: ${totalVotes}).`,
+            GuildPassErrorCode.CONSENSUS_MISMATCH,
+          ),
+        );
       }
     }
 
@@ -996,7 +1000,11 @@ export class ContractClient {
     const requests: EthCallRequest[] = calls.map((c) => ({ to: c.to, data: c.data }));
 
     if (this.config.contractProvider) {
-      return this.config.contractProvider.batchEthCall(requests, options);
+      // The only untrusted source of batch entries: a third-party provider may
+      // omit `code`, or carry one from a different SDK version. Normalise here,
+      // the single point every provider result enters ContractClient, so the
+      // public batch methods can promise a usable code unconditionally.
+      return ensureItemCodes(await this.config.contractProvider.batchEthCall(requests, options));
     }
 
     if (this.config.contractReadConsensus) {
@@ -1360,11 +1368,13 @@ export class ContractClient {
             status: 'success' as const,
             result: decodeUint256Result(item.result),
           };
-        } catch {
-          return {
-            status: 'error' as const,
-            error: 'Failed to decode balance result',
-          };
+        } catch (err) {
+          // decodeUint256Result throws INVALID_RESPONSE; keep whatever code it
+          // carried rather than swallowing the error entirely.
+          return batchItemError(
+            'Failed to decode balance result',
+            toErrorCode(err, GuildPassErrorCode.INVALID_RESPONSE),
+          );
         }
       }
       return item;
@@ -1445,11 +1455,13 @@ export class ContractClient {
             status: 'success' as const,
             result: decodeAddressResult(item.result),
           };
-        } catch {
-          return {
-            status: 'error' as const,
-            error: 'Failed to decode guild owner result',
-          };
+        } catch (err) {
+          // decodeAddressResult throws INVALID_RESPONSE; keep whatever code it
+          // carried rather than swallowing the error entirely.
+          return batchItemError(
+            'Failed to decode guild owner result',
+            toErrorCode(err, GuildPassErrorCode.INVALID_RESPONSE),
+          );
         }
       }
       return item;

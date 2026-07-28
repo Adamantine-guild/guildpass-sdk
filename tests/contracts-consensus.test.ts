@@ -827,6 +827,7 @@ describe('batch consensus (per-item quorum)', () => {
     if (results[1].status === 'error') {
       expect(results[1].error).toMatch(/Consensus mismatch at batch index 1/);
       expect(results[1].error).toMatch(/quorum: 3/);
+      expect(results[1].code).toBe(GuildPassErrorCode.CONSENSUS_MISMATCH);
     }
   });
 
@@ -854,6 +855,7 @@ describe('batch consensus (per-item quorum)', () => {
     expect(results[0].status).toBe('error');
     if (results[0].status === 'error') {
       expect(results[0].error).toMatch(/Consensus mismatch at batch index 0/);
+      expect(results[0].code).toBe(GuildPassErrorCode.CONSENSUS_MISMATCH);
     }
   });
 

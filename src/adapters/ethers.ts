@@ -3,6 +3,7 @@ import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { RequestOptions } from '../types/common';
 import { BatchItemResult } from '../contracts/contract.types';
+import { batchItemError } from '../contracts/batchErrors';
 import { ContractProvider, EthCallRequest } from '../contracts/providers/provider.types';
 
 /**
@@ -58,11 +59,21 @@ export function ethersContractProvider(provider: EthersProviderLike): ContractPr
         try {
           const result = await ethCall(request);
           if (typeof result !== 'string') {
-            return { status: 'error', error: `Unexpected result type for batch item ${i}` };
+            return batchItemError(
+              `Unexpected result type for batch item ${i}`,
+              GuildPassErrorCode.INVALID_RESPONSE,
+            );
           }
           return { status: 'success', result };
         } catch (err: any) {
-          return { status: 'error', error: err?.message ?? `RPC error for batch item ${i}` };
+          // `ethCall` above wraps every ethers failure as a GuildPassError, so
+          // propagate whatever code it chose rather than hardcoding one here.
+          // `instanceof` is sufficient and exact: the error was constructed by
+          // this same module, so it can never have crossed a realm boundary.
+          return batchItemError(
+            err?.message ?? `RPC error for batch item ${i}`,
+            err instanceof GuildPassError ? err.code : GuildPassErrorCode.HTTP_ERROR,
+          );
         }
       }),
     );

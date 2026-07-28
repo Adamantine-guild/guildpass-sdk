@@ -428,6 +428,85 @@ for (const [chainId, result] of Object.entries(balances)) {
 - **Partial failures**: a failed chain is reported per-chain; all other chains are unaffected and returned normally.
 - **Errors**: throws `INVALID_CONFIG` when no chains are configured, `INVALID_ADDRESS` for invalid wallet addresses. Per-chain RPC and contract errors are captured inside each chain's `ChainBalanceResult` rather than surfaced as thrown exceptions.
 
+### `BatchItemResult`
+
+The per-item result type shared by `getMembershipTokenBalancesBatch`,
+`getGuildOwnersBatch` and `batchEthCall`.
+
+```typescript
+type BatchItemResult = {
+  status: 'success' | 'error';
+  result?: string;            // present when status is 'success'
+  error?: string;             // present when status is 'error'
+  code?: GuildPassErrorCode;  // present when status is 'error'
+};
+```
+
+Every error entry returned by `client.contracts.*` carries a `code` classifying
+*why* that item failed, so callers can branch on failure type without matching
+on the `error` string (whose exact wording is not a stable API). Success entries
+never carry a `code`.
+
+| `code` | Meaning | Worth retrying elsewhere? |
+| --- | --- | --- |
+| `HTTP_ERROR` | The call reached the contract and was rejected — a revert, or a JSON-RPC error envelope from the node. | No — deterministic. |
+| `INVALID_RESPONSE` | The node's response for this item was unusable: missing, empty, wrong-typed, over the response size cap, or undecodable. | Yes — another endpoint may succeed. |
+| `CONSENSUS_MISMATCH` | `contractReadConsensus` is configured and the providers did not reach quorum for this item. | No — treat the value as unverified. |
+
+Any other `GuildPassErrorCode` may appear when propagated from a custom
+`contractProvider`, falling back to `UNKNOWN_ERROR`.
+
+**Pre-flight validation still throws.** An invalid address, an empty input
+array or a batch exceeding `maxBatchSize` rejects the whole call before any RPC
+request is sent. `code` classifies failures that occur *during* execution.
+
+**`code` is optional in the type, but the batch methods always populate it.**
+The field is optional because the `ContractProvider` interface is public and a
+third-party implementation may omit it. Results from such a provider are
+normalised as they enter `ContractClient`: a missing `code`, or one that is not
+a member of `GuildPassErrorCode` in this build, becomes `UNKNOWN_ERROR`. So on
+an error entry from `batchEthCall`, `getMembershipTokenBalancesBatch` or
+`getGuildOwnersBatch`, `code` is always present and always a real enum member.
+
+The only way to observe `code: undefined` is to call a `ContractProvider`
+yourself rather than going through the client — that result has not passed
+through the normalisation step.
+
+```typescript
+import { GuildPassErrorCode } from '@guildpass/sdk';
+
+const results = await client.contracts.getMembershipTokenBalancesBatch({ walletAddresses });
+
+const retryable: string[] = [];
+
+results.forEach((item, i) => {
+  if (item.status === 'success') {
+    console.log(walletAddresses[i], item.result);
+    return;
+  }
+
+  switch (item.code) {
+    case GuildPassErrorCode.HTTP_ERROR:
+      // Reached the contract and was rejected. Retrying will not help.
+      console.warn(`${walletAddresses[i]} reverted: ${item.error}`);
+      break;
+    case GuildPassErrorCode.INVALID_RESPONSE:
+      // The node's answer was unusable — another endpoint may succeed.
+      retryable.push(walletAddresses[i]);
+      break;
+    case GuildPassErrorCode.CONSENSUS_MISMATCH:
+      // Providers disagreed. Never fall back to treating this as zero.
+      throw new Error(`Unverified balance for ${walletAddresses[i]}`);
+    default:
+      console.error(`${walletAddresses[i]}: ${item.error} (${item.code})`);
+  }
+});
+```
+
+> `GuildPassErrorCode` is a string enum, so compare against
+> `GuildPassErrorCode.HTTP_ERROR` rather than the `'HTTP_ERROR'` literal —
+> TypeScript rejects the bare string as having no overlap.
+
 ### `getMembershipTokenBalancesBatch(params: TokenBalancesBatchParams)`
 
 Fetches membership token balances for multiple wallet addresses in a single
@@ -448,11 +527,12 @@ await client.contracts.getMembershipTokenBalancesBatch({
 
 - **Returns**: `Promise<BatchItemResult[]>` — ordered results, one per input address.
   Each result has `{ status: 'success', result: '<balance-as-string>' }` or
-  `{ status: 'error', error: '<reason>' }`.
+  `{ status: 'error', error: '<reason>', code: GuildPassErrorCode }`.
+  See [`BatchItemResult`](#batchitemresult) for the codes and a branching example.
 - **Requires**: same config as `getMembershipTokenBalance`
 - **Contract call**: single JSON-RPC batch of `eth_call` to `balanceOf(address)`
 - **Partial failures**: a failed address is reported individually; other addresses are unaffected
-- **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_ADDRESS` if any address is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
+- **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_ADDRESS` if any address is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses. Pre-flight failures throw; failures during execution are reported per item with a `code`.
 
 ### `getGuildOwnersBatch(params: GuildOwnersBatchParams)`
 
@@ -471,12 +551,13 @@ await client.contracts.getGuildOwnersBatch({
 
 - **Returns**: `Promise<BatchItemResult[]>` — ordered results, one per input guild ID.
   Each result has `{ status: 'success', result: '<owner-address>' }` or
-  `{ status: 'error', error: '<reason>' }`.
+  `{ status: 'error', error: '<reason>', code: GuildPassErrorCode }`.
+  See [`BatchItemResult`](#batchitemresult) for the codes and a branching example.
 - **Requires**: same config as `getGuildOwner`
 - **Contract call**: single JSON-RPC batch of `eth_call` to `getGuildOwner(bytes32)`
 - **Guild ID encoding**: each guild ID in the array is encoded using the same strict three-mode rules as `getGuildOwner` (see above)
 - **Partial failures**: a failed guild is reported individually; other guilds are unaffected
-- **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_INPUT` if any guild ID is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses
+- **Errors**: throws `INVALID_INPUT` for empty arrays, `INVALID_INPUT` if any guild ID is invalid (pre-flight), `INVALID_CONFIG` for missing RPC/contract config, `INVALID_RESPONSE` for non-array or malformed batch responses. Pre-flight failures throw; failures during execution are reported per item with a `code`.
 
 ### RPC Failover (`rpcUrls`)
 
@@ -550,6 +631,16 @@ interface ContractProvider {
 }
 ```
 
+Implementations **should** set `code` on every error entry they return (see
+[`BatchItemResult`](#batchitemresult)), but are not required to: `ContractClient`
+normalises anything missing or unrecognised to `UNKNOWN_ERROR` as it comes back,
+so an omission degrades the classification rather than breaking callers. Setting
+an accurate code is still strongly preferred — `UNKNOWN_ERROR` tells a consumer
+nothing about whether retrying elsewhere is worthwhile.
+
+The bundled viem and ethers adapters always set it, propagating whatever code
+their `ethCall` raised.
+
 Reuse an existing viem or ethers provider via the tree-shakeable adapter subpaths
 (viem/ethers are optional peer dependencies — never bundled unless you import an adapter):
 
@@ -592,8 +683,9 @@ legitimate return: a 1,000-call Multicall3 batch of 32-byte results is roughly 1
 
 - Single `eth_call` (including the Multicall3 `aggregate3` envelope): exceeding the cap
   throws `INVALID_RESPONSE`, which the failover logic treats as an endpoint failure.
-- JSON-RPC batch: an oversized *item* is reported as that item's error entry and does not
-  fail its siblings, matching the existing per-item contract.
+- JSON-RPC batch: an oversized *item* is reported as that item's error entry, carrying
+  `code: INVALID_RESPONSE`, and does not fail its siblings, matching the existing
+  per-item contract.
 
 Structurally malformed responses are rejected the same way — a non-hex body, a truncated
 ABI word, an offset that is not 32-byte aligned or points outside the payload, a
@@ -617,10 +709,12 @@ const results = await client.contracts.batchEthCall(
 );
 ```
 
-- **Returns**: `Promise<BatchItemResult[]>` — ordered results, one per input call
+- **Returns**: `Promise<BatchItemResult[]>` — ordered results, one per input call.
+  A failed item is `{ status: 'error', error: '<reason>', code: GuildPassErrorCode }`;
+  see [`BatchItemResult`](#batchitemresult) for the codes and a branching example.
 - **Partial failures**: each call is individually resolved; errors do not affect sibling calls
 - **Input validation**: each `to` address is validated as an Ethereum address before the RPC request is built
-- **Errors**: throws `INVALID_INPUT` for empty/ invalid call descriptors, `INVALID_CONFIG` for missing `rpcUrl`, `INVALID_ADDRESS` for malformed `to` addresses, `HTTP_ERROR` for HTTP or RPC-level failures, `INVALID_RESPONSE` for non-array or structurally malformed batch responses
+- **Errors**: throws `INVALID_INPUT` for empty/ invalid call descriptors, `INVALID_CONFIG` for missing `rpcUrl`, `INVALID_ADDRESS` for malformed `to` addresses, `HTTP_ERROR` for HTTP or RPC-level failures, `INVALID_RESPONSE` for non-array or structurally malformed batch responses. Pre-flight failures throw; failures during execution are reported per item with a `code`.
 - **Provider compatibility**: works with any JSON-RPC provider that supports [batch requests](https://www.jsonrpc.org/specification#batch)
 - **Custom providers**: when a `contractProvider` is configured it takes precedence and `rpcUrl` may be omitted; `INVALID_CONFIG` is only thrown when neither is available
 

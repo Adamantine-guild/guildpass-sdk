@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import { MULTICALL3_ADDRESS } from '../src/contracts/providers/adaptive.types';
+import { GuildPassErrorCode } from '../src/errors/errorCodes';
 
 const BASE_URL = 'https://api.test.com';
 const RPC_URL = 'https://rpc.test.com';
@@ -143,7 +144,11 @@ describe('Multicall3ContractProvider and aggregate3', () => {
 
     expect(results).toEqual([
       { status: 'success', result: '5' },
-      { status: 'error', error: 'Reverted: Insufficient balance' },
+      {
+        status: 'error',
+        error: 'Reverted: Insufficient balance',
+        code: GuildPassErrorCode.HTTP_ERROR,
+      },
     ]);
   });
 
