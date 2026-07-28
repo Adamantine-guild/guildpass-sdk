@@ -40,6 +40,36 @@ interface CacheAdapter {
   - `invalidateWalletCache()` falls back to clearing the **entire** cache.
 - **Must never throw.**
 
+## Key Composition
+
+Every cached service method builds a deterministic cache key from public identifiers. All wallet addresses are normalised to lowercase via `normaliseAddress()` before key construction. No secrets (API keys, tokens) are included in cache keys.
+
+| Service method | Cache key template |
+| :------------- | :----------------- |
+| `access.checkAccess` | `access:checkAccess:{guildId}:{resourceId}:{wallet}` |
+| `access.checkRoleAccess` | `access:checkRoleAccess:{guildId}:{roleId}:{wallet}` |
+| `membership.getMembership` | `membership:getMembership:{guildId}:{wallet}` |
+| `roles.getRoles` | `roles:getRoles:{guildId}` |
+| `roles.getUserRoles` | `roles:getUserRoles:{guildId}:{wallet}` |
+| `guilds.getGuild` | `guilds:getGuild:{guildId}` |
+| `guilds.getGuildConfig` | `guilds:getGuildConfig:{guildId}` |
+
+> The `wallet:` prefix (e.g. `wallet:0x1234:`) is an **invalidation-only namespace** used by `invalidateWalletCache()`. No service method produces a standalone `wallet:*` cache key — wallet addresses are always embedded within the service-method key templates above.
+
+**Concrete example:**
+
+```typescript
+// Given:
+//   guildId = 'prime-guild'
+//   resourceId = 'secret-channel'
+//   walletAddress = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
+//
+// cache key produced:
+//   access:checkAccess:prime-guild:secret-channel:0xd8da6bf26964af9d7eed9e03e53415d37aa96045
+```
+
+> **Tip for custom adapter authors:** Use these exact key templates to design prefix-based invalidation strategies (e.g., scan for `access:checkAccess:{guildId}:*` to evict all access entries for a guild).
+
 ## TTL Semantics
 
 | `ttl` parameter | Behaviour                                                       |
@@ -58,7 +88,37 @@ interface CacheAdapter {
 > `cacheTtl` (or pass `undefined`) — only an _absent_ TTL means "no
 > expiration."
 
-The SDK passes `cacheTtl` (from client config) as the `ttl` argument. Methods that accept a per-call override subtract elapsed time from the deadline before storing.
+The SDK passes the client-level `cacheTtl` as the `ttl` argument to `cache.set()`. Every cached service method uses the same client-wide TTL — there is **no per-call TTL override** in the current implementation.
+
+### TTL Precedence
+
+Only one TTL source exists: the `cacheTtl` option passed to `GuildPassClient` at construction time.
+
+| `cacheTtl` value | Effective behaviour |
+| :--------------- | :------------------ |
+| `undefined` (omitted) | Never expire (equivalent to `0`). |
+| `0` | Never expire. |
+| `> 0` | All cached entries expire after `cacheTtl` milliseconds. |
+
+**Worked example:**
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  cache: new InMemoryCacheAdapter(),
+  cacheTtl: 60_000, // 60 seconds
+});
+
+// First call — network request; cached with 60 s TTL
+await client.guilds.getGuild({ guildId: 'prime-guild' });
+
+// Second call within 60 s — cache hit; no network request
+await client.guilds.getGuild({ guildId: 'prime-guild' });
+
+// After 60 s — entry expired; next call goes to network and re-caches
+```
+
+All service methods (`checkAccess`, `checkRoleAccess`, `getMembership`, `getRoles`, `getUserRoles`, `getGuild`, `getGuildConfig`) share this same TTL. There is no way to set a different TTL per method or per call.
 
 ## Error Isolation
 
@@ -302,6 +362,8 @@ await client.clearCache();
 ```
 
 See the [SDK Guide](./sdk-guide.md#caching-and-request-deduplication) for more on the caching layer.
+
+For the internal cache-wrapping layer that produces these keys, see [Architecture → Caching Layer](./architecture.md#5-caching-layer).
 
 ## Conformance Testing
 

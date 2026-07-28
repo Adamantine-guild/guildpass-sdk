@@ -299,6 +299,7 @@ The SDK includes a resilient caching layer that wraps service methods.
 - **InMemoryCacheAdapter**: A default, zero-dependency in-memory cache.
 - **Resilience**: Caching is non-blocking and failure-tolerant. Cache errors are isolated from the main request flow.
 - **Observability**: Developers can monitor cache health via lifecycle hooks.
+- **Key format**: See [Cache Adapters → Key Composition](./cache-adapters.md#key-composition) for the exact cache key templates and [TTL Precedence](./cache-adapters.md#ttl-precedence) for expiry behaviour.
 
 **In-flight request coalescing.** When `deduplication` is enabled (the
 default), concurrent calls with identical arguments share a single
