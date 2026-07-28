@@ -1,0 +1,60 @@
+name: CI
+
+# Deliberately `pull_request`, NOT `pull_request_target`. This runs PR-supplied
+# code (dependency installation executes package postinstall scripts) so it
+# must NEVER have
+# secret access -- GitHub already withholds repo secrets from fork-triggered
+# pull_request workflows by default. Do not add `secrets: inherit`, do not
+# reference secrets.AUTO_MERGE_TOKEN here, and do not switch this to
+# pull_request_target.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# Cancels a stale run if the same PR gets a new commit before the old CI run
+# finishes -- avoids piling up runs and avoids an old run's completion
+# confusingly re-triggering the notify workflow below for a superseded commit.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint --if-present
+
+      - name: Build
+        run: pnpm run build --if-present
+
+      - name: Test
+        run: pnpm run test --if-present

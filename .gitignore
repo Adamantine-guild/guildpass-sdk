@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 lib/
+!scripts/lib/
+!scripts/lib/api-report-diff.mjs
 
 # Testing
 coverage/
