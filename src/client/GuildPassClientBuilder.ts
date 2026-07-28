@@ -6,6 +6,7 @@ import type { ContractProvider } from '../contracts/providers/provider.types';
 import type { FetchLike, HttpHooks, RateLimitConfig, RetryConfig } from '../http/http.types';
 import type { Middleware } from '../middleware/middleware.types';
 import type { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
+import type { AuthenticationProvider } from '../auth/AuthenticationProvider';
 
 export class GuildPassClientBuilder {
   private config: Partial<GuildPassClientConfig>;
@@ -24,6 +25,11 @@ export class GuildPassClientBuilder {
 
   public withApiKey(apiKey: string): this {
     this.config.apiKey = apiKey;
+    return this;
+  }
+
+  public withAuthProvider(authProvider: AuthenticationProvider): this {
+    this.config.authProvider = authProvider;
     return this;
   }
 
