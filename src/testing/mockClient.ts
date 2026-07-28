@@ -6,6 +6,7 @@ import { RolesService } from '../roles/roles.service';
 import { ContractClient } from '../contracts/contractClient';
 import { DEFAULT_ACCESS_RESULT, DEFAULT_GUILD, DEFAULT_GUILD_CONFIG, DEFAULT_ROLE, DEFAULT_MEMBERSHIP } from './fixtures';
 import type { PublicClientConfig } from '../config/sdkConfig';
+import { DiagnosticsModule } from '../diagnostics/DiagnosticsModule';
 
 /** 
  * Utility type to extract only the public properties and methods of a class.
@@ -87,6 +88,7 @@ export function createMockGuildPassClient(overrides?: MockClientOverrides): Guil
     invalidateWalletCache: async () => {},
     clearCache: async () => {},
     getConfig: overrides?.getConfig ?? (() => ({ apiUrl: 'https://mock.guildpass.xyz' })),
+    diagnostics: new DiagnosticsModule(),
   };
 
   // Cast safely. TypeScript guarantees that `mockClientPublic` shapes up to the public interface.

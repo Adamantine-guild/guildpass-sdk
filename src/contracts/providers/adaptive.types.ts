@@ -49,6 +49,10 @@ export type AdaptiveHealthConfig = {
   failureThreshold?: number;
   /** How long the circuit stays open before a trial call, ms. Default: 30000. */
   cooldownMs?: number;
+  /** Callback fired when a circuit breaker opens. */
+  onCircuitOpen?: (url: string, openUntil: number) => void;
+  /** Callback fired when a circuit breaker closes. */
+  onCircuitClosed?: (url: string) => void;
   /** Smoothing factor for the latency EMA, between 0 and 1. Default: 0.3. */
   latencyEmaAlpha?: number;
   /** Batch size at or above which Multicall3 is strongly preferred. Default: 3. */

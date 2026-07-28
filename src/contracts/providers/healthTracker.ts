@@ -1,7 +1,10 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { AdaptiveHealthConfig, UrlHealth } from './adaptive.types';
 
-const DEFAULTS: Required<AdaptiveHealthConfig> = {
+const DEFAULTS: Omit<Required<AdaptiveHealthConfig>, 'onCircuitOpen' | 'onCircuitClosed'> & {
+  onCircuitOpen?: (url: string, openUntil: number) => void;
+  onCircuitClosed?: (url: string) => void;
+} = {
   failureThreshold: 3,
   cooldownMs: 30000,
   latencyEmaAlpha: 0.3,
@@ -24,7 +27,10 @@ const DEFAULTS: Required<AdaptiveHealthConfig> = {
  * response does not dominate routing decisions.
  */
 export class HealthTracker {
-  private readonly config: Required<AdaptiveHealthConfig>;
+  private readonly config: Omit<Required<AdaptiveHealthConfig>, 'onCircuitOpen' | 'onCircuitClosed'> & {
+    onCircuitOpen?: (url: string, openUntil: number) => void;
+    onCircuitClosed?: (url: string) => void;
+  };
   private readonly health = new Map<string, UrlHealth>();
 
   constructor(config?: AdaptiveHealthConfig) {
@@ -56,6 +62,9 @@ export class HealthTracker {
     if (record.circuitOpen && now >= record.openUntil) {
       // Cooldown elapsed: allow a half-open trial call through.
       record.circuitOpen = false;
+      if (this.config.onCircuitClosed) {
+        this.config.onCircuitClosed(url);
+      }
     }
     return !record.circuitOpen;
   }
@@ -63,6 +72,7 @@ export class HealthTracker {
   /** Records a successful call: resets failures and updates latency EMA. */
   public recordSuccess(url: string, latencyMs: number): void {
     const record = this.get(url);
+    const wasOpen = record.circuitOpen;
     record.consecutiveFailures = 0;
     record.circuitOpen = false;
     record.openUntil = 0;
@@ -71,6 +81,10 @@ export class HealthTracker {
         ? latencyMs
         : this.config.latencyEmaAlpha * latencyMs +
           (1 - this.config.latencyEmaAlpha) * record.latencyEmaMs;
+
+    if (wasOpen && this.config.onCircuitClosed) {
+      this.config.onCircuitClosed(url);
+    }
   }
 
   /**
@@ -80,9 +94,12 @@ export class HealthTracker {
   public recordFailure(url: string, now: number = Date.now()): void {
     const record = this.get(url);
     record.consecutiveFailures += 1;
-    if (record.consecutiveFailures >= this.config.failureThreshold) {
+    if (!record.circuitOpen && record.consecutiveFailures >= this.config.failureThreshold) {
       record.circuitOpen = true;
       record.openUntil = now + this.config.cooldownMs;
+      if (this.config.onCircuitOpen) {
+        this.config.onCircuitOpen(url, record.openUntil);
+      }
     }
   }
 
@@ -101,5 +118,13 @@ export class HealthTracker {
   public snapshot(url: string): Readonly<UrlHealth> | undefined {
     const record = this.health.get(url);
     return record ? { ...record } : undefined;
+  }
+
+  public snapshotAll(): Record<string, Readonly<UrlHealth>> {
+    const result: Record<string, Readonly<UrlHealth>> = {};
+    for (const [url, record] of this.health.entries()) {
+      result[url] = { ...record };
+    }
+    return result;
   }
 }

@@ -719,6 +719,16 @@ export class ContractClient {
     return result;
   }
 
+  public getCircuitBreakerSnapshot(): Record<string, any> {
+    // ContractClient doesn't hold the AdaptiveContractProvider directly if it is passed in,
+    // but we can check if the contractProvider is AdaptiveContractProvider and has healthTracker.
+    const provider = this.config.contractProvider as any;
+    if (provider && provider.healthTracker && typeof provider.healthTracker.snapshotAll === 'function') {
+      return provider.healthTracker.snapshotAll();
+    }
+    return {};
+  }
+
   /**
    * Fetches the owner of a guild from the contract.
    *
