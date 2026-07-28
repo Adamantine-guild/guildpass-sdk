@@ -10,12 +10,27 @@
  * @module env
  */
 
-/** True when the global `process` object looks like a Node.js process. */
+function hasEdgeRuntimeMarker(): boolean {
+  return (
+    typeof globalThis !== 'undefined' &&
+    typeof (globalThis as { EdgeRuntime?: unknown }).EdgeRuntime === 'string'
+  );
+}
+
+/** True when the global `process` object looks like a real Node.js process. */
 export function isNodeEnvironment(): boolean {
+  // Vitest's Edge runtime can expose a process-like shim from the host runner.
+  // Prefer the explicit Edge marker so we do not misclassify a V8 isolate as Node.
+  if (hasEdgeRuntimeMarker()) {
+    return false;
+  }
+
   return (
     typeof globalThis !== 'undefined' &&
     typeof (globalThis as Record<string, unknown>).process !== 'undefined' &&
     (globalThis as Record<string, unknown>).process !== null &&
+    (((globalThis as Record<string, unknown>).process as Record<string, unknown>)
+      .release as Record<string, unknown> | undefined)?.name === 'node' &&
     typeof (
       ((globalThis as Record<string, unknown>).process as Record<string, unknown>)
         .versions as Record<string, string | undefined>

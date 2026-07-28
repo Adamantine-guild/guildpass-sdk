@@ -105,7 +105,7 @@ describe('secp256k1 - Edge Runtime', () => {
   it('should perform ECDSA recovery', async () => {
     const { ecRecover } = await import('../../../src/crypto/secp256k1');
 
-    // Test with a known signature structure (not verifying real sig, just the function)
+    // Use an upper-half s-value so EIP-2 rejection returns null.
     const msgHash = new Uint8Array(32);
     msgHash[0] = 0x01;
     const result = ecRecover(msgHash, 0, BigInt(1), BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364142'));
