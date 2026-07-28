@@ -19,7 +19,8 @@ export function isNodeEnvironment(): boolean {
     typeof (
       ((globalThis as Record<string, unknown>).process as Record<string, unknown>)
         .versions as Record<string, string | undefined>
-    )?.node === 'string'
+    )?.node === 'string' &&
+    typeof (globalThis as Record<string, unknown>).EdgeRuntime === 'undefined'
   );
 }
 
@@ -35,10 +36,11 @@ export function hasWebCrypto(): boolean {
 /** True when running in a Cloudflare Worker or similar V8-isolate Edge runtime. */
 export function isEdgeRuntime(): boolean {
   return (
-    !isNodeEnvironment() &&
-    typeof globalThis !== 'undefined' &&
-    typeof (globalThis as { addEventListener?: unknown }).addEventListener === 'function' &&
-    typeof navigator === 'undefined'
+    typeof (globalThis as Record<string, unknown>).EdgeRuntime === 'string' ||
+    (!isNodeEnvironment() &&
+      typeof globalThis !== 'undefined' &&
+      typeof (globalThis as { addEventListener?: unknown }).addEventListener === 'function' &&
+      typeof navigator === 'undefined')
   );
 }
 

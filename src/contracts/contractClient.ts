@@ -61,6 +61,11 @@ import { ContractProvider, EthCallRequest } from './providers/provider.types';
 import { JsonRpcContractProvider } from './providers/jsonRpcProvider';
 import { Multicall3ContractProvider } from './providers/multicall3Provider';
 import { MULTICALL3_ADDRESS } from './providers/adaptive.types';
+import { createPublicClient, custom, http, parseAbi, encodeFunctionData, decodeFunctionResult } from 'viem';
+
+const minimalERC20Abi = parseAbi([
+  'function balanceOf(address owner) view returns (uint256)',
+]);
 
 
 // Local pure helper function for exact decimal string shift math
@@ -455,12 +460,10 @@ export class ContractClient {
    * consensus providers in parallel and only returned when at least
    * `minProviders` of them agree. When NOT set, behavior is unchanged.
    */
-  // GuildPass SDK: Class member structure property or constructor.
   public async getMembershipTokenBalance(
     params: TokenBalanceParams,
     options?: RequestOptions,
   ): Promise<string> {
-    // GuildPass SDK: Variable binding initialization.
     const { walletAddress, chainId } = params;
     const chainConfig = this.getChainConfig(chainId);
     const contractAddress = params.contractAddress ?? chainConfig.contractAddress;
@@ -476,16 +479,48 @@ export class ContractClient {
 
     validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
-    const data = `${BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}`;
-    const result = await this.resolveSingleEthCall(
-      chainConfig,
-      'rpcUrl is required for contract calls',
-      { to: contractAddress, data },
-      options,
-      chainId,
-    );
-    return decodeUint256Result(result);
-    // GuildPass SDK: End of logic containment structure block.
+    const publicClient = createPublicClient({
+      transport: custom({
+        request: async ({ method, params: rpcParams }: any) => {
+          if (method === 'eth_call') {
+            const [tx] = rpcParams;
+            return this.resolveSingleEthCall(
+              chainConfig,
+              'rpcUrl is required for contract calls',
+              { to: tx.to, data: tx.data },
+              options,
+              chainId,
+            );
+          }
+          throw new GuildPassConfigError(`Unsupported RPC method: ${method}`, GuildPassErrorCode.INVALID_CONFIG);
+        },
+      }, { retryCount: 0 }),
+    });
+
+    try {
+      const balance = await publicClient.readContract({
+        address: contractAddress as `0x${string}`,
+        abi: minimalERC20Abi,
+        functionName: 'balanceOf',
+        args: [walletAddress as `0x${string}`],
+      });
+      return balance.toString();
+    } catch (err: any) {
+      console.log('VIEM ERROR STACK:', err.stack);
+      console.log('VIEM ERROR CAUSE:', err.cause);
+      if (err instanceof GuildPassError) {
+        throw err;
+      }
+      if (typeof err.walk === 'function') {
+        const originalError = err.walk((e: any) => e instanceof GuildPassError);
+        if (originalError) throw originalError;
+      }
+      // If viem fails to decode the raw hex, map to INVALID_RESPONSE
+      if (err.name === 'ContractFunctionExecutionError' && (err.message.includes('Data size') || err.message.includes('Invalid byte sequence'))) {
+         throw new GuildPassResponseValidationError('Failed to decode balance result', GuildPassErrorCode.INVALID_RESPONSE);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1339,10 +1374,14 @@ export class ContractClient {
 
     validateAddress(contractAddress, { strict: this.config.strictAddressChecksum });
 
-    // Build the batch calls
+    // Build the batch calls using viem
     const calls: BatchEthCallItem[] = walletAddresses.map((addr) => ({
       to: contractAddress,
-      data: `${BALANCE_OF_SELECTOR}${encodeAddressArgument(addr)}`,
+      data: encodeFunctionData({
+        abi: minimalERC20Abi,
+        functionName: 'balanceOf',
+        args: [addr as `0x${string}`],
+      }),
     }));
 
     const rawResults = await this.batchEthCallInternal(calls, chainConfig, {
@@ -1352,13 +1391,18 @@ export class ContractClient {
       chunkConcurrency: params.chunkConcurrency,
     }, chainId);
 
-    // Decode uint256 results where successful
+    // Decode uint256 results where successful using viem
     return rawResults.map((item) => {
       if (item.status === 'success' && item.result) {
         try {
+          const decoded = decodeFunctionResult({
+            abi: minimalERC20Abi,
+            functionName: 'balanceOf',
+            data: item.result as `0x${string}`,
+          });
           return {
             status: 'success' as const,
-            result: decodeUint256Result(item.result),
+            result: decoded.toString(),
           };
         } catch {
           return {

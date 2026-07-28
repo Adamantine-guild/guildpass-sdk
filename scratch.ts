@@ -1,13 +1,9 @@
-class Real {
-  public a: string = 'a';
-  private b: string = 'b';
-  public method(): void {}
-}
+import { createPublicClient, custom, parseAbi } from 'viem';
 
-type Public<T> = { [K in keyof T]: T[K] };
-
-const mock: Public<Real> = {
-  a: 'mock',
-  method: () => {}
-};
-console.log(mock);
+const transport = custom({
+  request: async ({ method, params }) => {
+    if (method === 'eth_call') {
+      return '0x...';
+    }
+  }
+});
