@@ -8,8 +8,11 @@ import type { PaginatedResult } from '../src/utils/pagination';
 
 describe('TypeScript Type Coverage', () => {
   it('should have strongly typed method returns on GuildPassClient', async () => {
-    // We don't need a real client since this is a type test
-    const client = {} as unknown as GuildPassClient;
+    const client = {
+      access: { checkAccess: async () => ({} as any) },
+      membership: { getMembership: async () => ({} as any) },
+      roles: { getRoles: async () => ({} as any), hasRole: async () => false },
+    } as unknown as GuildPassClient;
 
     // Test access service generic return types
     expectTypeOf(
