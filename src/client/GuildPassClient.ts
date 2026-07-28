@@ -62,19 +62,6 @@ const buildCacheKey = (...parts: string[]): string => {
   return parts.map((part) => encodePathSegment(part)).join(':');
 };
 
-/**
- * `deduplicate` only means something to this client's own coalescing
- * decision (see `withCache`) — it is never a real HTTP request option, so it
- * must not be forwarded to the underlying service method (which spreads
- * `options` verbatim into the transport call).
- */
-function stripDeduplicate<T extends { deduplicate?: boolean }>(options: T | undefined): T | undefined {
-  if (!options || !('deduplicate' in options)) return options;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { deduplicate, ...rest } = options;
-  return rest as T;
-}
-
 // GuildPass SDK: Exported component definition.
 export class GuildPassClient {
   // GuildPass SDK: Class member structure property or constructor.

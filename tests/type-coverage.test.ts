@@ -1,11 +1,10 @@
-import { expectTypeOf } from 'vitest';
+import { expectTypeOf, describe, it } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import type { AccessCheckResult } from '../src/access/access.types';
 import type { Membership } from '../src/membership/membership.types';
 import type { GuildRole } from '../src/roles/roles.types';
 import type { ResponseMetadata } from '../src/http/http.types';
 import type { PaginatedResult } from '../src/utils/pagination';
-import { describe, it } from 'vitest';
 
 describe('TypeScript Type Coverage', () => {
   it('should have strongly typed method returns on GuildPassClient', async () => {
