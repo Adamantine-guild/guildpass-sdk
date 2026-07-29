@@ -40,11 +40,41 @@ interface CacheAdapter {
   - `invalidateWalletCache()` falls back to clearing the **entire** cache.
 - **Must never throw.**
 
+## Key Composition
+
+Every cached service method builds a deterministic cache key from public identifiers. All wallet addresses are normalised to lowercase via `normaliseAddress()` before key construction. No secrets (API keys, tokens) are included in cache keys.
+
+| Service method | Cache key template |
+| :------------- | :----------------- |
+| `access.checkAccess` | `access:checkAccess:{guildId}:{resourceId}:{wallet}` |
+| `access.checkRoleAccess` | `access:checkRoleAccess:{guildId}:{roleId}:{wallet}` |
+| `membership.getMembership` | `membership:getMembership:{guildId}:{wallet}` |
+| `roles.getRoles` | `roles:getRoles:{guildId}` |
+| `roles.getUserRoles` | `roles:getUserRoles:{guildId}:{wallet}` |
+| `guilds.getGuild` | `guilds:getGuild:{guildId}` |
+| `guilds.getGuildConfig` | `guilds:getGuildConfig:{guildId}` |
+
+> The `wallet:` prefix (e.g. `wallet:0x1234:`) is an **invalidation-only namespace** used by `invalidateWalletCache()`. No service method produces a standalone `wallet:*` cache key — wallet addresses are always embedded within the service-method key templates above.
+
+**Concrete example:**
+
+```typescript
+// Given:
+//   guildId = 'prime-guild'
+//   resourceId = 'secret-channel'
+//   walletAddress = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
+//
+// cache key produced:
+//   access:checkAccess:prime-guild:secret-channel:0xd8da6bf26964af9d7eed9e03e53415d37aa96045
+```
+
+> **Tip for custom adapter authors:** Use these exact key templates to design prefix-based invalidation strategies (e.g., scan for `access:checkAccess:{guildId}:*` to evict all access entries for a guild).
+
 ## TTL Semantics
 
 | `ttl` parameter | Behaviour                                                       |
 | :-------------- | :-------------------------------------------------------------- |
-| `undefined`     | Never expire. Store until explicitly deleted or evicted by LRU. |
+| `undefined`     | Never expire. Store until explicitly deleted or evicted by LRU (see [`maxEntries`](#maxentries)). |
 | `0`             | Expires immediately — effectively disables caching.             |
 | `> 0`           | Expire after `ttl` milliseconds.                                |
 
@@ -58,7 +88,37 @@ interface CacheAdapter {
 > `cacheTtl` (or pass `undefined`) — only an _absent_ TTL means "no
 > expiration."
 
-The SDK passes `cacheTtl` (from client config) as the `ttl` argument. Methods that accept a per-call override subtract elapsed time from the deadline before storing.
+The SDK passes the client-level `cacheTtl` as the `ttl` argument to `cache.set()`. Every cached service method uses the same client-wide TTL — there is **no per-call TTL override** in the current implementation.
+
+### TTL Precedence
+
+Only one TTL source exists: the `cacheTtl` option passed to `GuildPassClient` at construction time.
+
+| `cacheTtl` value | Effective behaviour |
+| :--------------- | :------------------ |
+| `undefined` (omitted) | Never expire (equivalent to `0`). |
+| `0` | Never expire. |
+| `> 0` | All cached entries expire after `cacheTtl` milliseconds. |
+
+**Worked example:**
+
+```typescript
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  cache: new InMemoryCacheAdapter(),
+  cacheTtl: 60_000, // 60 seconds
+});
+
+// First call — network request; cached with 60 s TTL
+await client.guilds.getGuild({ guildId: 'prime-guild' });
+
+// Second call within 60 s — cache hit; no network request
+await client.guilds.getGuild({ guildId: 'prime-guild' });
+
+// After 60 s — entry expired; next call goes to network and re-caches
+```
+
+All service methods (`checkAccess`, `checkRoleAccess`, `getMembership`, `getRoles`, `getUserRoles`, `getGuild`, `getGuildConfig`) share this same TTL. There is no way to set a different TTL per method or per call.
 
 ## Error Isolation
 
@@ -240,6 +300,36 @@ export class MyMemoryAdapter implements CacheAdapter {
 }
 ```
 
+### `maxEntries`
+
+The built-in `InMemoryCacheAdapter` is **unbounded by default**. Pass `maxEntries` to cap
+it; once the cap would be exceeded, the least-recently-used entry is evicted on the next
+write.
+
+```typescript
+import { GuildPassClient, InMemoryCacheAdapter } from '@guildpass/sdk';
+
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  cache: new InMemoryCacheAdapter({ maxEntries: 5_000 }),
+  cacheTtl: 60_000,
+});
+```
+
+- **Recency is refreshed on read as well as on write.** A key that keeps being read
+  survives even if it was inserted first — eviction order is LRU, not FIFO.
+- **`size()`** reports how many entries are currently held, *including* entries whose TTL
+  has already elapsed but which have not been swept yet. Expiry is lazy: an untouched
+  expired entry keeps its slot until it is read, overwritten, or evicted.
+- **`maxEntries` must be a positive integer.** Anything else throws `INVALID_CONFIG` at
+  construction rather than being silently ignored.
+- Omitting `maxEntries` keeps the previous unbounded behaviour exactly; the recency
+  bookkeeping is skipped entirely in that mode.
+
+This matters most in long-lived processes whose keys are per-wallet or per-guild (see
+[Invalidation](#invalidation)): the key space grows with your user base, so an unbounded
+map is effectively a slow memory leak.
+
 ## Using a custom adapter
 
 ```typescript
@@ -273,35 +363,51 @@ await client.clearCache();
 
 See the [SDK Guide](./sdk-guide.md#caching-and-request-deduplication) for more on the caching layer.
 
+For the internal cache-wrapping layer that produces these keys, see [Architecture → Caching Layer](./architecture.md#5-caching-layer).
+
 ## Conformance Testing
 
-If you are authoring a custom adapter, you can use the shared conformance test suite to guarantee it behaves correctly against the `CacheAdapter` contract (including TTL semantics, prefix deletion, and error isolation).
-
-If you are developing inside the SDK repository, you can import the suite directly:
+Custom adapters should run the exported conformance suite. It covers value
+round-tripping, TTL semantics, deletion, complete clearing, optional prefix
+deletion, concurrent writes, and store-failure isolation.
 
 ```typescript
-import { runCacheAdapterConformanceTests } from '../tests/cacheAdapterConformance';
+import { describe, it } from 'vitest';
+import { runCacheAdapterConformanceTests } from '@guildpass/sdk/testing';
 import { MyCustomAdapter } from './MyCustomAdapter';
 
-runCacheAdapterConformanceTests({
-  factory: async () => {
-    const adapter = new MyCustomAdapter('redis://localhost:6379');
-    await adapter.connect();
-    await adapter.clear();
-    return adapter;
+runCacheAdapterConformanceTests(
+  {
+    // Each case must receive a fresh, empty adapter.
+    factory: async () => {
+      const adapter = new MyCustomAdapter('redis://localhost:6379');
+      await adapter.connect();
+      await adapter.clear();
+      return adapter;
+    },
+
+    // Strongly recommended: exercise the never-throw contract while the
+    // underlying store is unavailable.
+    brokenFactory: async () => {
+      const adapter = new MyCustomAdapter('redis://localhost:6379');
+      await adapter.connect();
+      await adapter.disconnect();
+      return adapter;
+    },
+
+    // Omit this to use real timers. A real store may need a longer wait or
+    // a backend-specific clock hook.
+    advanceTime: async (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   },
-  brokenFactory: async () => {
-    const adapter = new MyCustomAdapter('redis://localhost:6379');
-    // Force a closed connection or invalid state
-    await adapter.disconnect();
-    return adapter;
-  },
-  teardown: async () => {
-    // Disconnect properly after each test
-  },
-  // When testing against a real external database, provide a real-time delay function
-  // instead of relying on Vitest's default fake timers.
-  advanceTime: async (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-});
+  { describe, it },
+);
 ```
-If you are building an adapter in an external project, you can use the above API as a reference and copy the tests/cacheAdapterConformance.ts file directly into your codebase to serve as your test harness.
+
+Vitest and Jest projects with global `describe` and `it` functions may omit
+the second argument. Other test frameworks can pass compatible registration
+functions. For custom orchestration, `createCacheAdapterConformanceTests()`
+returns the same cases without registering them.
+
+If `brokenFactory` is omitted, store-failure cases are not registered. Passing
+it is the recommended way to verify that `get()` falls back to `null` and that
+write, delete, clear, and prefix-delete failures never escape the adapter.

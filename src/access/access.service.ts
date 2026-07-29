@@ -7,19 +7,24 @@ import {
 } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
-import { isAccessCheckResult } from '../validation/responseGuards';
+import { assertValidRequest } from '../validation/assertRequest';
+import { isAccessCheckResult, isRoleCheckResult } from '../validation/responseGuards';
+import { isAccessCheckParams, isRoleAccessCheckParams } from '../validation/requestGuards';
 import type { RequestOptions } from '../types/common';
 import { verifySignedPayload, SignedEnvelope } from '../security';
 import type { ResponseMetadata, DiscrepancyHookPayload } from '../http/http.types';
 import type { ContractClient } from '../contracts/contractClient';
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError, GuildPassResponseValidationError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
+import { AdaptiveConcurrencyController } from './adaptiveConcurrency';
 import { 
   AccessCheckParams, 
   AccessCheckResult, 
   RoleAccessCheckParams, 
   AccessCheckBatchOptions, 
   AccessCheckBatchResult,
+  AccessCheckBatchByResourceParams,
+  AccessCheckBatchByResourceResult,
   VerifiedAccessCheckOptions,
   VerifiedAccessCheckResult
 } from './access.types';
@@ -31,15 +36,17 @@ export class AccessService {
     private readonly contracts?: ContractClient,
     private readonly onDiscrepancy?: (payload: DiscrepancyHookPayload) => void | Promise<void>,
     private readonly verifySignedResponses = false,
-    private readonly trustedSignerAddress?: string
+    private readonly trustedSignerAddress?: string,
+    private readonly strictAddressChecksum = false,
   ) {}
 
-  public async checkAccess(params: AccessCheckParams): Promise<AccessCheckResult>;
   public async checkAccess(params: AccessCheckParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: AccessCheckResult; meta: ResponseMetadata }>;
+  public async checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult>;
   public async checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult | { data: AccessCheckResult; meta: ResponseMetadata}> {
+    assertValidRequest(params, isAccessCheckParams, 'AccessCheckParams', { endpoint: 'GET /access/check' });
     const { walletAddress, guildId, resourceId } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
     validateResourceId(resourceId);
 
@@ -56,7 +63,7 @@ export class AccessService {
     
     if (this.verifySignedResponses) {
       if (!this.trustedSignerAddress) {
-        throw new GuildPassError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
+        throw new GuildPassConfigError('trustedSignerAddress is required when verifySignedResponses is true', GuildPassErrorCode.INVALID_CONFIG);
       }
       rawData = await verifySignedPayload<AccessCheckResult>(response as SignedEnvelope<AccessCheckResult> | AccessCheckResult, this.trustedSignerAddress);
     } else {
@@ -68,11 +75,11 @@ export class AccessService {
     }
 
     const validatedResult = this.validateResponses
-      ? assertValidResponse(rawData as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult')
+      ? assertValidResponse(rawData as AccessCheckResult, isAccessCheckResult, 'AccessCheckResult', { endpoint: 'GET /access/check' })
       : (rawData as AccessCheckResult);
 
     if (options?.includeMeta) {
-      return { data: validatedResult, meta: (response as any).meta } as { data: AccessCheckResult; meta: ResponseMetadata };
+      return { data: validatedResult, meta: (response as any).meta };
     }
 
     return validatedResult;
@@ -94,24 +101,25 @@ export class AccessService {
     options: VerifiedAccessCheckOptions
   ): Promise<VerifiedAccessCheckResult> {
     if (!this.contracts) {
-      throw new GuildPassError('ContractClient is not configured', GuildPassErrorCode.INVALID_CONFIG);
+      throw new GuildPassConfigError('ContractClient is not configured', GuildPassErrorCode.INVALID_CONFIG);
     }
 
     const { requirement, chainId, throwOnDiscrepancy, ...requestOptions } = options;
 
     const [apiPromise, onChainPromise] = await Promise.allSettled([
-      this.checkAccess(params, requestOptions as any),
+      this.checkAccess(params, requestOptions as RequestOptions),
       this.contracts.validateRoleRequirement({
         walletAddress: params.walletAddress,
         requirement,
         chainId
-      }, requestOptions as any)
+      }, requestOptions as RequestOptions)
     ]);
 
     const apiResultRaw = apiPromise.status === 'fulfilled' ? apiPromise.value : null;
-    const apiResult = apiResultRaw && 'hasAccess' in (apiResultRaw as any)
-      ? (apiResultRaw as any as AccessCheckResult)
-      : (apiResultRaw as any)?.data ?? null;
+    let apiResult: AccessCheckResult | null = null;
+    if (apiResultRaw) {
+      apiResult = 'hasAccess' in apiResultRaw ? apiResultRaw : (apiResultRaw as any).data;
+    }
 
     const onChainResult = onChainPromise.status === 'fulfilled' ? onChainPromise.value : null;
 
@@ -154,7 +162,7 @@ export class AccessService {
       }
 
       if (throwOnDiscrepancy) {
-        throw new GuildPassError(`Access verification failed: ${discrepancyReason}`, GuildPassErrorCode.INVALID_RESPONSE);
+        throw new GuildPassResponseValidationError(`Access verification failed: ${discrepancyReason}`, GuildPassErrorCode.INVALID_RESPONSE);
       }
     }
 
@@ -164,11 +172,47 @@ export class AccessService {
 
   /**
    * Checks access for multiple resources or wallets concurrently.
+   *
+   * Two call shapes are supported:
+   * - `checkAccessBatch(items, options)` — array of full params, returns one
+   *   result entry per input item (order preserved).
+   * - `checkAccessBatch({ walletAddress, guildId, resourceIds }, options)` —
+   *   single wallet + guild across many resources, returns a map keyed by
+   *   resourceId. Duplicate resourceIds are collapsed to a single request.
    */
   public async checkAccessBatch(
     items: AccessCheckParams[],
     options?: AccessCheckBatchOptions & RequestOptions
-  ): Promise<AccessCheckBatchResult[]> {
+  ): Promise<AccessCheckBatchResult[]>;
+  public async checkAccessBatch(
+    params: AccessCheckBatchByResourceParams,
+    options?: AccessCheckBatchOptions & RequestOptions
+  ): Promise<AccessCheckBatchByResourceResult>;
+  public async checkAccessBatch(
+    input: AccessCheckParams[] | AccessCheckBatchByResourceParams,
+    options?: AccessCheckBatchOptions & RequestOptions
+  ): Promise<AccessCheckBatchResult[] | AccessCheckBatchByResourceResult> {
+    if (!Array.isArray(input)) {
+      const { walletAddress, guildId, resourceIds } = input;
+      validateAddress(walletAddress, { strict: this.strictAddressChecksum });
+      validateGuildId(guildId);
+      if (!Array.isArray(resourceIds) || resourceIds.length === 0) {
+        throw new GuildPassConfigError('resourceIds array must not be empty', GuildPassErrorCode.INVALID_INPUT);
+      }
+      const uniqueResourceIds = [...new Set(resourceIds)];
+      const items = uniqueResourceIds.map((resourceId) => ({ walletAddress, guildId, resourceId }));
+      const settled = await this.checkAccessBatch(items, options);
+      const byResource: AccessCheckBatchByResourceResult = {};
+      settled.forEach((entry, index) => {
+        const resourceId = uniqueResourceIds[index];
+        byResource[resourceId] = entry.status === 'fulfilled'
+          ? { status: 'fulfilled', value: entry.value as AccessCheckResult }
+          : { status: 'rejected', error: entry.error as Error };
+      });
+      return byResource;
+    }
+
+    const items = input;
     this.validateBatchOptions(items, options);
     const concurrency = options?.concurrency ?? 5;
     const failFast = options?.failFast ?? false;
@@ -184,8 +228,8 @@ export class AccessService {
           retry: options?.retry,
           signal: options?.signal,
         };
-        const result = await this.checkAccess(item, requestOptions as any);
-        results[index] = { input: item, status: 'fulfilled', value: result as any };
+        const result = await this.checkAccess(item, requestOptions);
+        results[index] = { input: item, status: 'fulfilled', value: result as AccessCheckResult };
       } catch (error) {
         if (failFast) hasFailed = true;
         results[index] = { 
@@ -198,6 +242,35 @@ export class AccessService {
     };
 
     const queue = items.map((item, index) => ({ item, index }));
+
+    if (options?.adaptiveConcurrency) {
+      const controller = new AdaptiveConcurrencyController({ initialLimit: concurrency });
+      const adaptiveWorkers = Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
+        while (queue.length > 0) {
+          if (failFast && hasFailed) break;
+          await controller.acquire();
+          const current = queue.shift();
+          if (!current) {
+            controller.release();
+            break;
+          }
+          try {
+            await execute(current.item, current.index);
+            const outcome = results[current.index];
+            if (outcome?.status === 'fulfilled') {
+              controller.recordSuccess();
+            } else if (outcome?.status === 'rejected') {
+              controller.recordFailure(outcome.error);
+            }
+          } finally {
+            controller.release();
+          }
+        }
+      });
+      await Promise.all(adaptiveWorkers);
+      return results;
+    }
+
     const workers = Array(Math.min(concurrency, items.length)).fill(null).map(async () => {
       while (queue.length > 0) {
         if (failFast && hasFailed) break;
@@ -219,19 +292,16 @@ export class AccessService {
   private validateBatchOptions(items: AccessCheckParams[], options?: AccessCheckBatchOptions): void {
     const concurrency = options?.concurrency ?? 5;
     if (!Number.isInteger(concurrency) || concurrency < 1 || !Number.isFinite(concurrency)) {
-      throw new Error("concurrency must be a positive finite integer");
+      throw new GuildPassConfigError("concurrency must be a positive finite integer", GuildPassErrorCode.INVALID_INPUT);
     }
     if (concurrency > 50) {
-      throw new Error("concurrency must not exceed 50");
+      throw new GuildPassConfigError("concurrency must not exceed 50", GuildPassErrorCode.INVALID_INPUT);
     }
     if (!items || items.length === 0) {
-      throw new Error("items array must not be empty");
+      throw new GuildPassConfigError("items array must not be empty", GuildPassErrorCode.INVALID_INPUT);
     }
   }
 
-  public async checkRoleAccess(
-    params: RoleAccessCheckParams,
-  ): Promise<boolean>;
   public async checkRoleAccess(
     params: RoleAccessCheckParams,
     options: RequestOptions & { includeMeta: true },
@@ -239,11 +309,16 @@ export class AccessService {
   public async checkRoleAccess(
     params: RoleAccessCheckParams,
     options?: RequestOptions,
+  ): Promise<boolean>;
+  public async checkRoleAccess(
+    params: RoleAccessCheckParams,
+    options?: RequestOptions,
   ): Promise<boolean | { data: boolean; meta: ResponseMetadata }> {
+    assertValidRequest(params, isRoleAccessCheckParams, 'RoleAccessCheckParams', { endpoint: 'GET /access/role-check' });
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId, roleId } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
     validateRoleId(roleId);
 
@@ -261,14 +336,19 @@ export class AccessService {
     });
 
     if (options?.includeMeta) {
-      const r = result as { data: { hasRole: boolean }; meta: ResponseMetadata };
-      return { data: r.data.hasRole, meta: r.meta };
+      const r = result as any;
+      const checkedData = this.validateResponses
+        ? assertValidResponse(r.data, isRoleCheckResult, 'RoleCheckResult', { endpoint: 'GET /access/role-check' })
+        : r.data;
+      return { data: checkedData.hasRole, meta: r.meta };
     }
 
     // GuildPass SDK: Terminate function block execution and return.
-    return (result as { hasRole: boolean }).hasRole;
+    const checked = this.validateResponses
+      ? assertValidResponse(result, isRoleCheckResult, 'RoleCheckResult', { endpoint: 'GET /access/role-check' })
+      : (result as { hasRole: boolean });
+    return checked.hasRole;
     // GuildPass SDK: End of logic containment structure block.
   }
   // GuildPass SDK: End of logic containment structure block.
 }
-

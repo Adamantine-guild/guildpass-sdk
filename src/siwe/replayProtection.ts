@@ -1,7 +1,7 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { GuildPassErrorCode } from '../errors/errorCodes';
-import { verifySiweSignature, parseSiweMessage } from './siwe.helpers';
-import { SiweVerifyParams, SiweVerifyResult } from './siwe.types';
+import { verifySiweSignatureAsync, parseSiweMessage } from './siwe.helpers';
+import { SiweVerifyAsyncParams, SiweVerifyResult } from './siwe.types';
 import { NonceStore } from './nonceStore';
 
 /**
@@ -25,11 +25,14 @@ import { NonceStore } from './nonceStore';
  *          `false`, `code` is `SIWE_REPLAY_DETECTED`, and `error` explains it.
  */
 export async function verifySiweSignatureWithReplayProtection(
-  params: SiweVerifyParams,
+  params: SiweVerifyAsyncParams,
   nonceStore: NonceStore,
 ): Promise<SiweVerifyResult> {
   // 1. Full signature + EIP-4361 verification first. Never consume on failure.
-  const result = verifySiweSignature(params);
+  //    Routed through the async verifier so a smart-contract wallet composes
+  //    with replay protection instead of having to choose between the two.
+  //    Without a `contractProvider` this resolves to the synchronous result.
+  const result = await verifySiweSignatureAsync(params);
   if (!result.success || !result.data) {
     return result;
   }

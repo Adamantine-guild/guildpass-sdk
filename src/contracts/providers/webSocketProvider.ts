@@ -79,6 +79,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
   private readonly baseDelayMs: number;
   private readonly maxDelayMs: number;
   private readonly subscribeTimeoutMs: number;
+  private readonly requestTimeoutMs: number;
 
   // -----------------------------------------------------------------------
   // State
@@ -149,6 +150,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
     this.baseDelayMs = config.baseDelayMs ?? 1000;
     this.maxDelayMs = config.maxDelayMs ?? 30_000;
     this.subscribeTimeoutMs = config.subscribeTimeoutMs ?? 15_000;
+    this.requestTimeoutMs = config.requestTimeoutMs ?? 10_000;
 
     this.connect();
   }
@@ -185,7 +187,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
             GuildPassErrorCode.TIMEOUT,
           ),
         );
-      }, 30_000);
+      }, this.requestTimeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
 
@@ -272,7 +274,7 @@ export class WebSocketContractProvider implements SubscribableContractProvider {
           subs.add(subId);
           this.contractSubs.set(normalizedAddress, subs);
         },
-        reject: (err: Error) => {
+        reject: (_err: Error) => {
           clearTimeout(timer);
           this.pending.delete(id);
           this.unconfirmedSubs.delete(id);

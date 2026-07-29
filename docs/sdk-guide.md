@@ -2,6 +2,23 @@
 
 This guide covers advanced usage and patterns for the GuildPass SDK.
 
+## Client Configuration Builder
+
+As the SDK gains support for more options, configuring the `GuildPassClient` directly with an object can become complex. The `GuildPassClientBuilder` provides a fluent, strongly typed way to build and validate your client configuration before runtime.
+
+```typescript
+import { GuildPassClientBuilder } from "@guildpass/sdk";
+
+// Validate and build fluently
+const client = new GuildPassClientBuilder('https://api.guildpass.xyz')
+  .withApiKey(process.env.GUILDPASS_API_KEY)
+  .withTimeout(5000)
+  .withRetry({ maxRetries: 3 })
+  .build();
+```
+
+The builder validates your configuration when `.build()` is called, immediately throwing a `GuildPassConfigError` if any settings are invalid. Existing configuration methods (passing an object directly to the constructor) continue to work exactly as before.
+
 ## Error Handling
 
 The SDK uses a custom `GuildPassError` class. You should always wrap SDK calls in try-catch blocks.
@@ -30,6 +47,48 @@ try {
   }
 }
 ```
+
+### Typed error classes
+
+Every SDK error extends `GuildPassError`, so a single `instanceof GuildPassError`
+catch still works. On top of that, HTTP failures come back as subclasses of
+`GuildPassApiError` keyed to the status code, which reads better than comparing
+`error.status` yourself:
+
+```typescript
+import {
+  GuildPassAuthenticationError, // 401: missing/invalid credentials
+  GuildPassAuthorizationError,  // 403: authenticated but not allowed
+  GuildPassValidationError,     // 400/422: server rejected the request payload
+  GuildPassRateLimitError,      // 429: slow down, see retryAfterMs
+  GuildPassServerError,         // 5xx: server-side failure, retrying is reasonable
+  GuildPassTimeoutError,        // no response within the configured timeoutMs
+  GuildPassCancellationError,   // the caller's AbortSignal fired
+} from "@guildpass/sdk";
+
+try {
+  await client.access.checkAccess({...});
+} catch (error) {
+  if (error instanceof GuildPassRateLimitError) {
+    // The server told us how long to wait.
+    await sleep(error.retryAfterMs ?? 1000);
+    // ... retry
+  } else if (error instanceof GuildPassAuthenticationError) {
+    // Refresh credentials, then retry.
+  } else if (error instanceof GuildPassAuthorizationError) {
+    // Don't retry: the account simply isn't allowed. Surface this to the user.
+  } else if (error instanceof GuildPassServerError || error instanceof GuildPassTimeoutError) {
+    // Transient: safe to retry with backoff.
+  } else if (error instanceof GuildPassCancellationError) {
+    // We cancelled this ourselves; usually nothing to do.
+  }
+}
+```
+
+Errors that received an HTTP response also carry `requestMeta` (request ID,
+correlation ID, trace ID, duration) for support tickets and log correlation.
+Cross-realm or duplicated-module setups (monorepos, `vm` contexts) where
+`instanceof` fails can use the `isGuildPassError` type guard instead.
 
 ## Request Cancellation
 
@@ -156,8 +215,14 @@ await client.roles.getRoles({ guildId: 'guild-1' });
 
 ## Address Normalization and Checksums
 
-The SDK automatically normalizes addresses to lowercase for consistency and accepts both lowercase and mixed-case addresses by default.
-You can also use the exported utilities to format or strictly validate EIP-55 checksum addresses:
+Lowercase is the SDK's canonical internal form: it backs cache keys and every address
+comparison, so `normaliseAddress` returns lowercase by default. Pass `{ checksum: true }`
+when you want the EIP-55 checksummed form instead — typically for display.
+
+`validateAddress` verifies the EIP-55 checksum automatically when the address is supplied
+in mixed case, since mixed case is what carries checksum information. An all-lowercase or
+all-uppercase address carries none, so it is accepted unchanged. `{ strict: true }` still
+forces the check on any casing.
 
 ```typescript
 import {
@@ -167,8 +232,15 @@ import {
   validateAddress,
 } from '@guildpass/sdk';
 
-// Convert to lowercase
-const clean = normaliseAddress('0xabc...');
+// Canonical lowercase form (default) — safe for cache keys and comparisons
+const clean = normaliseAddress('0xD8DA6BF26964AF9D7EED9E03E53415D37AA96045');
+// '0xd8da6bf26964af9d7eed9e03e53415d37aa96045'
+
+// Opt-in EIP-55 checksummed form, for display
+const display = normaliseAddress('0xd8da6bf26964af9d7eed9e03e53415d37aa96045', {
+  checksum: true,
+});
+// '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
 
 // Convert to EIP-55 Checksum
 const checksummed = toChecksumAddress('0xabc...');
@@ -176,7 +248,14 @@ const checksummed = toChecksumAddress('0xabc...');
 // Check if an address has a valid checksum
 const isValid = isChecksumAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // true
 
-// Strict validation mode (throws if checksum is invalid)
+// Mixed case → the checksum is verified automatically
+validateAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // ok
+validateAddress('0xD8dA6BF26964aF9D7eEd9e03E53415D37aA96045'); // throws INVALID_ADDRESS
+
+// All-lowercase / all-uppercase carry no checksum information → accepted as before
+validateAddress('0xd8da6bf26964af9d7eed9e03e53415d37aa96045'); // ok
+
+// Strict validation mode (forces the check regardless of casing)
 validateAddress('0xd8da...', { strict: true });
 ```
 
@@ -212,12 +291,19 @@ const baseConfig = client.contracts.getChainConfig(8453);
 const defaultConfig = client.contracts.getChainConfig();
 ```
 
-When a `chains` map is provided, requesting an unlisted chain ID throws a `GuildPassError` with code `INVALID_CONFIG`:
+Entries in a `chains` map are overrides: a partial entry inherits the fields it does not
+declare from the top-level config. Requesting a chain only throws a `GuildPassError` with
+code `INVALID_CONFIG` when the merge leaves no usable RPC endpoint — and the error names
+the chain and the missing field:
 
 ```typescript
-// throws: No configuration found for chain ID 42161
+// throws: No rpcUrl/contractAddress configured for chainId 42161
 client.contracts.getChainConfig(42161);
 ```
+
+The error's `details` carry `reason: 'NOT_FOUND'` when the chain has no entry at all, or
+`reason: 'INCOMPLETE'` when it has one that leaves a required field unset, alongside a
+`missing` array naming the fields.
 
 The existing single-chain config (`rpcUrl` + `contractAddress` at the top level) remains fully backwards-compatible and is used as a fallback when no `chains` map is set.
 
@@ -385,6 +471,10 @@ const results = await client.contracts.getGuildOwnersBatch({
 });
 ```
 
+`maxBatchSize` must be a positive integer. Zero, negative and non-integer
+values are rejected with an `INVALID_INPUT` error before any request is sent.
+Omitting the option leaves the default of 100 in place.
+
 The same options are available on the low-level `batchEthCall` method via
 its `options` parameter:
 
@@ -469,7 +559,7 @@ const client = new GuildPassClient({
 
 The hook receives a `CacheErrorHookPayload` containing the operation name (`get`, `set`, `delete`, `clear`), the affected `key` (if any), and the original `error`.
 
-For full details on implementing custom cache adapters — including TTL semantics, `deleteByPrefix`, serialisation, and production examples — see the [Cache Adapters Guide](./cache-adapters.md).
+For full details on implementing custom cache adapters — including TTL semantics, `deleteByPrefix`, serialisation, production examples, and the exact [cache key composition](./cache-adapters.md#key-composition) per service method — see the [Cache Adapters Guide](./cache-adapters.md).
 
 ### Security Note
 
@@ -572,8 +662,9 @@ const access = await client.access.checkAccess(
 | `maxDelayMs` | `5000` | Backoff will never exceed this value. |
 | `retryableStatuses` | `[429, 500, 502, 503, 504]` | 4xx errors other than 429 are not retried. |
 | `allowMutatingRetry` | `false` | POST/PUT/PATCH/DELETE are **not** retried unless this is `true`. |
+| `jitter` | `true` | Randomizes each backoff by ±25% so many clients do not retry in lockstep. Set to `false` for deterministic delays (e.g. in tests). |
 
-The SDK respects the `Retry-After` response header on 429 responses, waiting the server-specified duration before retrying rather than using the computed backoff.
+The SDK respects the `Retry-After` response header on retryable responses, waiting the server-specified duration before retrying rather than using the computed backoff. Every retry waits at least the computed backoff (or `Retry-After`, when present), whether or not a `rateLimit` bucket is configured.
 
 Non-idempotent methods (POST, PATCH) are never retried unless you explicitly set `allowMutatingRetry: true`. Only enable this when you are certain the operation is safe to repeat.
   hooks: {
@@ -694,6 +785,15 @@ const result = await verifySiweSignatureWithReplayProtection(
   { message: rawSiweMessage, signature },
   nonceStore,
 );
+
+// Smart-contract wallets: add a contractProvider and the same call additionally
+// falls back to EIP-1271 verification, so replay protection and contract-wallet
+// support compose instead of being mutually exclusive.
+//
+//   await verifySiweSignatureWithReplayProtection(
+//     { message: rawSiweMessage, signature, contractProvider },
+//     nonceStore,
+//   );
 
 if (result.success) {
   // First time through: verified and the nonce is now consumed.

@@ -24,6 +24,14 @@ describe('Partial retry configuration validation', () => {
     expect(() => validateConfig({ ...BASE, retry: { maxDelayMs: 5000 } })).not.toThrow();
   });
 
+  it('accepts { retry: { jitter: false } } alone', () => {
+    expect(() => validateConfig({ ...BASE, retry: { jitter: false } })).not.toThrow();
+  });
+
+  it('rejects a non-boolean jitter', () => {
+    expect(() => validateConfig({ ...BASE, retry: { jitter: 'yes' as any } })).toThrow(GuildPassError);
+  });
+
   it('accepts a complete retry config', () => {
     expect(() =>
       validateConfig({
@@ -101,7 +109,14 @@ describe('Per-request retry configuration', () => {
         status: 503,
         headers: { 'Content-Type': 'application/json' },
       }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ hasAccess: true }), {
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        hasAccess: true,
+        walletAddress: '0x1111111111111111111111111111111111111111',
+        guildId: 'guild-1',
+        resourceId: 'resource-1',
+        requiredRoles: [],
+        matchedRoles: [],
+      }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }));
@@ -112,6 +127,7 @@ describe('Per-request retry configuration', () => {
       retry: {
         maxRetries: 3,
         baseDelayMs: 375,
+        jitter: false,
       },
     });
 

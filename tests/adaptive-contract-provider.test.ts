@@ -18,7 +18,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HttpClient } from '../src/http/httpClient';
-import { GuildPassErrorCode } from '../src/errors/errorCodes';
 import { AdaptiveContractProvider } from '../src/contracts/providers/adaptiveContractProvider';
 import {
   MULTICALL3_ADDRESS,

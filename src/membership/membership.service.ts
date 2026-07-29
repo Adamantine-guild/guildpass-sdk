@@ -4,7 +4,9 @@ import { HttpClient } from '../http/httpClient';
 import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { assertValidResponse } from '../validation/assertResponse';
+import { assertValidRequest } from '../validation/assertRequest';
 import { isMembership } from '../validation/responseGuards';
+import { isMembershipParams } from '../validation/requestGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
@@ -16,15 +18,13 @@ export class MembershipService {
   constructor(
     private readonly http: HttpClient,
     private readonly validateResponses = false,
+    private readonly strictAddressChecksum = false,
   ) {}
 
   /**
    * Fetches wallet membership status for a specific guild.
    */
   // GuildPass SDK: Class member structure property or constructor.
-  public async getMembership<T extends RequestOptions | undefined = undefined>(
-    params: MembershipParams,
-  ): Promise<Membership>;
   public async getMembership(
     params: MembershipParams,
     options: RequestOptions & { includeMeta: true },
@@ -32,11 +32,16 @@ export class MembershipService {
   public async getMembership(
     params: MembershipParams,
     options?: RequestOptions,
+  ): Promise<Membership>;
+  public async getMembership(
+    params: MembershipParams,
+    options?: RequestOptions,
   ): Promise<Membership | { data: Membership; meta: ResponseMetadata }> {
+    assertValidRequest(params, isMembershipParams, 'MembershipParams', { endpoint: 'GET /membership' });
     // GuildPass SDK: Local block-scoped constant reference.
     const { walletAddress, guildId } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
 
     // GuildPass SDK: Terminate function block execution and return.
@@ -52,11 +57,15 @@ export class MembershipService {
     });
 
     if (options?.includeMeta) {
-      return result as { data: Membership; meta: ResponseMetadata };
+      const withMeta = result as any;
+      const checkedData = this.validateResponses
+        ? assertValidResponse(withMeta.data, isMembership, 'Membership', { endpoint: 'GET /membership' })
+        : withMeta.data;
+      return { data: checkedData, meta: withMeta.meta };
     }
 
     return this.validateResponses
-      ? assertValidResponse(result as Membership, isMembership, 'Membership')
+      ? assertValidResponse(result as Membership, isMembership, 'Membership', { endpoint: 'GET /membership' })
       : (result as Membership);
     // GuildPass SDK: End of logic containment structure block.
   }

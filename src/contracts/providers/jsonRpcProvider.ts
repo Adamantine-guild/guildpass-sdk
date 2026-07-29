@@ -6,6 +6,7 @@ import { BlockTag, RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
 import { ContractProvider, EthCallRequest } from './provider.types';
 import { HttpHooks, RpcFailoverHookPayload } from '../../http/http.types';
+import { MAX_RPC_RESPONSE_BYTES, assertResultWithinCap, exceedsResponseCap } from './hexGuards';
 
 type JsonRpcSuccess = {
 result?: unknown;
@@ -200,6 +201,11 @@ export class JsonRpcContractProvider implements ContractProvider {
       );
     }
 
+    // Bound what a single endpoint can make us carry before the result reaches
+    // a decoder. A single `eth_call` result has no per-item fallback, so an
+    // oversized payload invalidates the response outright.
+    assertResultWithinCap(payload?.result, 'eth_call result');
+
     return payload?.result;
   }
 
@@ -275,6 +281,14 @@ export class JsonRpcContractProvider implements ContractProvider {
         results.push({
           status: 'error',
           error: `Unexpected result type for batch item ${i}`,
+        });
+      } else if (exceedsResponseCap(payload.result)) {
+        // Unlike the single-call path, one oversized item must not sink the
+        // whole batch: the per-item contract is an error entry, exactly as for
+        // an RPC error or a wrong-typed result.
+        results.push({
+          status: 'error',
+          error: `Result for batch item ${i} exceeds the ${MAX_RPC_RESPONSE_BYTES}-byte response cap`,
         });
       } else {
         results.push({
@@ -380,7 +394,7 @@ export class JsonRpcContractProvider implements ContractProvider {
   // ---------------------------------------------------------------------------
 
   public async ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown> {
-    const blockTag = await this.resolveBlockTag((options as any)?.confirmations, options);
+    const blockTag = await this.resolveBlockTag(options?.confirmations, options);
     let lastError: unknown;
 
     for (let i = 0; i < this.rpcUrls.length; i++) {
@@ -409,7 +423,7 @@ export class JsonRpcContractProvider implements ContractProvider {
     requests: EthCallRequest[],
     options?: RequestOptions,
   ): Promise<BatchItemResult[]> {
-    const blockTag = await this.resolveBlockTag((options as any)?.confirmations, options);
+    const blockTag = await this.resolveBlockTag(options?.confirmations, options);
     let lastError: unknown;
 
     for (let i = 0; i < this.rpcUrls.length; i++) {

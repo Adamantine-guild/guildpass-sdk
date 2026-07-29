@@ -1,0 +1,71 @@
+name: Notify Automation on CI Completion
+
+# Runs in the BASE repo's context (secrets available, even for fork PRs) --
+# this is the standard safe pattern for reacting to fork CI results with a
+# token, since it never checks out or executes PR-supplied code itself.
+# It exists solely to close a timing gap: the PR-event dispatcher fires
+# immediately on open/sync, often before CI finishes, so the hub's
+# mergeable_state check can miss a PR that only becomes mergeable once CI
+# passes. This re-notifies the hub after CI concludes so it gets a second
+# look.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    # Only re-notify if CI actually passed -- no point re-checking
+    # mergeability for a PR whose tests just failed.
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR number for this CI run
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # workflow_run events carry pull_requests[] when the run came from
+          # a same-repo PR, but it's frequently empty for fork PRs -- fall
+          # back to looking up the PR by head SHA via the API.
+          PR_NUMBER=$(echo '${{ toJson(github.event.workflow_run.pull_requests) }}' | jq -r '.[0].number // empty')
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(gh api "/repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" \
+              -H "Accept: application/vnd.github.groot-preview+json" \
+              --jq '.[0].number // empty')
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            echo "Could not resolve a PR for this CI run; skipping notify."
+            exit 0
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Look up PR metadata
+        id: meta
+        if: steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_JSON=$(gh api "/repos/${{ github.repository }}/pulls/${{ steps.pr.outputs.pr_number }}")
+          echo "author=$(echo "$PR_JSON" | jq -r '.user.login')" >> "$GITHUB_OUTPUT"
+          echo "is_fork=$(echo "$PR_JSON" | jq -r '.head.repo.fork')" >> "$GITHUB_OUTPUT"
+
+      - name: Re-notify automation repository
+        if: steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/Adamantine-guild/adamantine-pr-automation/dispatches \
+            -f event_type=pr-updated \
+            -F client_payload[repo]="${{ github.repository }}" \
+            -F client_payload[pr_number]="${{ steps.pr.outputs.pr_number }}" \
+            -F client_payload[campaign]="grantfox-oss" \
+            -F client_payload[pr_author]="${{ steps.meta.outputs.author }}" \
+            -F client_payload[is_fork]="${{ steps.meta.outputs.is_fork }}"

@@ -1,4 +1,4 @@
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { isChecksumAddress } from './address';
 
@@ -29,11 +29,16 @@ const throwValidationError = (
     delete details.value;
   }
 
-  throw new GuildPassError(message, code, undefined, details);
+  throw new GuildPassConfigError(message, code, undefined, details);
 };
 
 /**
  * Validates an Ethereum address.
+ *
+ * The EIP-55 checksum is verified automatically when the address is supplied in
+ * mixed case, because mixed case is precisely what carries checksum information.
+ * An all-lowercase or all-uppercase address encodes none, so it is accepted
+ * without a checksum check. `strict` forces the check on any casing.
  *
  * @param address The address to validate
  * @param options Validation options to enforce strict mode
@@ -57,7 +62,13 @@ export const validateAddress = (address: string, options: { strict?: boolean } =
     });
   }
 
-  if (options.strict && !isChecksumAddress(address)) {
+  // Only a mixed-case payload carries EIP-55 checksum information. A uniformly
+  // cased address carries none, so checking it would reject perfectly legitimate
+  // lowercase input — that stays opt-in behind `strict`.
+  const hex = address.slice(2);
+  const hasChecksumInformation = /[a-f]/.test(hex) && /[A-F]/.test(hex);
+
+  if ((hasChecksumInformation || options.strict) && !isChecksumAddress(address)) {
     throwValidationError(`Address fails EIP-55 checksum: ${address}`, GuildPassErrorCode.INVALID_ADDRESS, {
       field: 'address',
       reason: 'checksum_failed',

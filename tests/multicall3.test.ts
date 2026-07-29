@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
-import { GuildPassErrorCode } from '../src/errors/errorCodes';
-import { Multicall3ContractProvider } from '../src/contracts/providers/multicall3Provider';
-import { HttpClient } from '../src/http/httpClient';
 import { MULTICALL3_ADDRESS } from '../src/contracts/providers/adaptive.types';
-import { BALANCE_OF_SELECTOR, GET_GUILD_OWNER_SELECTOR, encodeAddressArgument, encodeGuildId } from '../src/contracts/contractClient';
 
 const BASE_URL = 'https://api.test.com';
 const RPC_URL = 'https://rpc.test.com';

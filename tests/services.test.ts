@@ -28,7 +28,14 @@ describe('Service Modules', () => {
 
   describe('AccessService', () => {
     it('should call checkAccess endpoint', async () => {
-      const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+      const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -52,7 +59,14 @@ describe('Service Modules', () => {
     });
 
     it('should normalise wallet address in query parameters', async () => {
-      const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+      const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
       (fetch as any).mockResolvedValue({
         ok: true,
         status: 200,
@@ -60,7 +74,7 @@ describe('Service Modules', () => {
         headers: new Headers(),
       });
 
-      const mixedCaseAddress = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+      const mixedCaseAddress = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
       await client.access.checkAccess({
         walletAddress: mixedCaseAddress,
         guildId: 'guild_1',
@@ -102,7 +116,14 @@ describe('Service Modules', () => {
 
     describe('checkAccessBatch', () => {
       it('should process multiple access checks and preserve order', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         (fetch as any).mockResolvedValue({
           ok: true,
           status: 200,
@@ -124,7 +145,14 @@ describe('Service Modules', () => {
       });
 
       it('should handle partial failures without discarding successes', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         let callCount = 0;
         (fetch as any).mockImplementation(() => {
           callCount++;
@@ -158,7 +186,14 @@ describe('Service Modules', () => {
       });
 
       it('should fail fast if configured', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         let callCount = 0;
         (fetch as any).mockImplementation(() => {
           callCount++;
@@ -188,7 +223,14 @@ describe('Service Modules', () => {
       });
 
       it('should catch validation errors per item', async () => {
-        const mockResult = { hasAccess: true, matchedRoles: ['admin'] };
+        const mockResult = {
+        hasAccess: true,
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['admin'],
+        matchedRoles: ['admin'],
+      };
         (fetch as any).mockResolvedValue({
           ok: true,
           status: 200,
@@ -211,7 +253,12 @@ describe('Service Modules', () => {
 
   describe('MembershipService', () => {
     it('should call membership endpoint', async () => {
-      const mockMembership = { isActive: true, roles: ['member'] };
+      const mockMembership = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        isActive: true,
+        roles: ['member'],
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -312,7 +359,7 @@ describe('Service Modules', () => {
         headers: new Headers(),
       });
 
-      const mixedCaseAddress = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+      const mixedCaseAddress = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
       await client.roles.getUserRoles({
         guildId: 'guild_1',
         walletAddress: mixedCaseAddress,
@@ -441,7 +488,7 @@ describe('Service Modules', () => {
           headers: new Headers(),
         });
 
-        const mixedCase = '0xAbCdEf1234567890AbCdEf1234567890AbCdEf12';
+        const mixedCase = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
         await client.roles.hasRole({
           walletAddress: mixedCase,
           guildId: 'guild_1',
@@ -491,7 +538,12 @@ describe('Service Modules', () => {
 
   describe('GuildsService', () => {
     it('should fetch guild info', async () => {
-      const mockGuild = { id: 'guild_1', name: 'Test Guild' };
+      const mockGuild = {
+        id: 'guild_1',
+        name: 'Test Guild',
+        ownerAddress: '0x1234567890123456789012345678901234567890',
+        chainId: 1,
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -504,7 +556,12 @@ describe('Service Modules', () => {
     });
 
     it('should URL-encode guild IDs in guild endpoint paths', async () => {
-      const mockGuild = { id: 'guild/1', name: 'Encoded Guild' };
+      const mockGuild = {
+        id: 'guild/1',
+        name: 'Encoded Guild',
+        ownerAddress: '0x1234567890123456789012345678901234567890',
+        chainId: 1,
+      };
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
@@ -531,11 +588,31 @@ describe('Service Modules', () => {
       });
     });
 
-    it('is off by default, so malformed responses are passed through unchanged', async () => {
+    it('is on by default, so a malformed response is rejected without any config', async () => {
       const malformedResult = { hasAccess: true };
       mockJsonResponse(malformedResult);
 
-      const result = await client.access.checkAccess({
+      // `client` (outer beforeEach) sets no `validateResponses` at all —
+      // proves validation runs out of the box, not just when opted in.
+      await expect(
+        client.access.checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        }),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_RESPONSE });
+    });
+
+    it('validateResponses: false restores passing malformed responses through unchanged', async () => {
+      const nonValidatingClient = new GuildPassClient({
+        apiUrl: 'https://api.test.com',
+        fetch: mockFetch,
+        validateResponses: false,
+      });
+      const malformedResult = { hasAccess: true };
+      mockJsonResponse(malformedResult);
+
+      const result = await nonValidatingClient.access.checkAccess({
         walletAddress: '0x1234567890123456789012345678901234567890',
         guildId: 'guild_1',
         resourceId: 'res_1',
@@ -658,6 +735,172 @@ describe('Service Modules', () => {
 
       const result = await validatingClient.guilds.getGuildConfig({ guildId: 'guild_1' });
       expect(result).toEqual(mockGuildConfig);
+    });
+
+    it('rejects a malformed checkRoleAccess response when validation is enabled', async () => {
+      mockJsonResponse({ hasRole: 'yes' });
+
+      await expect(
+        validatingClient.access.checkRoleAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_RESPONSE,
+        message: expect.stringContaining('hasRole'),
+      });
+    });
+
+    it('passes a malformed checkRoleAccess response through when validation is off', async () => {
+      const nonValidatingClient = new GuildPassClient({
+        apiUrl: 'https://api.test.com',
+        fetch: mockFetch,
+        validateResponses: false,
+      });
+      mockJsonResponse({ hasRole: 'yes' });
+
+      const result = await nonValidatingClient.access.checkRoleAccess({
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        roleId: 'role_1',
+      });
+
+      expect(result).toBe('yes');
+    });
+
+    it('validates the checkRoleAccess includeMeta path too', async () => {
+      mockJsonResponse({});
+
+      await expect(
+        validatingClient.access.checkRoleAccess(
+          {
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: 'guild_1',
+            roleId: 'role_1',
+          },
+          { includeMeta: true },
+        ),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_RESPONSE });
+    });
+
+    it('accepts a well-formed checkRoleAccess includeMeta response', async () => {
+      mockJsonResponse({ hasRole: true });
+
+      const result = await validatingClient.access.checkRoleAccess(
+        {
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          roleId: 'role_1',
+        },
+        { includeMeta: true },
+      );
+
+      expect(result.data).toBe(true);
+      expect(result.meta).toBeDefined();
+    });
+
+    it('rejects a malformed getMembership response on the includeMeta path', async () => {
+      mockJsonResponse({ isActive: true });
+
+      await expect(
+        validatingClient.membership.getMembership(
+          {
+            walletAddress: '0x1234567890123456789012345678901234567890',
+            guildId: 'guild_1',
+          },
+          { includeMeta: true },
+        ),
+      ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_RESPONSE });
+    });
+
+    it('accepts a well-formed getMembership includeMeta response', async () => {
+      const mockMembership = {
+        walletAddress: '0x1234567890123456789012345678901234567890',
+        guildId: 'guild_1',
+        isActive: true,
+        roles: ['member'],
+      };
+      mockJsonResponse(mockMembership);
+
+      const result = await validatingClient.membership.getMembership(
+        {
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+        },
+        { includeMeta: true },
+      );
+
+      expect(result.data).toEqual(mockMembership);
+      expect(result.meta).toBeDefined();
+    });
+
+    it('names the endpoint in the validation error message', async () => {
+      mockJsonResponse({ hasAccess: true });
+
+      await expect(
+        validatingClient.access.checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('GET /access/check'),
+      });
+    });
+
+    it('names the specific offending field in the validation error message', async () => {
+      mockJsonResponse({
+        hasAccess: true,
+        walletAddress: 'not-an-address',
+        guildId: 'guild_1',
+        resourceId: 'res_1',
+        requiredRoles: ['member'],
+        matchedRoles: ['member'],
+      });
+
+      await expect(
+        validatingClient.access.checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('walletAddress'),
+      });
+    });
+
+    it('exposes endpoint, mismatch and received payload on error.details', async () => {
+      const malformed = { hasAccess: true };
+      mockJsonResponse(malformed);
+
+      const failure = await validatingClient.access
+        .checkAccess({
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          guildId: 'guild_1',
+          resourceId: 'res_1',
+        })
+        .then(
+          () => null,
+          (err: unknown) => err,
+        );
+
+      expect(failure).toMatchObject({
+        code: GuildPassErrorCode.INVALID_RESPONSE,
+        details: {
+          endpoint: 'GET /access/check',
+          received: malformed,
+        },
+      });
+      expect(typeof (failure as { details: { mismatch?: unknown } }).details.mismatch).toBe('string');
+    });
+
+    it('locates the failing element inside an array response', async () => {
+      mockJsonResponse([{ id: '1', name: 'ok' }, { id: '2' }]);
+
+      await expect(validatingClient.roles.getRoles({ guildId: 'guild_1' })).rejects.toMatchObject({
+        message: expect.stringContaining('[1].name'),
+      });
     });
   });
 
@@ -806,5 +1049,58 @@ describe('Service Modules', () => {
         resourceId: 'res_1',
       })).rejects.toThrow();
     });
+  });
+});
+
+describe('strictAddressChecksum', () => {
+  const nonChecksummedAddress = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
+
+  it('rejects non-checksummed addresses in AccessService', async () => {
+    const client = new GuildPassClient({
+      apiUrl: 'https://api.test.com',
+      strictAddressChecksum: true,
+    });
+
+    await expect(client.access.checkAccess({
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+      resourceId: 'res_1',
+    })).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+  });
+
+  it('rejects non-checksummed addresses in MembershipService', async () => {
+    const client = new GuildPassClient({
+      apiUrl: 'https://api.test.com',
+      strictAddressChecksum: true,
+    });
+
+    await expect(client.membership.getMembership({
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+    })).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_ADDRESS });
+  });
+
+  it('accepts non-checksummed addresses by default', async () => {
+    const mockResult = {
+      hasAccess: true,
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+      resourceId: 'res_1',
+      requiredRoles: [],
+      matchedRoles: [],
+    };
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(mockResult),
+      headers: new Headers(),
+    });
+    const client = new GuildPassClient({ apiUrl: 'https://api.test.com', fetch });
+
+    await expect(client.access.checkAccess({
+      walletAddress: nonChecksummedAddress,
+      guildId: 'guild_1',
+      resourceId: 'res_1',
+    })).resolves.toEqual(mockResult);
   });
 });

@@ -1,4 +1,4 @@
-import type { AccessCheckResult, AccessCheckParams } from '../access/access.types';
+import type { AccessCheckResult } from '../access/access.types';
 import type { Guild, GuildConfig } from '../guilds/guilds.types';
 import type { GuildRole } from '../roles/roles.types';
 import type { Membership } from '../membership/membership.types';

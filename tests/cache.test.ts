@@ -2,16 +2,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import { InMemoryCacheAdapter, CacheAdapter } from '../src/cache/cache.types';
 import { RECOMMENDED_ACCESS_CACHE_TTL_MS } from '../src/config/securityLimits';
-import { runCacheAdapterConformanceTests } from './cacheAdapterConformance';
+import { runCacheAdapterConformanceTests } from '../src/testing/cacheAdapterConformance';
 
 const BASE_CONFIG = { apiUrl: 'https://api.guildpass.xyz' };
 
 // ---------------------------------------------------------------------------
 // InMemoryCacheAdapter Conformance tests
 // ---------------------------------------------------------------------------
-runCacheAdapterConformanceTests({
-  factory: () => new InMemoryCacheAdapter(),
-});
+runCacheAdapterConformanceTests(
+  {
+    factory: () => new InMemoryCacheAdapter(),
+    setup: () => {
+      vi.useFakeTimers();
+    },
+    teardown: () => {
+      vi.useRealTimers();
+    },
+    advanceTime: async (ms) => {
+      await vi.advanceTimersByTimeAsync(ms);
+    },
+  },
+  { describe, it },
+);
 
 // ---------------------------------------------------------------------------
 // InMemoryCacheAdapter specific details
@@ -38,16 +50,165 @@ describe('InMemoryCacheAdapter specific details', () => {
 });
 
 // ---------------------------------------------------------------------------
+// InMemoryCacheAdapter maxEntries / LRU eviction (#386)
+// ---------------------------------------------------------------------------
+
+describe('InMemoryCacheAdapter maxEntries LRU eviction', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('evicts the least-recently-used entry once the cap is exceeded', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1);
+    await adapter.set('b', 2);
+    await adapter.set('c', 3);
+
+    expect(adapter.size()).toBe(2);
+    expect(await adapter.get('a')).toBeNull();
+    expect(await adapter.get('b')).toBe(2);
+    expect(await adapter.get('c')).toBe(3);
+  });
+
+  it('refreshes recency on read, so a re-read entry outlives a newer one', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1);
+    await adapter.set('b', 2);
+
+    // Touching 'a' must move it to the most-recently-used end. This is the case
+    // that still passes under a FIFO implementation only by accident: a plain
+    // `Map.set` refresh keeps the original insertion position, so 'a' would be
+    // evicted here instead of 'b'.
+    expect(await adapter.get('a')).toBe(1);
+
+    await adapter.set('c', 3);
+
+    expect(await adapter.get('a')).toBe(1);
+    expect(await adapter.get('b')).toBeNull();
+    expect(await adapter.get('c')).toBe(3);
+  });
+
+  it('refreshes recency on overwrite', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1);
+    await adapter.set('b', 2);
+    await adapter.set('a', 99); // overwrite counts as recent use
+
+    await adapter.set('c', 3);
+
+    expect(await adapter.get('a')).toBe(99);
+    expect(await adapter.get('b')).toBeNull();
+  });
+
+  it('is unbounded when maxEntries is omitted', async () => {
+    const adapter = new InMemoryCacheAdapter();
+
+    for (let i = 0; i < 1000; i += 1) {
+      await adapter.set(`k${i}`, i);
+    }
+
+    expect(adapter.size()).toBe(1000);
+    expect(await adapter.get('k0')).toBe(0);
+    expect(await adapter.get('k999')).toBe(999);
+  });
+
+  it('sweeps an expired entry on read instead of promoting it', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 2 });
+
+    await adapter.set('a', 1, 100);
+    await adapter.set('b', 2);
+
+    vi.advanceTimersByTime(101);
+
+    // The TTL sweep runs before the recency refresh: 'a' is dropped, not moved
+    // to the most-recently-used end.
+    expect(await adapter.get('a')).toBeNull();
+    expect(adapter.size()).toBe(1);
+
+    // With 'a' already gone, adding 'c' fills the free slot rather than evicting 'b'.
+    await adapter.set('c', 3);
+
+    expect(await adapter.get('b')).toBe(2);
+    expect(await adapter.get('c')).toBe(3);
+    expect(adapter.size()).toBe(2);
+  });
+
+  it('handles maxEntries: 1 without evicting the entry just written', async () => {
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 1 });
+
+    await adapter.set('a', 1);
+    expect(adapter.size()).toBe(1);
+    expect(await adapter.get('a')).toBe(1);
+
+    await adapter.set('b', 2);
+    expect(adapter.size()).toBe(1);
+    expect(await adapter.get('a')).toBeNull();
+    expect(await adapter.get('b')).toBe(2);
+  });
+
+  it('rejects an invalid maxEntries at construction', () => {
+    expect(() => new InMemoryCacheAdapter({ maxEntries: 0 })).toThrowError(
+      /maxEntries must be a positive integer/,
+    );
+    expect(() => new InMemoryCacheAdapter({ maxEntries: -5 })).toThrowError(
+      /maxEntries must be a positive integer/,
+    );
+    expect(() => new InMemoryCacheAdapter({ maxEntries: 1.5 })).toThrowError(
+      /maxEntries must be a positive integer/,
+    );
+
+    try {
+      new InMemoryCacheAdapter({ maxEntries: 0 });
+      expect.fail('expected the constructor to reject maxEntries: 0');
+    } catch (error) {
+      expect((error as { code?: string }).code).toBe('INVALID_CONFIG');
+    }
+  });
+
+  it('keeps deleteByPrefix working while a cap is active', async () => {
+    // This is the path GuildPassClient.invalidateWalletCache relies on; a
+    // regression here would silently stop cache invalidation from working.
+    const adapter = new InMemoryCacheAdapter({ maxEntries: 10 });
+
+    await adapter.set('wallet:0xaaa:guild:1', 'x');
+    await adapter.set('wallet:0xaaa:guild:2', 'y');
+    await adapter.set('wallet:0xbbb:guild:1', 'z');
+
+    await adapter.deleteByPrefix('wallet:0xaaa:');
+
+    expect(await adapter.get('wallet:0xaaa:guild:1')).toBeNull();
+    expect(await adapter.get('wallet:0xaaa:guild:2')).toBeNull();
+    expect(await adapter.get('wallet:0xbbb:guild:1')).toBe('z');
+    expect(adapter.size()).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // GuildPassClient cache integration
 // ---------------------------------------------------------------------------
 describe('GuildPassClient – cache integration', () => {
   const mockGuild = {
     id: 'prime-guild',
     name: 'Prime Guild',
-    ownerAddress: '0xowner',
+    ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
     chainId: 1,
   };
-  const mockAccess = { hasAccess: true, reason: null };
+  const mockAccess = {
+    hasAccess: true,
+    walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+    guildId: 'g1',
+    resourceId: 'res1',
+    requiredRoles: [],
+    matchedRoles: [],
+    reason: null,
+  };
 
   function buildMockAdapter(): CacheAdapter & { _store: Map<string, unknown> } {
     const store = new Map<string, { value: unknown; expiresAt: number | null }>();
@@ -183,6 +344,63 @@ describe('GuildPassClient – cache integration', () => {
     expect(httpGet).toHaveBeenCalledTimes(1);
   });
 
+  it('checkAccessBatch flows through the per-resource cache entries', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockImplementation(
+      async (_url: unknown, opts: any) => ({
+        ...mockAccess,
+        resourceId: opts.params.resourceId,
+      }),
+    );
+
+    const params = {
+      walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      guildId: 'g1',
+      resourceIds: ['res1', 'res2'],
+    };
+
+    const first = await client.access.checkAccessBatch(params);
+    expect(httpGet).toHaveBeenCalledTimes(2);
+    expect(first.res1.status).toBe('fulfilled');
+    expect(first.res2.status).toBe('fulfilled');
+
+    // Second identical batch: every entry must be a cache hit, no new requests.
+    const second = await client.access.checkAccessBatch(params);
+    expect(httpGet).toHaveBeenCalledTimes(2);
+    expect(second.res1.status).toBe('fulfilled');
+
+    // A batch adding one new resource only fetches that one.
+    const third = await client.access.checkAccessBatch({ ...params, resourceIds: ['res1', 'res3'] });
+    expect(httpGet).toHaveBeenCalledTimes(3);
+    expect(third.res3.status).toBe('fulfilled');
+  });
+
+  it('array-form checkAccessBatch also populates per-resource cache entries', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpGet = vi.spyOn(client['http'] as any, 'get').mockImplementation(
+      async (_url: unknown, opts: any) => ({
+        ...mockAccess,
+        resourceId: opts.params.resourceId,
+      }),
+    );
+
+    await client.access.checkAccessBatch([
+      { walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045', guildId: 'g1', resourceId: 'res1' },
+      { walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045', guildId: 'g1', resourceId: 'res2' },
+    ]);
+    expect(httpGet).toHaveBeenCalledTimes(2);
+
+    // A follow-up single check for one of the batched resources is a cache hit.
+    await client.access.checkAccess({
+      walletAddress: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+      guildId: 'g1',
+      resourceId: 'res1',
+    });
+    expect(httpGet).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidateWalletCache normalises the address before building the deletion prefix', async () => {
     const adapter = new InMemoryCacheAdapter();
     const addr1 = '0xd8da6bf26964af9d7eed9e03e53415d37aa96045';
@@ -276,11 +494,27 @@ describe('GuildPassClient – cache integration', () => {
     expect(await adapter.get('roles:getRoles:prime-guild')).toBeNull();
   });
 
-  it('invalidateGuildCache is a no-op when no adapter is configured', async () => {
+it('invalidateGuildCache is a no-op when no adapter is configured', async () => {
     const client = new GuildPassClient(BASE_CONFIG);
     await expect(client.invalidateGuildCache('any')).resolves.toBeUndefined();
   });
 
+  // Regression test for #283: pins the acceptance criteria directly against
+  // InMemoryCacheAdapter.deleteByPrefix so a future refactor can't silently
+  // reintroduce a full-cache-scan fallback for this adapter.
+  it('[#283] invalidateGuildCache removes every prime-guild entry and no others', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('access:checkAccess:prime-guild:docs:0xabc', true);
+    await adapter.set('roles:getRoles:prime-guild', ['admin']);
+    await adapter.set('access:checkAccess:other-guild:docs:0xabc', true);
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    await client.invalidateGuildCache('prime-guild');
+
+    expect(await adapter.get('access:checkAccess:prime-guild:docs:0xabc')).toBeNull();
+    expect(await adapter.get('roles:getRoles:prime-guild')).toBeNull();
+    expect(await adapter.get('access:checkAccess:other-guild:docs:0xabc')).toBe(true);
+  });
   it('clearCache clears the entire adapter store', async () => {
     const adapter = new InMemoryCacheAdapter();
     await adapter.set('a', 1);
@@ -324,7 +558,7 @@ describe('GuildPassClient – cache integration', () => {
   });
 
   describe('Resilience - cache failures', () => {
-    const mockGuild = { id: 'g1', name: 'G1', ownerAddress: '0x1', chainId: 1 };
+    const mockGuild = { id: 'g1', name: 'G1', ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', chainId: 1 };
 
     it('falls back to network if cache.get() fails', async () => {
       const adapter = buildMockAdapter();
@@ -400,7 +634,15 @@ describe('GuildPassClient – cache integration', () => {
 });
 
 describe('GuildPassClient – cache-key collision resistance', () => {
-  const mockAccess = { hasAccess: true, reason: null };
+  const mockAccess = {
+    hasAccess: true,
+    walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+    guildId: 'g1',
+    resourceId: 'res1',
+    requiredRoles: [],
+    matchedRoles: [],
+    reason: null,
+  };
   const wallet = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
 
   it('does not collide when a guildId/resourceId split shifts across the delimiter', async () => {
@@ -576,10 +818,10 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
    * (line 167-168: exact-key deletion) and invalidateWalletCache
    * (line 190-191: full clear).
    */
-  function createMinimalAdapter(): CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn> } {
+  function createMinimalAdapter(): CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn<[], Promise<void>>> } {
     const store = new Map<string, unknown>();
     const clearSpy = vi.fn(async () => { store.clear(); });
-    const adapter: CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn> } = {
+    const adapter: CacheAdapter & { _store: Map<string, unknown>; clearSpy: ReturnType<typeof vi.fn<[], Promise<void>>> } = {
       _store: store as unknown as Map<string, unknown>,
       clearSpy,
       async get<T>(key: string): Promise<T | null> {
@@ -604,7 +846,7 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
   it('invalidateGuildCache falls back to exact-key deletion when adapter lacks deleteByPrefix', async () => {
     const adapter = createMinimalAdapter();
     const deleteSpy = vi.spyOn(adapter, 'delete');
-    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0x1', chainId: 1 };
+    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', chainId: 1 };
 
     // Populate exact-prefix keys that the SDK computes
     await adapter.set('guilds:getGuild:prime-guild', mockGuild);
@@ -622,7 +864,7 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
 
   it('invalidateGuildCache fallback misses composite/nested keys (expected limitation)', async () => {
     const adapter = createMinimalAdapter();
-    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0x1', chainId: 1 };
+    const mockGuild = { id: 'prime-guild', name: 'PG', ownerAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', chainId: 1 };
 
     // Composite keys with wallet/resource suffixes
     await adapter.set('access:checkAccess:prime-guild:premium-docs:0xabc', { hasAccess: true });
@@ -681,5 +923,73 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
     const adapter = createMinimalAdapter();
     const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
     await expect(client.invalidateWalletCache('not-an-address')).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getGuildConfigBatch cache wiring (#389)
+// ---------------------------------------------------------------------------
+
+describe('GuildPassClient – getGuildConfigBatch cache wiring', () => {
+  const configFor = (id: string) => ({ id, theme: 'dark' });
+
+  it('populates the per-guild cache from a batch call', async () => {
+    // The batch method calls getGuildConfig internally. Without rebinding it in
+    // the client it would run against the raw service and bypass the cache
+    // entirely, silently making batch results uncacheable.
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+
+    vi.spyOn(client['http'] as any, 'get').mockImplementation(async (path: string) =>
+      configFor(path.split('/')[2]),
+    );
+
+    await client.guilds.getGuildConfigBatch({ guildIds: ['g1', 'g2'] });
+
+    expect(await adapter.get('guilds:getGuildConfig:g1')).toEqual(configFor('g1'));
+    expect(await adapter.get('guilds:getGuildConfig:g2')).toEqual(configFor('g2'));
+  });
+
+  it('serves a subsequent single lookup from the cache the batch filled', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockImplementation(async (path: string) => configFor(path.split('/')[2]));
+
+    await client.guilds.getGuildConfigBatch({ guildIds: ['g1'] });
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+
+    const single = await client.guilds.getGuildConfig({ guildId: 'g1' });
+
+    expect(single).toEqual(configFor('g1'));
+    expect(httpSpy).toHaveBeenCalledTimes(1); // still 1: served from cache
+  });
+
+  it('reads through the cache instead of refetching inside the batch', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('guilds:getGuildConfig:g1', configFor('g1'));
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockImplementation(async (path: string) => configFor(path.split('/')[2]));
+
+    const results = await client.guilds.getGuildConfigBatch({ guildIds: ['g1', 'g2'] });
+
+    expect(results[0]).toEqual({ status: 'success', result: configFor('g1') });
+    expect(httpSpy).toHaveBeenCalledTimes(1); // only g2 went to the network
+  });
+
+  it('still works with no cache adapter configured', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    vi.spyOn(client['http'] as any, 'get').mockImplementation(async (path: string) =>
+      configFor(path.split('/')[2]),
+    );
+
+    const results = await client.guilds.getGuildConfigBatch({ guildIds: ['g1'] });
+
+    expect(results[0]).toEqual({ status: 'success', result: configFor('g1') });
   });
 });

@@ -32,7 +32,11 @@ async function checkSize() {
       format: 'esm',
       write: false,
       platform: 'browser',
-      external: ['node:crypto'],
+      // Match the real build (tsup treats peer deps as external): without
+      // this, esbuild bundles all of `ethers`/`viem` into the measurement,
+      // which both crashes on `merkleTree.ts`'s deep `ethers/lib/utils`
+      // import and, once resolved, wildly overstates every entry's size.
+      external: ['node:crypto', 'ethers', 'viem'],
     });
 
     const buffer = Buffer.from(result.outputFiles[0].contents);

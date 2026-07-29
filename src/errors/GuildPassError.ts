@@ -2,6 +2,34 @@
 import { GuildPassErrorCode } from './errorCodes';
 import type { ResponseMetadata } from '../http/http.types';
 
+const REDACTED = '[REDACTED]';
+
+const isSensitiveKey = (key: string): boolean => {
+  const normalized = key.toLowerCase().replace(/[-_\s]/g, '');
+  return (
+    normalized === 'authorization' ||
+    normalized === 'cookie' ||
+    normalized === 'setcookie' ||
+    normalized.endsWith('apikey') ||
+    normalized.endsWith('privatekey') ||
+    normalized.endsWith('password') ||
+    normalized.endsWith('secret') ||
+    normalized.endsWith('token')
+  );
+};
+
+const redactSensitiveValues = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(redactSensitiveValues);
+  if (value === null || typeof value !== 'object') return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+      key,
+      isSensitiveKey(key) ? REDACTED : redactSensitiveValues(nestedValue),
+    ]),
+  );
+};
+
 // GuildPass SDK: Exposed interface structure.
 export class GuildPassError extends Error {
   // GuildPass SDK: Class member structure property or constructor.
@@ -31,6 +59,21 @@ export class GuildPassError extends Error {
     // GuildPass SDK: End of logic containment structure block.
   }
 
+  /**
+   * Returns a log-safe plain object representation of this error.
+   * Sensitive values in `details` are replaced with `[REDACTED]`.
+   */
+  public toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      status: this.status,
+      requestMeta: this.requestMeta,
+      details: redactSensitiveValues(this.details),
+    };
+  }
+
   // GuildPass SDK: Class member structure property or constructor.
   public static fromHttpError(status: number, details?: any): GuildPassError {
     const extractMessage = (d: any): string | undefined => {
@@ -42,8 +85,24 @@ export class GuildPassError extends Error {
       if (d.code && typeof d.message === 'string') return d.message;
       if (Array.isArray(d.errors)) {
         const msgs = d.errors
-          .map((e: any) => (typeof e === 'string' ? e : e && (e.message || e.msg || e.code)))
-          .filter(Boolean);
+          .map((e: any): string | undefined => {
+            if (typeof e === 'string') return e;
+            if (e === null || e === undefined) return undefined;
+            if (typeof e !== 'object') return String(e);
+            if (typeof e.message === 'string') return e.message;
+            if (typeof e.msg === 'string') return e.msg;
+            if (typeof e.code === 'string' || typeof e.code === 'number') return String(e.code);
+            if (typeof e.field === 'string' && typeof e.issue === 'string') {
+              return `${e.field}: ${e.issue}`;
+            }
+            try {
+              const json = JSON.stringify(e);
+              return json === undefined ? String(e) : json;
+            } catch {
+              return String(e);
+            }
+          })
+          .filter((m: string | undefined): m is string => Boolean(m));
         if (msgs.length === 1) return msgs[0];
         if (msgs.length > 1) return msgs.join('; ');
       }

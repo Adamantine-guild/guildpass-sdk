@@ -1,8 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RolesService } from '../src/roles/roles.service';
 import type { HttpClient } from '../src/http/httpClient';
 import type { AccessService } from '../src/access/access.service';
-import { GuildPassErrorCode } from '../src/errors/errorCodes';
+import { GuildPassConfigError } from '../src/errors/errorTypes';
+import getRolesSuccess from './fixtures/roles/get-roles-success.json';
+import getRolesPaginatedSuccess from './fixtures/roles/get-roles-paginated-success.json';
+import getUserRolesSuccess from './fixtures/roles/get-user-roles-success.json';
 
 const validAddress = '0x1234567890123456789012345678901234567890';
 
@@ -22,7 +25,7 @@ function createServiceWithAccess(accessReturnValue: boolean) {
 
 describe('RolesService request options forwarding', () => {
   it('forwards timeoutMs option to getRoles', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { get, service } = createService(getRolesSuccess);
 
     await service.getRoles({ guildId: 'guild_1' }, { timeoutMs: 300 });
 
@@ -32,7 +35,7 @@ describe('RolesService request options forwarding', () => {
   });
 
   it('forwards signal option to getRoles', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { get, service } = createService(getRolesSuccess);
     const controller = new AbortController();
 
     await service.getRoles({ guildId: 'guild_1' }, { signal: controller.signal });
@@ -43,7 +46,7 @@ describe('RolesService request options forwarding', () => {
   });
 
   it('forwards retry option to getRoles', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { get, service } = createService(getRolesSuccess);
 
     await service.getRoles({ guildId: 'guild_1' }, { retry: { maxRetries: 2 } });
 
@@ -53,7 +56,7 @@ describe('RolesService request options forwarding', () => {
   });
 
   it('forwards timeoutMs option to getUserRoles', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { get, service } = createService(getUserRolesSuccess);
 
     await service.getUserRoles({ walletAddress: validAddress, guildId: 'guild_1' }, { timeoutMs: 400 });
 
@@ -64,7 +67,7 @@ describe('RolesService request options forwarding', () => {
   });
 
   it('forwards signal option to getUserRoles', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { get, service } = createService(getUserRolesSuccess);
     const controller = new AbortController();
 
     await service.getUserRoles({ walletAddress: validAddress, guildId: 'guild_1' }, { signal: controller.signal });
@@ -76,7 +79,7 @@ describe('RolesService request options forwarding', () => {
   });
 
   it('forwards retry option to getUserRoles', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { get, service } = createService(getUserRolesSuccess);
 
     await service.getUserRoles({ walletAddress: validAddress, guildId: 'guild_1' }, { retry: { maxRetries: 3 } });
 
@@ -87,7 +90,7 @@ describe('RolesService request options forwarding', () => {
   });
 
   it('forwards all options together to getUserRoles', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { get, service } = createService(getUserRolesSuccess);
     const controller = new AbortController();
 
     await service.getUserRoles(
@@ -104,11 +107,11 @@ describe('RolesService request options forwarding', () => {
       },
     );
   });
-});
+})
 
 describe('RolesService pagination', () => {
   it('forwards cursor and limit to getRoles as params', async () => {
-    const { get, service } = createService({ items: [{ id: '1', name: 'Role 1' }], hasMore: false });
+    const { get, service } = createService(getRolesPaginatedSuccess);
 
     await service.getRoles({ guildId: 'guild_1', cursor: 'abc', limit: 10 });
 
@@ -118,15 +121,15 @@ describe('RolesService pagination', () => {
   });
 
   it('returns PaginatedResult for getRoles when pagination requested but API returns array', async () => {
-    const { get, service } = createService([{ id: '1', name: 'Role 1' }]);
+    const { service } = createService(getRolesSuccess);
 
     const result = await service.getRoles({ guildId: 'guild_1', cursor: 'abc' });
 
-    expect(result).toEqual({ items: [{ id: '1', name: 'Role 1' }], hasMore: false });
+    expect(result).toEqual({ items: getRolesSuccess, hasMore: false });
   });
 
   it('forwards cursor and limit to getUserRoles as params', async () => {
-    const { get, service } = createService({ items: [{ id: '1', name: 'Role 1' }], hasMore: false });
+    const { get, service } = createService(getRolesPaginatedSuccess);
 
     await service.getUserRoles({ walletAddress: validAddress, guildId: 'guild_1', cursor: 'abc', limit: 5 });
 
@@ -134,6 +137,31 @@ describe('RolesService pagination', () => {
       expect.stringContaining('/members/'),
       { params: { cursor: 'abc', limit: 5 } },
     );
+  });
+});
+
+describe('RolesService request schema validation', () => {
+  it('rejects a non-object params value for getRoles', async () => {
+    const { get, service } = createService(getRolesSuccess);
+
+    await expect(service.getRoles(null as any)).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-object params value for getUserRoles', async () => {
+    const { get, service } = createService(getUserRolesSuccess);
+
+    await expect(service.getUserRoles(null as any)).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-number limit for getRoles before any network call', async () => {
+    const { get, service } = createService(getRolesSuccess);
+
+    await expect(
+      service.getRoles({ guildId: 'guild_1', limit: '10' } as any),
+    ).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
   });
 });
 
@@ -189,6 +217,14 @@ describe('RolesService.hasRole', () => {
     await expect(
       service.hasRole({ walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' }),
     ).rejects.toThrow('hasRole() requires an AccessService instance');
+  });
+
+  it('throws a GuildPassConfigError instance when no AccessService was injected', async () => {
+    const { service } = createService([]);
+
+    await expect(
+      service.hasRole({ walletAddress: validAddress, guildId: 'guild_1', roleId: 'role_1' }),
+    ).rejects.toBeInstanceOf(GuildPassConfigError);
   });
 
   it('propagates errors thrown by AccessService.checkRoleAccess', async () => {

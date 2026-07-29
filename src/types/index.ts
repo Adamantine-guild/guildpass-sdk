@@ -23,3 +23,5 @@ export type {
   RpcFailoverHookPayload,
 } from '../http/http.types';
 export * from '../errors/errorCodes';
+export type { UrlHealth } from '../contracts/providers/adaptive.types';
+export type { PaginatedResult } from '../utils/pagination';

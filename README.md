@@ -111,6 +111,12 @@ const client = new GuildPassClient({
 });
 ```
 
+Entries in `chains` are **overrides, not replacements**: a partial entry inherits every
+field it does not declare from the top level. With `rpcUrl` set at the top level and
+`chains: { 8453: { contractAddress: '0x…' } }`, chain 8453 resolves to that contract
+address *and* the top-level `rpcUrl`. A chain is only rejected when the merge leaves no
+usable RPC endpoint, and the error names the chain and the missing field.
+
 ## ⚡ Caching
 
 Passing a `cache` adapter enables transparent memoization of all read operations (access checks, membership, roles, guild metadata). The public API of every service method is **unchanged** — caching is completely invisible to callers.
@@ -318,3 +324,4 @@ Distributed under the MIT License. See [LICENSE](./LICENSE) for more information
   <p>Built with ❤️ by the <b>GuildPass</b> team</p>
   <a href="https://guildpass.xyz">guildpass.xyz</a>
 </div>
+

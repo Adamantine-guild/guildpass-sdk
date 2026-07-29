@@ -131,7 +131,7 @@ This document consolidates the **SDK-specific trust boundaries** introduced by `
 | Invalidation helpers | `invalidateGuildCache`, `invalidateWalletCache`, `clearCache` |
 | **Access-decision TTL cap** (`MAX_ACCESS_CACHE_TTL_MS` = 5 min) enforced for `checkAccess`, `checkRoleAccess`, `hasRole` | `resolveAccessCacheTtl()` |
 | **Runtime warnings** for missing `cacheTtl` or `cacheTtl` above the access cap | `emitSecurityConfigWarnings()` |
-| Cache adapter conformance suite for third-party adapters | `tests/cacheAdapterConformance.ts` ([#52](https://github.com/Adamantine-Guild/guildpass-sdk/issues/52)) |
+| Cache adapter conformance suite for third-party adapters | `runCacheAdapterConformanceTests` from `@guildpass/sdk/testing` ([#52](https://github.com/Adamantine-Guild/guildpass-sdk/issues/52)) |
 
 **TTL guidance**
 

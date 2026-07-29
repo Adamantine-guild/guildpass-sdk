@@ -1,0 +1,12 @@
+{
+  "id": "guild_1",
+  "name": "Test Guild",
+  "url": "https://guild.xyz/test-guild",
+  "description": "A guild for testing purposes.",
+  "imageUrl": "https://guild.xyz/guild-logo.png",
+  "roles": ["member", "admin"],
+  "theme": {
+    "primaryColor": "#ffffff",
+    "secondaryColor": "#000000"
+  }
+}

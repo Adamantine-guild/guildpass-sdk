@@ -1,8 +1,7 @@
-import { GuildPassError } from '../errors/GuildPassError';
 import type { AccessCheckParams, AccessCheckResult } from '../access/access.types';
-import type { AccessRequirement } from '../types/common';
-import { GuildPassErrorCode } from '../errors/errorCodes';
-import type { ResponseMeta } from '../types/common';
+import type { AccessRequirement, ResponseMeta } from '../types/common';
+import type { Middleware } from '../middleware/middleware.types';
+import type { AuthenticationProvider } from '../auth/AuthenticationProvider';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -17,6 +16,11 @@ export type RetryConfig = {
   maxDelayMs?: number;
   retryableStatuses?: number[];
   allowMutatingRetry?: boolean;
+  /**
+   * Randomize each backoff delay by ±25% to avoid thundering-herd retries.
+   * Defaults to `true`; set to `false` for deterministic delays (e.g. tests).
+   */
+  jitter?: boolean;
 };
 
 export type DiscrepancyHookPayload = {
@@ -42,9 +46,12 @@ export type ClientMetadata = {
 export type HttpClientConfig = {
   retry?: RetryConfig;
   hooks?: HttpHooks;
+  middleware?: Middleware[];
   fetch?: FetchLike;
+  transport?: import('../network/transport.types').HttpTransport;
   metadata?: ClientMetadata;
   rateLimit?: RateLimitConfig;
+  authProvider?: AuthenticationProvider;
 };
 
 export type HttpRequestOptions<TBody = unknown> = {

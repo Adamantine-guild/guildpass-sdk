@@ -1,3 +1,5 @@
+// GuildPass SDK: Pull in package or module bindings.
+import { AdaptiveHealthConfig, UrlHealth } from './adaptive.types';
 import {
   ProviderConfig,
   ProviderMetrics,
@@ -15,6 +17,16 @@ const DEFAULT_WEIGHTS: HealthWeights = {
   successWeight: 0.1,
 };
 
+const DEFAULTS: Omit<Required<AdaptiveHealthConfig>, 'onCircuitOpen' | 'onCircuitClosed'> & {
+  onCircuitOpen?: (url: string, openUntil: number) => void;
+  onCircuitClosed?: (url: string) => void;
+} = {
+  failureThreshold: 3,
+  cooldownMs: 30000,
+  latencyEmaAlpha: 0.3,
+  multicallPreferenceThreshold: 3,
+};
+
 /**
  * Health tracker for providers
  * 
@@ -29,11 +41,20 @@ export class HealthTracker {
   private weights: HealthWeights;
   private decayFactor: number = 0.9; // Exponential moving average decay
   private healthCheckInterval: number = 30000; // 30 seconds
+  private readonly config: Omit<Required<AdaptiveHealthConfig>, 'onCircuitOpen' | 'onCircuitClosed'> & {
+    onCircuitOpen?: (url: string, openUntil: number) => void;
+    onCircuitClosed?: (url: string) => void;
+  };
+  private readonly health = new Map<string, UrlHealth>();
 
-  constructor(weights?: Partial<HealthWeights>) {
+  constructor(weights?: Partial<HealthWeights>, config?: Partial<AdaptiveHealthConfig>) {
     this.weights = {
       ...DEFAULT_WEIGHTS,
       ...weights,
+    };
+    this.config = {
+      ...DEFAULTS,
+      ...config,
     };
   }
 
@@ -55,6 +76,22 @@ export class HealthTracker {
     );
     metrics.lastUpdated = Date.now();
     this.updateHealthScore(metrics);
+
+    // Also update circuit breaker state
+    const record = this.get(providerName);
+    const wasOpen = record.circuitOpen;
+    record.consecutiveFailures = 0;
+    record.circuitOpen = false;
+    record.openUntil = 0;
+    record.latencyEmaMs =
+      record.latencyEmaMs === 0
+        ? latency
+        : this.config.latencyEmaAlpha * latency +
+          (1 - this.config.latencyEmaAlpha) * record.latencyEmaMs;
+
+    if (wasOpen && this.config.onCircuitClosed) {
+      this.config.onCircuitClosed(providerName);
+    }
   }
 
   /**
@@ -69,6 +106,17 @@ export class HealthTracker {
     metrics.failedRequests++;
     metrics.lastUpdated = Date.now();
     this.updateHealthScore(metrics);
+
+    // Also update circuit breaker state
+    const record = this.get(providerName);
+    record.consecutiveFailures += 1;
+    if (!record.circuitOpen && record.consecutiveFailures >= this.config.failureThreshold) {
+      record.circuitOpen = true;
+      record.openUntil = Date.now() + this.config.cooldownMs;
+      if (this.config.onCircuitOpen) {
+        this.config.onCircuitOpen(providerName, record.openUntil);
+      }
+    }
   }
 
   /**
@@ -82,6 +130,18 @@ export class HealthTracker {
     metrics.timedOutRequests++;
     metrics.lastUpdated = Date.now();
     this.updateHealthScore(metrics);
+
+    // Also update circuit breaker state with timeout
+    const record = this.get(providerName);
+    record.timeoutCount = (record.timeoutCount ?? 0) + 1;
+    record.consecutiveFailures += 1;
+    if (!record.circuitOpen && record.consecutiveFailures >= this.config.failureThreshold) {
+      record.circuitOpen = true;
+      record.openUntil = Date.now() + this.config.cooldownMs;
+      if (this.config.onCircuitOpen) {
+        this.config.onCircuitOpen(providerName, record.openUntil);
+      }
+    }
   }
 
   /**
@@ -120,9 +180,18 @@ export class HealthTracker {
   /**
    * Check if a provider is healthy
    */
-  isHealthy(providerName: string): boolean {
+  isHealthy(providerName: string, now: number = Date.now()): boolean {
     const status = this.getHealthStatus(providerName);
-    return status === ProviderHealthStatus.HEALTHY;
+    // Also check circuit breaker
+    const record = this.get(providerName);
+    if (record.circuitOpen && now >= record.openUntil) {
+      // Cooldown elapsed: allow a half-open trial call through.
+      record.circuitOpen = false;
+      if (this.config.onCircuitClosed) {
+        this.config.onCircuitClosed(providerName);
+      }
+    }
+    return status === ProviderHealthStatus.HEALTHY && !record.circuitOpen;
   }
 
   /**
@@ -146,6 +215,7 @@ export class HealthTracker {
    */
   resetMetrics(providerName: string): void {
     this.metrics.delete(providerName);
+    this.health.delete(providerName);
   }
 
   /**
@@ -222,6 +292,22 @@ export class HealthTracker {
   }
 
   /**
+   * Get or create UrlHealth record for a provider
+   */
+  private get(url: string): UrlHealth {
+    if (!this.health.has(url)) {
+      this.health.set(url, {
+        consecutiveFailures: 0,
+        circuitOpen: false,
+        openUntil: 0,
+        latencyEmaMs: 0,
+        timeoutCount: 0,
+      });
+    }
+    return this.health.get(url)!;
+  }
+
+  /**
    * Update moving average with exponential decay
    */
   private updateMovingAverage(
@@ -230,5 +316,30 @@ export class HealthTracker {
     decay: number,
   ): number {
     return current * decay + newValue * (1 - decay);
+  }
+
+  /**
+   * Returns the number of timeout failures recorded for a URL.
+   */
+  public timeoutCount(url: string): number {
+    const record = this.health.get(url);
+    return record?.timeoutCount ?? 0;
+  }
+
+  /** Current smoothed latency for a URL, or Infinity if never measured. */
+  public latencyOf(url: string): number {
+    const record = this.health.get(url);
+    return record && record.latencyEmaMs > 0 ? record.latencyEmaMs : Infinity;
+  }
+
+  /**
+   * Snapshot all health records
+   */
+  public snapshotAll(): Record<string, Readonly<UrlHealth>> {
+    const result: Record<string, Readonly<UrlHealth>> = {};
+    for (const [url, record] of this.health.entries()) {
+      result[url] = { ...record };
+    }
+    return result;
   }
 }

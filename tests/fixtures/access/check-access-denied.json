@@ -1,0 +1,9 @@
+{
+  "hasAccess": false,
+  "walletAddress": "0x1234567890123456789012345678901234567890",
+  "guildId": "guild_1",
+  "resourceId": "resource_1",
+  "requiredRoles": ["moderator", "vip"],
+  "matchedRoles": [],
+  "reason": "Missing required roles"
+}

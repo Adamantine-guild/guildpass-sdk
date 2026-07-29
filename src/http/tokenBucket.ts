@@ -1,6 +1,7 @@
 export type RateLimitConfig = {
   requestsPerSecond: number;
   burst?: number;
+  onThrottled?: (throttlingUntil: number) => void;
 };
 
 function delay(ms: number): Promise<void> {
@@ -16,7 +17,10 @@ export class TokenBucket {
   private lastRefill: number;
   private retryUntil: number = 0; // Timestamp until which requests are throttled
 
+  private config: RateLimitConfig;
+
   constructor(config: RateLimitConfig) {
+    this.config = config;
     const { requestsPerSecond, burst } = config;
     this.baseRate = requestsPerSecond;
     this.currentRate = requestsPerSecond;
@@ -66,6 +70,10 @@ export class TokenBucket {
     if (this.currentRate < 0.01) this.currentRate = 0.01;
     this.refillRate = this.currentRate / 1000;
     this.tokens = Math.min(this.tokens, this.capacity);
+    
+    if (this.config.onThrottled) {
+      this.config.onThrottled(this.retryUntil);
+    }
   }
 
   onSuccess(): void {
@@ -76,6 +84,10 @@ export class TokenBucket {
   }
 
   public getThrottlingUntil(): number {
-    return this.retryUntil;
+    return this.retryUntil > Date.now() ? this.retryUntil : 0;
+  }
+
+  public getCurrentRate(): number {
+    return this.currentRate;
   }
 }

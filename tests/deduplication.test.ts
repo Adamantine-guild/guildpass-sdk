@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GuildPassClient } from '../src/client/GuildPassClient';
 import { InMemoryCacheAdapter } from '../src/cache/cache.types';
+import { GuildPassConfigError } from '../src/errors/errorTypes';
 
 const BASE_CONFIG = { apiUrl: 'https://api.guildpass.xyz' };
 const ADDR = '0x1234567890123456789012345678901234567890';
@@ -227,5 +228,194 @@ describe('request coalescing with cache adapter', () => {
     expect(httpSpy).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
+  });
+});
+
+describe('deduplication opt-out', () => {
+  it('issues independent requests for every call when deduplication: false', async () => {
+    const client = new GuildPassClient({ ...BASE_CONFIG, deduplication: false });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const promises = Array.from({ length: 5 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    const results = await Promise.all(promises);
+
+    expect(results).toHaveLength(5);
+    results.forEach((r) => expect(r).toEqual(mockAccess));
+    expect(httpSpy).toHaveBeenCalledTimes(5);
+  });
+
+  it('still caches results when deduplication: false and a cache adapter is set', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({
+      ...BASE_CONFIG,
+      cache: adapter,
+      cacheTtl: 10_000,
+      deduplication: false,
+    });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const promises = Array.from({ length: 5 }, () =>
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    );
+    await Promise.all(promises);
+    expect(httpSpy).toHaveBeenCalledTimes(5);
+
+    // Every concurrent call populated the same cache entry; the next call hits it.
+    await client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' });
+    expect(httpSpy).toHaveBeenCalledTimes(5);
+  });
+
+  it('per-call deduplicate: false bypasses an identical in-flight request', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const params = { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' };
+    const results = await Promise.all([
+      ...Array.from({ length: 4 }, () => client.access.checkAccess(params)),
+      client.access.checkAccess(params, { deduplicate: false } as any),
+    ]);
+
+    expect(results).toHaveLength(5);
+    results.forEach((r) => expect(r).toEqual(mockAccess));
+    // 4 coalesced into 1 + 1 opted-out call = 2 HTTP requests.
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('per-call deduplicate: true re-enables coalescing when disabled globally', async () => {
+    const client = new GuildPassClient({ ...BASE_CONFIG, deduplication: false });
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const params = { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' };
+    const results = await Promise.all(
+      Array.from({ length: 3 }, () => client.access.checkAccess(params, { deduplicate: true } as any)),
+    );
+
+    expect(results).toHaveLength(3);
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a non-boolean deduplication config value', () => {
+    expect(
+      () => new GuildPassClient({ ...BASE_CONFIG, deduplication: 'yes' as any }),
+    ).toThrow(GuildPassConfigError);
+  });
+});
+
+describe('non-idempotent and uncached paths are never deduplicated', () => {
+  it('does not coalesce concurrent identical checkAccessBatch calls', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    const batch = [{ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }];
+    const [a, b] = await Promise.all([
+      client.access.checkAccessBatch(batch),
+      client.access.checkAccessBatch(batch),
+    ]);
+
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(1);
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not coalesce concurrent isMember calls with includeMeta', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    // `HttpClient.get` itself wraps the payload as `{ data, meta }` when
+    // `includeMeta: true` is passed — since this mock replaces `get` wholesale
+    // (bypassing that wrapping), it must supply the same shape `get` would.
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockResolvedValue({
+        data: { walletAddress: ADDR, guildId: 'g1', isActive: true, roles: [], joinedAt: '2026-01-01T00:00:00Z' },
+        meta: { status: 200, durationMs: 0 },
+      });
+
+    const params = { walletAddress: ADDR, guildId: 'g1' };
+    await Promise.all([
+      client.membership.isMember(params, { includeMeta: true }),
+      client.membership.isMember(params, { includeMeta: true }),
+    ]);
+
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a caller-supplied signal opts a call out of coalescing', () => {
+  it('does not coalesce a signalled call with a concurrent identical signal-less call', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+    const controller = new AbortController();
+
+    const [withSignal, withoutSignal] = await Promise.all([
+      client.access.checkAccess(
+        { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' },
+        { signal: controller.signal },
+      ),
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    ]);
+
+    expect(withSignal).toEqual(mockAccess);
+    expect(withoutSignal).toEqual(mockAccess);
+    // Each caller gets its own request precisely because one of them carries
+    // a signal — sharing an in-flight request would mean the signalled
+    // caller's abort could reject the other, unrelated caller too.
+    expect(httpSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('still coalesces two identical signal-less calls (unaffected by the signal check)', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await Promise.all([
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    ]);
+
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('honours an explicit deduplicate: true override even when a signal is present', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+    const controller = new AbortController();
+
+    await Promise.all([
+      client.access.checkAccess(
+        { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' },
+        { signal: controller.signal, deduplicate: true },
+      ),
+      client.access.checkAccess({ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }),
+    ]);
+
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('deduplicate is never forwarded to the transport layer', () => {
+  it('does not include a "deduplicate" key in the raw HTTP call options', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await client.access.checkAccess(
+      { walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' },
+      { deduplicate: false, timeoutMs: 500 },
+    );
+
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+    const [, calledOptions] = httpSpy.mock.calls[0];
+    expect(calledOptions).not.toHaveProperty('deduplicate');
+    expect(calledOptions).toMatchObject({ timeoutMs: 500 });
+  });
+
+  it('does not include "deduplicate" in checkAccessBatch item requests either', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    const httpSpy = vi.spyOn(client['http'] as any, 'get').mockResolvedValue(mockAccess);
+
+    await client.access.checkAccessBatch([{ walletAddress: ADDR, guildId: 'g1', resourceId: 'r1' }]);
+
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+    const [, calledOptions] = httpSpy.mock.calls[0];
+    expect(calledOptions).not.toHaveProperty('deduplicate');
   });
 });

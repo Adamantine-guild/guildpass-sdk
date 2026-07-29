@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RedisCacheAdapter } from './index';
-import { runCacheAdapterConformanceTests } from '../../../tests/cacheAdapterConformance';
+import { runCacheAdapterConformanceTests } from '../../../src/testing/cacheAdapterConformance';
 import type { RedisClientType } from 'redis';
 
 /**
@@ -73,18 +73,30 @@ describe('RedisCacheAdapter', () => {
     expect(adapter).toBeDefined();
   });
 
-  runCacheAdapterConformanceTests({
-    factory: async () => {
-      const mockClient = new MockRedisClient() as unknown as RedisClientType;
-      const adapter = new RedisCacheAdapter(mockClient);
-      await adapter.connect();
-      return adapter;
+  runCacheAdapterConformanceTests(
+    {
+      factory: async () => {
+        const mockClient = new MockRedisClient() as unknown as RedisClientType;
+        const adapter = new RedisCacheAdapter(mockClient);
+        await adapter.connect();
+        return adapter;
+      },
+      brokenFactory: async () => {
+        const mockClient = new MockRedisClient() as unknown as RedisClientType;
+        const adapter = new RedisCacheAdapter(mockClient);
+        await mockClient.quit();
+        return adapter;
+      },
+      setup: () => {
+        vi.useFakeTimers();
+      },
+      teardown: () => {
+        vi.useRealTimers();
+      },
+      advanceTime: async (ms) => {
+        await vi.advanceTimersByTimeAsync(ms);
+      },
     },
-    brokenFactory: async () => {
-      const mockClient = new MockRedisClient() as unknown as RedisClientType;
-      const adapter = new RedisCacheAdapter(mockClient);
-      await mockClient.quit();
-      return adapter;
-    },
-  });
+    { describe, it },
+  );
 });

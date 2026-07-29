@@ -8,14 +8,15 @@
  * @module siwe
  */
 
-import { GuildPassError } from '../errors/GuildPassError';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type {
   SiweMessage,
   SiweParseResult,
+  SiweVerifyAsyncParams,
   SiweVerifyParams,
   SiweVerifyResult,
 } from './siwe.types';
+import { checkEip1271Signature } from './eip1271';
 import { constantTimeEqual } from '../utils';
 import { isNodeEnvironment, hasWebCrypto } from '../utils/env';
 
@@ -23,9 +24,6 @@ import {
   ecRecover,
   publicKeyToAddress,
   hashPersonalMessage,
-  hexToBytes,
-  keccak256Bytes,
-  bigintToBytes32,
 } from '../crypto/secp256k1';
 
 /** Maximum length of a raw SIWE message string (10 KB). */
@@ -439,7 +437,7 @@ export function generateSiweNonce(): string {
     // Uses a lazy dynamic import that bundlers for Edge/browser targets will
     // tree-shake away, so it never blocks Edge compatibility.
     if (isNodeEnvironment()) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const nodeCrypto = require('node:crypto') as typeof import('node:crypto');
       return nodeCrypto.randomBytes(1)[0];
     }
@@ -458,4 +456,69 @@ export function generateSiweNonce(): string {
     }
   }
   return result;
+}
+
+/**
+ * EIP-4361 verification with an EIP-1271 fallback for smart-contract wallets.
+ *
+ * Delegates to {@link verifySiweSignature} first and returns its result
+ * unchanged for every non-signature failure — domain, nonce, expiry,
+ * `notBefore`. A contract signature cannot rescue a message addressed to the
+ * wrong domain, so those outcomes are terminal.
+ *
+ * The fallback fires on **any** `SIWE_INVALID_SIGNATURE` outcome, not only on a
+ * recovered-address mismatch. That distinction is load-bearing: an EIP-1271
+ * signature has no fixed length, so a Safe signature is rejected by the 65-byte
+ * guard well before ECDSA recovery ever runs. Keying the fallback on the
+ * mismatch alone would never reach a real smart-contract wallet.
+ *
+ * Unlike {@link verifySiweSignature}, this performs **network I/O** when
+ * `contractProvider` is supplied. Without it, the behaviour is identical to the
+ * synchronous verifier and no request is made.
+ *
+ * @example
+ * ```typescript
+ * const result = await verifySiweSignatureAsync({
+ *   message: rawMessage,
+ *   signature: '0xabc...def',
+ *   expectedDomain: 'example.com',
+ *   contractProvider: client.contracts.provider,
+ * });
+ * ```
+ */
+export async function verifySiweSignatureAsync(
+  params: SiweVerifyAsyncParams,
+): Promise<SiweVerifyResult> {
+  const result = verifySiweSignature(params);
+
+  if (result.success) return result;
+  if (result.code !== GuildPassErrorCode.SIWE_INVALID_SIGNATURE) return result;
+
+  const { contractProvider, message, signature } = params;
+  if (!contractProvider) return result;
+  // The synchronous path rejects non-string inputs with this same code, so
+  // re-check rather than trusting the code alone.
+  if (typeof message !== 'string' || typeof signature !== 'string') return result;
+
+  // The synchronous verifier does not hand back the parsed message on failure,
+  // so re-parse to learn which address is claiming the signature.
+  const parsed = parseSiweMessage(message);
+  if (!parsed.success || !parsed.data) return result;
+
+  const outcome = await checkEip1271Signature(
+    contractProvider,
+    parsed.data.address,
+    // The same EIP-191 digest the ECDSA path used: a contract wallet signs the
+    // personal-message hash, not the raw string.
+    hashPersonalMessage(message),
+    signature,
+  );
+
+  if (outcome.valid) return { success: true, data: parsed.data };
+
+  return {
+    success: false,
+    error: outcome.reason ?? 'Signature is not valid for this address (ECDSA or EIP-1271)',
+    code: GuildPassErrorCode.SIWE_INVALID_SIGNATURE,
+  };
 }

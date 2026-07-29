@@ -18,7 +18,6 @@ import {
   record,
   object,
   strictObject,
-  type Validator,
 } from '../src/validation/schema';
 
 // ---------------------------------------------------------------------------
@@ -164,8 +163,8 @@ describe('optional()', () => {
     expect(v('hello')).toBe(true);
   });
 
-  it('rejects null', () => {
-    expect(v(null)).toBe(false);
+  it('accepts null (a JSON API can only omit a key or send null — never a literal undefined)', () => {
+    expect(v(null)).toBe(true);
   });
 
   it('rejects a number', () => {

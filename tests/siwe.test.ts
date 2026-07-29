@@ -14,9 +14,9 @@ import {
   verifySiweSignature,
   generateSiweNonce,
   MAX_SIWE_MESSAGE_LENGTH,
+  type SiweMessage,
 } from '../src/siwe';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
-import type { SiweMessage } from '../src/siwe';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures

@@ -1,10 +1,19 @@
+import { ethers } from 'ethers';
 import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError, GuildPassNetworkError, GuildPassApiError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import { AccessRequirement } from '../types/common';
 import { validateAddress } from '../utils/validation';
 import { areAddressesEqual } from '../utils/address';
 import { keccak256 } from 'js-sha3';
 import type { AbiFunction } from './contract.types';
+
+export interface WhitelistRoot {
+  root: string;
+  version: number;
+  publishedAt: number;
+  isActive: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Function selectors (first 4 bytes of keccak256(signature))
@@ -15,6 +24,8 @@ export const GET_GUILD_OWNER_SELECTOR = '0xab4511dc';
 export const BALANCE_OF_SELECTOR = '0x70a08231';
 /** ERC-721 `ownerOf(uint256)`. */
 export const ERC721_OWNER_OF_SELECTOR = '0x6352211e';
+/** ERC-1155 `balanceOf(address,uint256)`. */
+export const ERC1155_BALANCE_OF_SELECTOR = '0x00fdd58e';
 /** OpenZeppelin AccessControl `hasRole(bytes32,address)`. */
 export const HAS_ROLE_SELECTOR = '0x91d14854';
 export const DECIMALS_SELECTOR = '0x313ce567'; // 4-byte signature for decimals()
@@ -45,9 +56,6 @@ export const REQUIREMENT_TYPE_INTERFACE_IDS: Record<string, string | undefined> 
 };
 
 export const HEX_32_BYTES_LENGTH = 64;
-
-/** ERC-1155 `balanceOf(address,uint256)`. */
-export const ERC1155_BALANCE_OF_SELECTOR = '0x00fdd58e';
 
 /** Maximum byte length for the pre-encode check in `encodeBytes32`. */
 export const MAX_BYTES32_INPUT_LENGTH = 256;
@@ -419,7 +427,7 @@ async function validateNftRequirement(
   validateAddress(nftAddress);
 
   if (strictInterfaceChecking) {
-    const interfaceId = REQUIREMENT_TYPE_INTERFACE_IDS['NFT'];
+    const interfaceId = requirement.standard === 'ERC1155' ? ERC1155_INTERFACE_ID : REQUIREMENT_TYPE_INTERFACE_IDS['NFT'];
     if (interfaceId) {
       const supported = await supportsErc165Interface(ethCall, nftAddress, interfaceId);
       if (supported === false) {
@@ -430,6 +438,13 @@ async function validateNftRequirement(
         );
       }
     }
+  }
+
+  if (requirement.standard === 'ERC1155' && requirement.id !== undefined) {
+    const minAmount = parseMinAmount(requirement.minAmount);
+    const data = `${ERC1155_BALANCE_OF_SELECTOR}${encodeAddressArgument(walletAddress)}${encodeUint256Argument(requirement.id, 'NFT requirement "id"')}`;
+    const balance = BigInt(decodeUint256Result(await ethCall(nftAddress, data)));
+    return balance >= minAmount;
   }
 
   // A specific token ID means "does this wallet own this exact NFT?" (ERC-721 ownerOf).
@@ -516,3 +531,69 @@ export const validateAccessRequirement = async (
       );
   }
 };
+
+export async function resolveRootOnChain(
+  contractAddress: string,
+  provider: ethers.Provider
+): Promise<WhitelistRoot> {
+  const contract = new ethers.Contract(
+    contractAddress,
+    [
+      'function getWhitelistRoot() external view returns (bytes32 root, uint256 version, uint256 publishedAt, bool isActive)',
+    ],
+    provider
+  );
+
+  try {
+    const [root, version, publishedAt, isActive] = await contract.getWhitelistRoot();
+    return {
+      root: root as string,
+      version: version.toNumber(),
+      publishedAt: publishedAt.toNumber(),
+      isActive: isActive as boolean,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GuildPassNetworkError(`Failed to resolve root from contract: ${message}`, GuildPassErrorCode.HTTP_ERROR, error);
+  }
+}
+
+export async function resolveRootFromAPI(
+  guildId: string,
+  apiBaseUrl: string = 'https://api.guildpass.com'
+): Promise<WhitelistRoot> {
+  const response = await fetch(`${apiBaseUrl}/guilds/${guildId}/whitelist-root`);
+
+  if (!response.ok) {
+    throw GuildPassApiError.fromHttpError(response.status, response.statusText);
+  }
+
+  const data = await response.json();
+  return {
+    root: data.root,
+    version: data.version,
+    publishedAt: data.publishedAt,
+    isActive: data.isActive,
+  };
+}
+
+export async function resolveCurrentRoot(
+  guildId: string,
+  options?: {
+    rootSource?: 'onchain' | 'api';
+    contractAddress?: string;
+    provider?: ethers.Provider;
+    apiBaseUrl?: string;
+  }
+): Promise<WhitelistRoot> {
+  const source = options?.rootSource || 'api';
+
+  if (source === 'onchain') {
+    if (!options?.contractAddress || !options?.provider) {
+      throw new GuildPassConfigError('Contract address and provider required for on-chain resolution', GuildPassErrorCode.INVALID_CONFIG);
+    }
+    return resolveRootOnChain(options.contractAddress, options.provider);
+  }
+
+  return resolveRootFromAPI(guildId, options?.apiBaseUrl);
+}

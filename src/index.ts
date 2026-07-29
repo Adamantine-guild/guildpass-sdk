@@ -1,5 +1,9 @@
 // Main Client
 export * from './client/GuildPassClient';
+export * from './client/GuildPassClientBuilder';
+
+// Auth
+export * from './auth';
 
 // Cache
 export * from './cache/cache.types';
@@ -21,6 +25,7 @@ export type { ResponseMetadata } from './http/http.types';
 // Errors
 export * from './errors/GuildPassError';
 export * from './errors/errorCodes';
+export * from './errors/errorTypes';
 export * from './errors/guards';
 
 // Utils
@@ -37,7 +42,18 @@ export * from './config/sdkConfig';
 // Validation
 export * from './validation/responseGuards';
 export * from './validation/assertResponse';
+export * from './validation/requestGuards';
+export * from './validation/assertRequest';
 export * from './wallet/helpers';
 
 // SIWE (Sign-In With Ethereum)
 export * from './siwe';
+
+// Middleware
+export * from './middleware';
+
+// Network
+export * from './network';
+
+// EIP-712 (typed-data signing/verification)
+export * from './eip712';

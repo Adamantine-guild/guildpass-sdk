@@ -135,6 +135,22 @@ results.forEach((result) => {
 });
 ```
 
+When one wallet needs gating across many resources (the common "can this user see this page" case), pass the single-wallet form instead and get a map keyed by resourceId:
+
+```typescript
+const results = await client.access.checkAccessBatch({
+  walletAddress: '0x123...',
+  guildId: 'guild-a',
+  resourceIds: ['res-1', 'res-2', 'res-3'],
+});
+
+if (results['res-1'].status === 'fulfilled' && results['res-1'].value.hasAccess) {
+  // render the res-1 section
+}
+```
+
+Each resource is cached independently, so a second batch overlapping the first only fetches the resources it hasn't seen.
+
 ## 5. Custom Fetch Transport
 
 Use the `fetch` config option when you need a runtime-specific transport,
@@ -400,3 +416,92 @@ The example defaults to querying live public RPCs. Set
 `GUILDPASS_DEMO_CONTRACT_PROVIDER=1` to also exercise the precedence
 override path with a stub provider.
 ```
+
+## 8. Cloudflare Workers (Edge Runtime)
+
+The SDK runs on V8-isolate edge runtimes (Cloudflare Workers, Vercel Edge Functions, etc.) without any additional configuration — it uses the global `fetch` API already available in those environments.
+
+A complete, runnable example lives in [`examples/cloudflare-worker/`](../examples/cloudflare-worker/). It demonstrates:
+
+- **Module-scope client**: `GuildPassClient` is instantiated once and reused across all requests in the same isolate, per the [Workers best-practice for shared resources](https://developers.cloudflare.com/workers/reference/security-model/).
+- **KV-backed `CacheAdapter`**: A custom `KVCacheAdapter` class wires Workers KV (`env.GUILDPASS_KV`) into the SDK's pluggable caching interface so responses are cached across isolate instances.
+- **Access-check endpoint**: `GET /check-access?wallet=…&guild=…&resource=…` returns a JSON `AccessCheckResult`.
+
+### Quick-start
+
+```bash
+# 1. Create the KV namespace (one-time)
+npx wrangler kv:namespace create GUILDPASS_KV
+
+# 2. Paste the returned id into examples/cloudflare-worker/wrangler.toml
+
+# 3. Add your API key as a secret (never commit it)
+npx wrangler secret put GUILDPASS_API_KEY
+
+# 4. Start the local dev server
+cd examples/cloudflare-worker
+npx wrangler dev
+```
+
+Test it:
+
+```bash
+curl "http://localhost:8787/check-access?wallet=0x1234…&guild=prime-guild&resource=premium-docs"
+# → { "hasAccess": true, "matchedRoles": ["member"], ... }
+```
+
+### Key pattern — module-scope client
+
+```typescript
+import { GuildPassClient, CacheAdapter } from '@guildpass/sdk';
+
+// Initialised once per isolate — reused across every request.
+let _client: GuildPassClient | null = null;
+
+function getClient(env: Env): GuildPassClient {
+  if (_client) return _client;
+  _client = new GuildPassClient({
+    apiUrl: env.GUILDPASS_API_URL,
+    apiKey: env.GUILDPASS_API_KEY,
+    chainId: parseInt(env.GUILDPASS_CHAIN_ID, 10),
+    cache: new KVCacheAdapter(env.GUILDPASS_KV),
+    cacheTtl: parseInt(env.GUILDPASS_CACHE_TTL, 10),
+  });
+  return _client;
+}
+```
+
+### Key pattern — KV cache adapter
+
+```typescript
+class KVCacheAdapter implements CacheAdapter {
+  constructor(private readonly kv: KVNamespace) {}
+
+  async get<T>(key: string): Promise<T | null> {
+    try {
+      const raw = await this.kv.get(key, 'text');
+      return raw ? (JSON.parse(raw) as T) : null;
+    } catch { return null; }
+  }
+
+  async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    try {
+      // KV expirationTtl is in seconds; SDK passes milliseconds.
+      const opts = ttl ? { expirationTtl: Math.max(60, Math.ceil(ttl / 1000)) } : undefined;
+      await this.kv.put(key, JSON.stringify(value), opts);
+    } catch { /* swallowed — SDK falls back to network */ }
+  }
+
+  async delete(key: string): Promise<void> {
+    try { await this.kv.delete(key); } catch { /* swallowed */ }
+  }
+
+  async clear(): Promise<void> { /* no-op — KV has no flush API from Workers */ }
+}
+```
+
+> **KV TTL note**: Workers KV enforces a minimum `expirationTtl` of 60 seconds.
+> For sub-minute freshness, pair the KV adapter with an `InMemoryCacheAdapter`
+> in front of it, or handle short-lived data inside the isolate only.
+
+See the [full example](../examples/cloudflare-worker/) and the [Cache Adapters Guide](./cache-adapters.md) for more detail.

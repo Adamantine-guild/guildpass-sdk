@@ -3,7 +3,7 @@ import { PaginatedResult, paginateAll } from '../src/utils/pagination';
 
 describe('paginateAll', () => {
   it('should fetch all pages until hasMore is false', async () => {
-    const fetchPage = vi.fn()
+    const fetchPage = vi.fn<[cursor?: string], Promise<PaginatedResult<number>>>()
       .mockResolvedValueOnce({
         items: [1, 2],
         nextCursor: 'cursor-1',
@@ -33,7 +33,7 @@ describe('paginateAll', () => {
   });
 
   it('should handle empty pages', async () => {
-    const fetchPage = vi.fn().mockResolvedValueOnce({
+    const fetchPage = vi.fn<[cursor?: string], Promise<PaginatedResult<number>>>().mockResolvedValueOnce({
       items: [],
       nextCursor: undefined,
       hasMore: false,
@@ -50,7 +50,7 @@ describe('paginateAll', () => {
   });
 
   it('should stop immediately if hasMore is false', async () => {
-    const fetchPage = vi.fn().mockResolvedValueOnce({
+    const fetchPage = vi.fn<[cursor?: string], Promise<PaginatedResult<number>>>().mockResolvedValueOnce({
       items: [1],
       nextCursor: 'random',
       hasMore: false,

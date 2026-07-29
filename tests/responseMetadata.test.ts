@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HttpClient } from '../src/http/httpClient';
 import { GuildPassErrorCode } from '../src/errors/errorCodes';
-import type { ResponseMetadata } from '../src/http/http.types';
+import type { ResponseMetadata, FetchLike } from '../src/http/http.types';
 
 function mockResponse(
   status: number,
@@ -19,10 +19,10 @@ function mockResponse(
 
 describe('Response Metadata', () => {
   let client: HttpClient;
-  let mockFetch: ReturnType<typeof vi.fn>;
+  let mockFetch: ReturnType<typeof vi.fn<Parameters<FetchLike>, ReturnType<FetchLike>>>;
 
   beforeEach(() => {
-    mockFetch = vi.fn();
+    mockFetch = vi.fn<Parameters<FetchLike>, ReturnType<FetchLike>>();
     client = new HttpClient('https://api.test.com', undefined, 10000, {
       fetch: mockFetch,
     });

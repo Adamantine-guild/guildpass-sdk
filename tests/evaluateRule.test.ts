@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { evaluateRule } from '../src/rules/evaluateRule';
 import type { AccessRule, RuleEvaluationClient, RuleEvaluationContext } from '../src/rules/rule.types';
 import { GuildPassError } from '../src/errors/GuildPassError';

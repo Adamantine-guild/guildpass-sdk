@@ -8,6 +8,13 @@ import { ContractProvider, EthCallRequest } from './provider.types';
 import { JsonRpcContractProvider } from './jsonRpcProvider';
 import { HttpHooks } from '../../http/http.types';
 import { MULTICALL3_ADDRESS, MULTICALL3_AGGREGATE3_SELECTOR } from './adaptive.types';
+import {
+  HEX_CHARS_PER_WORD,
+  assertDecodableHex,
+  invalidResponse,
+  wordAsIndex,
+  wordAsWordOffset,
+} from './hexGuards';
 
 /**
  * A {@link ContractProvider} that aggregates batch requests into a single
@@ -93,6 +100,12 @@ function decodeRevertReason(hex: string): string {
       if (cleanHex.length >= 8 + 64 + 64) {
         const lenHex = cleanHex.slice(8 + 64, 8 + 64 + 64);
         const len = parseInt(lenHex, 16);
+        // `len` is node-controlled: bound it against what the payload actually
+        // carries instead of trusting it to address a real slice.
+        const available = (cleanHex.length - (8 + 64 + 64)) / 2;
+        if (!Number.isFinite(len) || len < 0 || len > available) {
+          return 'Multicall3 item reverted';
+        }
         const strHex = cleanHex.slice(8 + 64 + 64, 8 + 64 + 64 + len * 2);
         const bytes = new Uint8Array(
           strHex.match(/.{1,2}/g)?.map((byte) => parseInt(byte, 16)) || [],
@@ -158,43 +171,74 @@ export function encodeAggregate3(requests: EthCallRequest[]): string {
  * result; a successful item carries its raw hex `returnData`.
  */
 export function decodeAggregate3(raw: string, expected: number): BatchItemResult[] {
-  const hex = stripHex(raw);
-  const wordAt = (index: number): string => hex.slice(index * 64, index * 64 + 64);
-  const numAt = (index: number): number => parseInt(wordAt(index) || '0', 16);
+  // Every offset and length below is chosen by the node. Validate the envelope
+  // up front so that no slice or numeric conversion ever runs on unchecked
+  // input; a malformed envelope invalidates the whole response, not one item.
+  const hex = assertDecodableHex(raw, 'Multicall3 result');
+  // Only whole words are addressable as words. A trailing partial word is not
+  // rejected outright — a dynamic `bytes` tail may legitimately end mid-word —
+  // but nothing can point *at* it: `wordAsIndex` refuses a truncated word.
+  const totalWords = Math.floor(hex.length / HEX_CHARS_PER_WORD);
 
   // Word 0: offset to the array. Word at that offset: array length.
-  const arrayOffsetBytes = numAt(0);
-  const arrayStart = arrayOffsetBytes / 32;
-  const length = numAt(arrayStart);
-  const results: BatchItemResult[] = [];
+  const arrayStart = wordAsWordOffset(hex, 0, 'array offset');
+  if (arrayStart >= totalWords) throw invalidResponse('array offset is out of bounds');
+
+  const length = wordAsIndex(hex, arrayStart, 'array length');
+  // A node must never return more items than were requested. This is the bound
+  // the previous `i < expected + length` condition failed to provide: it was
+  // vacuously true, so a huge length word drove an unbounded loop.
+  if (length > expected) {
+    throw invalidResponse(`array length ${length} exceeds the ${expected} requested calls`);
+  }
 
   // Each element is a tuple offset, relative to the first element word.
   const elementsBase = arrayStart + 1;
+  if (elementsBase + length > totalWords) {
+    throw invalidResponse('element head is out of bounds');
+  }
 
-  for (let i = 0; i < length && i < expected + length; i += 1) {
-    const tupleOffsetBytes = numAt(elementsBase + i);
-    const tupleStart = elementsBase + tupleOffsetBytes / 32;
+  const results: BatchItemResult[] = [];
 
-    const success = numAt(tupleStart) === 1;
-    const returnDataOffsetBytes = numAt(tupleStart + 1);
-    const returnDataStart = tupleStart + returnDataOffsetBytes / 32;
-    const returnDataLen = numAt(returnDataStart);
-    const dataHex = hex.slice(
-      (returnDataStart + 1) * 64,
-      (returnDataStart + 1) * 64 + returnDataLen * 2,
-    );
+  for (let i = 0; i < length; i += 1) {
+    const tupleStart =
+      elementsBase + wordAsWordOffset(hex, elementsBase + i, `tuple ${i} offset`);
+    if (tupleStart + 1 >= totalWords) throw invalidResponse(`tuple ${i} is out of bounds`);
+
+    const successWord = wordAsIndex(hex, tupleStart, `tuple ${i} success flag`);
+    if (successWord !== 0 && successWord !== 1) {
+      throw invalidResponse(`tuple ${i} success flag is not a boolean`);
+    }
+
+    const returnDataStart =
+      tupleStart + wordAsWordOffset(hex, tupleStart + 1, `tuple ${i} returnData offset`);
+    if (returnDataStart >= totalWords) {
+      throw invalidResponse(`tuple ${i} returnData offset is out of bounds`);
+    }
+
+    const returnDataLen = wordAsIndex(hex, returnDataStart, `tuple ${i} returnData length`);
+    const dataStartChar = (returnDataStart + 1) * HEX_CHARS_PER_WORD;
+    const dataEndChar = dataStartChar + returnDataLen * 2;
+    if (dataEndChar > hex.length) {
+      throw invalidResponse(
+        `tuple ${i} returnData length ${returnDataLen} overruns the payload`,
+      );
+    }
+
+    const dataHex = hex.slice(dataStartChar, dataEndChar);
 
     results.push(
-      success
+      successWord === 1
         ? { status: 'success', result: '0x' + dataHex }
         : { status: 'error', error: decodeRevertReason(dataHex) },
     );
   }
 
-  // Defensive: if decoding produced fewer items than expected, pad with errors.
+  // Defensive: a structurally valid but short array still pads, as before.
   while (results.length < expected) {
     results.push({ status: 'error', error: 'Missing Multicall3 result' });
   }
 
-  return results.slice(0, expected);
+  // No trailing `slice` needed: `length > expected` now throws above.
+  return results;
 }

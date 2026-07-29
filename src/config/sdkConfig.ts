@@ -1,8 +1,10 @@
 // GuildPass SDK: Import external module dependencies.
 import { FetchLike, HttpHooks, RetryConfig, RateLimitConfig } from '../http/http.types';
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
-import { CacheAdapter } from '../cache/cache.types';
+import type { CacheAdapter } from '../cache/cache.types';
+import type { Middleware } from '../middleware/middleware.types';
+import type { AuthenticationProvider } from '../auth/AuthenticationProvider';
 import { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
 import { ContractProvider } from '../contracts/providers/provider.types';
 import { validateAddress } from '../utils/validation';
@@ -33,16 +35,56 @@ export type GuildPassClientConfig = {
   batchStrategy?: 'jsonrpc' | 'multicall3';
   /** Per-chain RPC URL and contract address overrides, keyed by chain ID. */
   chains?: Record<number, ChainConfig>;
+  authProvider?: AuthenticationProvider;
   apiKey?: string;
   timeoutMs?: number;
+  /**
+   * Client-wide default request timeout in milliseconds. Applied to every
+   * request that doesn't pass its own per-request `timeoutMs`, and rejects
+   * with a `TIMEOUT` error when exceeded.
+   *
+   * Preferred over `timeoutMs` (which is kept for backward compatibility).
+   * If both are set they must be equal; `defaultTimeoutMs` wins when only it
+   * is provided.
+   */
+  defaultTimeoutMs?: number;
   /** Global retry policy applied to all requests. Defaults to no retries. */
   retry?: RetryConfig;
   hooks?: HttpHooks;
+  middleware?: Middleware[];
   fetch?: FetchLike;
+  transport?: import('../network/transport.types').HttpTransport;
   rateLimit?: RateLimitConfig;
+  /**
+   * Validates every API response against its expected shape before
+   * returning it to the caller — see `docs/serialization-validation.md`.
+   * Unknown/extra fields are always passed through untouched; only missing
+   * required fields or wrong primitive types fail validation. On mismatch,
+   * throws `GuildPassResponseValidationError` (code `INVALID_RESPONSE`)
+   * naming the offending field, endpoint, and what was received.
+   *
+   * Set to `false` to restore the pre-validation behavior of returning
+   * whatever the server sent, unchecked.
+   *
+   * @default true
+   */
   validateResponses?: boolean;
+  /** Enforces EIP-55 checksums for all addresses accepted by the SDK. @default false */
+  strictAddressChecksum?: boolean;
   cache?: CacheAdapter;
   cacheTtl?: number;
+  /**
+   * When enabled (default), identical in-flight read requests are
+   * deduplicated: concurrent calls with the same arguments share a single
+   * underlying HTTP request instead of each issuing their own.
+   *
+   * Disable this if your application requires every call to hit the network
+   * independently (e.g. for per-call abort semantics or debugging). Can be
+   * overridden per call via `RequestOptions.deduplicate`.
+   *
+   * @default true
+   */
+  deduplication?: boolean;
   sendClientMetadata?: boolean;
   clientName?: string;
   clientVersion?: string;
@@ -89,11 +131,21 @@ export type GuildPassClientConfig = {
 };
 
 /**
+ * Shape returned by `GuildPassClient.getConfig()`: the client config minus
+ * the API key and every function-valued or non-serializable field, with
+ * credentials redacted from RPC URLs.
+ */
+export type PublicClientConfig = Omit<
+  GuildPassClientConfig,
+  'apiKey' | 'fetch' | 'transport' | 'hooks' | 'contractProvider' | 'cache' | 'middleware' | 'authProvider'
+>;
+
+/**
  * Local helper to enforce structured configuration exceptions uniformly.
  */
 const throwConfigError = (message: string, field: string, reason: string, value: any): never => {
   const isSensitive = ['apikey', 'secret', 'privatekey', 'password', 'apiurl'].includes(field.toLowerCase());
-  throw new GuildPassError(message, GuildPassErrorCode.INVALID_CONFIG, undefined, {
+  throw new GuildPassConfigError(message, GuildPassErrorCode.INVALID_CONFIG, undefined, {
     field,
     reason,
     ...(isSensitive ? {} : { value }),
@@ -119,6 +171,14 @@ export function validateConfig(config: GuildPassClientConfig): void {
     throwConfigError('timeoutMs must be a positive number', 'timeoutMs', 'invalid_type', config.timeoutMs);
   }
 
+  if (config.defaultTimeoutMs !== undefined && (typeof config.defaultTimeoutMs !== 'number' || config.defaultTimeoutMs <= 0 || !Number.isFinite(config.defaultTimeoutMs))) {
+    throwConfigError('defaultTimeoutMs must be a positive finite number', 'defaultTimeoutMs', 'invalid_type', config.defaultTimeoutMs);
+  }
+
+  if (config.defaultTimeoutMs !== undefined && config.timeoutMs !== undefined && config.defaultTimeoutMs !== config.timeoutMs) {
+    throwConfigError('defaultTimeoutMs and timeoutMs are aliases; set only one, or set both to the same value', 'defaultTimeoutMs', 'conflict', config.defaultTimeoutMs);
+  }
+
   if (config.cacheTtl !== undefined && (typeof config.cacheTtl !== 'number' || config.cacheTtl < 0 || !Number.isFinite(config.cacheTtl))) {
     throwConfigError('cacheTtl must be a non-negative finite number (milliseconds)', 'cacheTtl', 'invalid_range', config.cacheTtl);
   }
@@ -131,6 +191,14 @@ export function validateConfig(config: GuildPassClientConfig): void {
         throwConfigError(`cache adapter must implement ${method}(): function`, 'cache', 'invalid_type', config.cache);
       }
     }
+  }
+
+  if (config.deduplication !== undefined && typeof config.deduplication !== 'boolean') {
+    throwConfigError('deduplication must be a boolean', 'deduplication', 'invalid_type', config.deduplication);
+  }
+
+  if (config.strictAddressChecksum !== undefined && typeof config.strictAddressChecksum !== 'boolean') {
+    throwConfigError('strictAddressChecksum must be a boolean', 'strictAddressChecksum', 'invalid_type', config.strictAddressChecksum);
   }
 
   if (config.contractProvider !== undefined) {
@@ -149,9 +217,9 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.multicallAddress !== undefined) {
     try {
-      validateAddress(config.multicallAddress);
+      validateAddress(config.multicallAddress, { strict: config.strictAddressChecksum });
     } catch {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'Invalid multicallAddress: expected a valid EVM address',
         GuildPassErrorCode.INVALID_CONFIG,
         undefined,
@@ -179,9 +247,9 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.trustedSignerAddress !== undefined) {
     try {
-      validateAddress(config.trustedSignerAddress);
+      validateAddress(config.trustedSignerAddress, { strict: config.strictAddressChecksum });
     } catch {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'Invalid trustedSignerAddress: expected a valid EVM address',
         GuildPassErrorCode.INVALID_CONFIG,
         undefined,
@@ -229,6 +297,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
     if (r.retryableStatuses !== undefined && (!Array.isArray(r.retryableStatuses) || r.retryableStatuses.length === 0 || r.retryableStatuses.some((s) => typeof s !== 'number' || !Number.isFinite(s)))) {
       throwConfigError('retryableStatuses must be a non-empty array of valid HTTP status numbers', 'retry.retryableStatuses', 'invalid_type', r.retryableStatuses);
     }
+
+    if (r.jitter !== undefined && typeof r.jitter !== 'boolean') {
+      throwConfigError('retry.jitter must be a boolean', 'retry.jitter', 'invalid_type', r.jitter);
+    }
   }
 
   if (config.rateLimit) {
@@ -253,6 +325,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.apiKey !== undefined && typeof config.apiKey !== 'string') {
     throwConfigError('apiKey must be a string', 'apiKey', 'invalid_type', config.apiKey);
+  }
+
+  if (config.authProvider !== undefined && (typeof config.authProvider !== 'object' || config.authProvider === null)) {
+    throwConfigError('authProvider must be an object implementing AuthenticationProvider', 'authProvider', 'invalid_type', config.authProvider);
   }
 
   if (config.rpcUrls !== undefined) {
@@ -281,15 +357,15 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   validateContractReadConsensus(config.contractReadConsensus);
 
-  validateChainsConfig(config.chains);
+  validateChainsConfig(config.chains, config.strictAddressChecksum);
 
-  const transport = config.fetch ?? globalThis.fetch;
-  if (typeof transport !== 'function') {
-    throwConfigError('A fetch-compatible transport is required.', 'fetch', 'required', null);
+  const transportFallback = config.fetch ?? globalThis.fetch;
+  if (!config.transport && typeof transportFallback !== 'function') {
+    throwConfigError('A fetch-compatible transport or custom transport is required.', 'transport', 'required', null);
   }
 }
 
-function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
+function validateChainsConfig(chains?: Record<number, ChainConfig>, strictAddressChecksum = false): void {
   if (!chains) return;
 
   for (const [chainIdKey, chainConfig] of Object.entries(chains)) {
@@ -334,9 +410,9 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
 
     if (chainConfig.contractAddress !== undefined) {
       try {
-        validateAddress(chainConfig.contractAddress);
+        validateAddress(chainConfig.contractAddress, { strict: strictAddressChecksum });
       } catch (err: any) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `Invalid chains[${chainIdKey}].contractAddress: expected a valid EVM address`,
           GuildPassErrorCode.INVALID_CONFIG,
           undefined,
@@ -352,9 +428,9 @@ function validateChainsConfig(chains?: Record<number, ChainConfig>): void {
 
     if (chainConfig.multicallAddress !== undefined) {
       try {
-        validateAddress(chainConfig.multicallAddress);
+        validateAddress(chainConfig.multicallAddress, { strict: strictAddressChecksum });
       } catch (err: any) {
-        throw new GuildPassError(
+        throw new GuildPassConfigError(
           `Invalid chains[${chainIdKey}].multicallAddress: expected a valid EVM address`,
           GuildPassErrorCode.INVALID_CONFIG,
           undefined,
@@ -488,21 +564,60 @@ export function mergeRpcUrls(rpcUrl?: string, rpcUrls?: string[]): string[] {
 }
 
 export function resolveChainConfig(config: GuildPassClientConfig, chainId: number): ChainConfig {
-  if (config.chains) {
-    if (Object.prototype.hasOwnProperty.call(config.chains, chainId)) {
-      return config.chains[chainId];
-    }
-    throw new GuildPassError(
-      `No configuration found for chain ID ${chainId}`,
-      GuildPassErrorCode.INVALID_CONFIG,
-      undefined,
-      { field: 'chainId', reason: 'NOT_FOUND', value: chainId, valueType: 'number' }
-    );
-  }
-  return {
+  const topLevel: ChainConfig = {
     rpcUrl: config.rpcUrl,
     rpcUrls: config.rpcUrls,
     contractAddress: config.contractAddress,
     multicallAddress: config.multicallAddress,
   };
+
+  if (!config.chains) return topLevel;
+
+  const hasEntry = Object.prototype.hasOwnProperty.call(config.chains, chainId);
+  const entry = hasEntry ? config.chains[chainId] : undefined;
+
+  // `chains` entries are documented as per-chain *overrides* (see README), so an
+  // entry that sets only one field still inherits the rest from the top level.
+  // Merging field by field rather than spreading matters: `{ ...topLevel, ...entry }`
+  // would let a field the entry declares as `undefined` clobber a usable top-level
+  // value, which is replacement, not override.
+  const merged: ChainConfig = {
+    rpcUrl: entry?.rpcUrl ?? topLevel.rpcUrl,
+    rpcUrls: entry?.rpcUrls ?? topLevel.rpcUrls,
+    contractAddress: entry?.contractAddress ?? topLevel.contractAddress,
+    multicallAddress: entry?.multicallAddress ?? topLevel.multicallAddress,
+  };
+
+  const missing: string[] = [];
+  // `rpcUrl` and `rpcUrls` are interchangeable inputs to the same list, so the
+  // question is whether the merge yields any usable endpoint — not whether the
+  // singular field happens to be set. Using `!merged.rpcUrl` here would report a
+  // false "missing rpcUrl" for a config that only supplies `rpcUrls`.
+  const hasRpc = mergeRpcUrls(merged.rpcUrl, merged.rpcUrls).length > 0;
+  if (!hasRpc) missing.push('rpcUrl');
+  if (!merged.contractAddress) missing.push('contractAddress');
+
+  // Only a missing RPC endpoint makes the chain genuinely unresolvable. A missing
+  // `contractAddress` does not: it can be supplied per call (`params.contractAddress`),
+  // several methods take it as a required argument anyway, and the call sites raise
+  // their own more specific errors ("contractAddress is required for token balance
+  // lookup", etc.). Throwing on it here would reject configurations that work today.
+  // It is still named in the message when it is absent too, which is the combined
+  // case the issue quotes.
+  if (!hasRpc) {
+    throw new GuildPassConfigError(
+      `No ${missing.join('/')} configured for chainId ${chainId}`,
+      GuildPassErrorCode.INVALID_CONFIG,
+      undefined,
+      {
+        field: 'chainId',
+        reason: hasEntry ? 'INCOMPLETE' : 'NOT_FOUND',
+        value: chainId,
+        valueType: 'number',
+        missing,
+      }
+    );
+  }
+
+  return merged;
 }

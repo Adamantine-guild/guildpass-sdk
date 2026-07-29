@@ -33,6 +33,21 @@ export type RequestOptions = {
    * the SDK will auto-generate one to ensure safe retries.
    */
   idempotencyKey?: string;
+  /**
+   * Per-call override for in-flight request deduplication.
+   * When `false`, this call always issues its own HTTP request even if an
+   * identical request is already in flight. When `true`, deduplication is
+   * used even if the client was constructed with `deduplication: false`.
+   * Defaults to the client's `deduplication` config (which defaults to `true`).
+   * Only applies to idempotent read operations; mutations are never deduplicated.
+   */
+  deduplicate?: boolean;
+  /**
+   * Requests a historical or confirmed read instead of the chain's `latest`
+   * state for contract read calls. See {@link BlockTag}. Ignored for
+   * non-contract (plain HTTP) requests.
+   */
+  confirmations?: BlockTag;
 };
 
 export type AccessRequirement = {
@@ -40,4 +55,5 @@ export type AccessRequirement = {
   address?: Address;
   id?: string;
   minAmount?: string;
+  standard?: 'ERC721' | 'ERC1155';
 };

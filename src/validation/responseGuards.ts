@@ -18,7 +18,6 @@ import {
   number,
   optional,
   array,
-  nonEmptyArray,
   record,
   type Validator,
 } from './schema';
@@ -51,15 +50,18 @@ const isAccessRequirement: Validator<AccessRequirement> = object({
  * Checks whether `value` conforms to the {@link AccessCheckResult} shape.
  *
  * Validates all fields including nested array content (non-empty strings
- * for `requiredRoles`/`matchedRoles`) and Ethereum address format.
+ * for each entry of `requiredRoles`/`matchedRoles`) and Ethereum address
+ * format. The arrays themselves may be empty — a public resource with no
+ * required roles, or a denial with no matched roles, are both valid,
+ * common results — only `array()`, not `nonEmptyArray()`, is used here.
  */
 export const isAccessCheckResult: Validator<AccessCheckResult> = object({
   hasAccess: boolean(),
   walletAddress: address(),
   guildId: nonEmptyString(),
   resourceId: nonEmptyString(),
-  requiredRoles: nonEmptyArray(nonEmptyString()),
-  matchedRoles: nonEmptyArray(nonEmptyString()),
+  requiredRoles: array(nonEmptyString()),
+  matchedRoles: array(nonEmptyString()),
   reason: optional(string()),
 });
 
@@ -115,6 +117,14 @@ export const isGuildConfig: Validator<GuildConfig> = object({
   logoUrl: optional(string()),
   bannerUrl: optional(string()),
   socialLinks: optional(record(string())),
+});
+
+/**
+ * Checks whether `value` conforms to the `/access/role-check` response
+ * shape consumed by `AccessService.checkRoleAccess`.
+ */
+export const isRoleCheckResult: Validator<{ hasRole: boolean }> = object({
+  hasRole: boolean(),
 });
 
 

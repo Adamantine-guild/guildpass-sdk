@@ -1,11 +1,14 @@
 // GuildPass SDK: Pull in package or module bindings.
 import { HttpClient } from '../http/httpClient';
+import { GuildPassConfigError } from '../errors/errorTypes';
 // GuildPass SDK: Import external module dependencies.
 import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
 import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
+import { assertValidRequest } from '../validation/assertRequest';
 import { isGuildRoleArray } from '../validation/responseGuards';
+import { isGetRolesParams, isGetUserRolesParams } from '../validation/requestGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Pull in package or module bindings.
@@ -20,6 +23,7 @@ export class RolesService {
     private readonly http: HttpClient,
     private readonly validateResponses = false,
     private readonly access?: AccessService,
+    private readonly strictAddressChecksum = false,
   ) {}
 
   /**
@@ -31,6 +35,7 @@ export class RolesService {
   public async getRoles(params: GetRolesParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: GuildRole[]; meta: ResponseMetadata }>;
   public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
   public async getRoles(params: GetRolesParams, options?: RequestOptions): Promise<any> {
+    assertValidRequest(params, isGetRolesParams, 'GetRolesParams', { endpoint: 'GET /guilds/:id/roles' });
     const { guildId, cursor, limit } = params;
     validateGuildId(guildId);
 
@@ -43,8 +48,8 @@ export class RolesService {
 
     const result = await this.http.get<any>(path, reqOptions);
     const hasPagination = cursor !== undefined || limit !== undefined;
-    
-    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]');
+
+    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]', `GET ${path}`);
   }
 
   /**
@@ -56,9 +61,10 @@ export class RolesService {
   public async getUserRoles(params: GetUserRolesParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: GuildRole[]; meta: ResponseMetadata }>;
   public async getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
   public async getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<any> {
+    assertValidRequest(params, isGetUserRolesParams, 'GetUserRolesParams', { endpoint: 'GET /guilds/:id/members/:address/roles' });
     const { walletAddress, guildId, cursor, limit } = params;
 
-    validateAddress(walletAddress);
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
     validateGuildId(guildId);
 
     const path = `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/roles`;
@@ -70,8 +76,8 @@ export class RolesService {
 
     const result = await this.http.get<any>(path, reqOptions);
     const hasPagination = cursor !== undefined || limit !== undefined;
-    
-    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]');
+
+    return this.handlePaginatedResponse(result, options, hasPagination, isGuildRoleArray, 'GuildRole[]', `GET ${path}`);
   }
 
   /**
@@ -92,12 +98,12 @@ export class RolesService {
    */
   public async hasRole(params: HasRoleParams, options?: RequestOptions): Promise<boolean> {
     if (!this.access) {
-      throw new Error(
+      throw new GuildPassConfigError(
         'GuildPass SDK: hasRole() requires an AccessService instance. ' +
           'Use GuildPassClient to obtain a properly configured RolesService.',
       );
     }
-    return this.access.checkRoleAccess(params, options as any) as any;
+    return this.access.checkRoleAccess(params, options);
   }
 
   private handlePaginatedResponse<T>(
@@ -105,7 +111,8 @@ export class RolesService {
     options: RequestOptions | undefined,
     hasPaginationParams: boolean,
     guard: (val: unknown) => val is T[],
-    typeName: string
+    typeName: string,
+    endpoint?: string
   ): any {
     const responseData = options?.includeMeta ? result.data : result;
     const meta = options?.includeMeta ? result.meta : undefined;
@@ -119,7 +126,7 @@ export class RolesService {
         finalData = responseData;
       }
       if (this.validateResponses) {
-        assertValidResponse(finalData.items, guard, typeName);
+        assertValidResponse(finalData.items, guard, typeName, { endpoint });
       }
     } else {
       if (Array.isArray(responseData)) {
@@ -130,7 +137,7 @@ export class RolesService {
         finalData = responseData;
       }
       if (this.validateResponses) {
-        assertValidResponse(finalData, guard, typeName);
+        assertValidResponse(finalData, guard, typeName, { endpoint });
       }
     }
 

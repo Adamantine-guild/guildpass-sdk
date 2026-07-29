@@ -1,4 +1,4 @@
-import { GuildPassError } from '../errors/GuildPassError';
+import { GuildPassConfigError, GuildPassResponseValidationError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 
 export interface SignedEnvelope<T = any> {
@@ -17,14 +17,15 @@ export function isSignedEnvelope(obj: any): obj is SignedEnvelope {
  * @param envelope The envelope containing the payload and signature.
  * @param expectedSigner The Ethereum address expected to have signed the payload.
  * @returns The verified payload data.
- * @throws GuildPassError if verification fails or dependencies are missing.
+ * @throws GuildPassConfigError if a crypto dependency is missing.
+ * @throws GuildPassResponseValidationError if verification fails.
  */
 export async function verifySignedPayload<T>(
   envelope: SignedEnvelope<T> | T,
   expectedSigner: string
 ): Promise<T> {
   if (!isSignedEnvelope(envelope)) {
-    throw new GuildPassError(
+    throw new GuildPassResponseValidationError(
       'Invalid signed envelope structure. Expected a SignedEnvelope from the API.',
       GuildPassErrorCode.INVALID_RESPONSE
     );
@@ -71,13 +72,13 @@ export async function verifySignedPayload<T>(
     }
 
     if (!hasDependency) {
-      throw new GuildPassError(
+      throw new GuildPassConfigError(
         'A cryptography library (viem or ethers) must be installed to use verifySignedResponses.',
         GuildPassErrorCode.INVALID_CONFIG
       );
     }
   } catch (error) {
-    throw new GuildPassError(
+    throw new GuildPassResponseValidationError(
       'Signature verification failed.',
       GuildPassErrorCode.UNVERIFIABLE_RESPONSE,
       undefined,
@@ -86,7 +87,7 @@ export async function verifySignedPayload<T>(
   }
 
   if (recoveredAddress && recoveredAddress.toLowerCase() !== expectedSigner.toLowerCase()) {
-    throw new GuildPassError(
+    throw new GuildPassResponseValidationError(
       `Signer mismatch. Expected ${expectedSigner}, but recovered ${recoveredAddress}`,
       GuildPassErrorCode.UNVERIFIABLE_RESPONSE
     );

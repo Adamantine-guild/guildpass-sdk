@@ -4,6 +4,25 @@
 
 ```ts
 
+// @public
+export type AbiFunction = {
+    type: 'function';
+    name: string;
+    inputs: AbiParameter[];
+    outputs: AbiParameter[];
+    stateMutability?: string;
+};
+
+// @public
+export type AbiParameter = {
+    type: string;
+    name?: string;
+    internalType?: string;
+};
+
+// @public
+export const ACCESS_CONTROL_INTERFACE_ID = "0x7965db0b";
+
 // @public (undocumented)
 export type AccessCheckBatchOptions = {
     concurrency?: number;
@@ -36,6 +55,14 @@ export type AccessCheckResult = {
     reason?: string;
 };
 
+// @public
+export type AccessCheckRule = {
+    type: 'accessCheck';
+    resourceId: string;
+    guildId?: string;
+    walletAddress?: string;
+};
+
 // @public (undocumented)
 export type AccessRequirement = {
     type: 'TOKEN' | 'NFT' | 'ROLE' | 'WHITELIST';
@@ -44,17 +71,85 @@ export type AccessRequirement = {
     minAmount?: string;
 };
 
+// @public
+export type AccessRule = AccessCheckRule | TokenBalanceAtLeastRule | HasRoleRule | AndRule | OrRule;
+
 // @public (undocumented)
 export class AccessService {
     // Warning: (ae-forgotten-export) The symbol "HttpClient" needs to be exported by the entry point index.d.ts
-    constructor(http: HttpClient, validateResponses?: boolean);
-    checkAccess(params: AccessCheckParams, options?: RequestOptions): Promise<AccessCheckResult>;
+    // Warning: (ae-forgotten-export) The symbol "DiscrepancyHookPayload" needs to be exported by the entry point index.d.ts
+    constructor(http: HttpClient, validateResponses?: boolean, contracts?: ContractClient | undefined, onDiscrepancy?: ((payload: DiscrepancyHookPayload) => void | Promise<void>) | undefined);
+    // (undocumented)
+    checkAccess(params: AccessCheckParams): Promise<AccessCheckResult>;
+    // (undocumented)
+    checkAccess(params: AccessCheckParams, options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: AccessCheckResult;
+        meta: ResponseMetadata;
+    }>;
     checkAccessBatch(items: AccessCheckParams[], options?: AccessCheckBatchOptions & RequestOptions): Promise<AccessCheckBatchResult[]>;
-    checkRoleAccess(params: RoleAccessCheckParams, options?: RequestOptions): Promise<boolean>;
+    checkAccessVerified(params: AccessCheckParams, options: VerifiedAccessCheckOptions): Promise<VerifiedAccessCheckResult>;
+    // (undocumented)
+    checkRoleAccess(params: RoleAccessCheckParams): Promise<boolean>;
+    // (undocumented)
+    checkRoleAccess(params: RoleAccessCheckParams, options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: boolean;
+        meta: ResponseMetadata;
+    }>;
+}
+
+// @public
+export class AdaptiveContractProvider implements ContractProvider {
+    constructor(http: HttpClient, rpcUrls: string | string[], options?: AdaptiveProviderOptions);
+    batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+    ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown>;
+    get healthTracker(): HealthTracker;
+}
+
+// @public
+export type AdaptiveHealthConfig = {
+    failureThreshold?: number;
+    cooldownMs?: number;
+    latencyEmaAlpha?: number;
+    multicallPreferenceThreshold?: number;
+};
+
+// @public
+export type AdaptiveProviderOptions = {
+    hooks?: HttpHooks;
+    chainId?: number;
+    health?: AdaptiveHealthConfig;
+};
+
+// @public
+export interface AddEthereumChainParameter {
+    // (undocumented)
+    blockExplorerUrls?: string[];
+    // (undocumented)
+    chainId: string;
+    // (undocumented)
+    chainName: string;
+    // (undocumented)
+    nativeCurrency: {
+        name: string;
+        symbol: string;
+        decimals: number;
+    };
+    // (undocumented)
+    rpcUrls: string[];
 }
 
 // @public (undocumented)
 export type Address = string;
+
+// @public
+export type AndRule = {
+    type: 'and';
+    rules: AccessRule[];
+};
 
 // @public
 export const areAddressesEqual: (addr1: string, addr2: string) => boolean;
@@ -62,26 +157,62 @@ export const areAddressesEqual: (addr1: string, addr2: string) => boolean;
 // @public
 export function assertValidResponse<T>(value: unknown, guard: (value: unknown) => value is T, typeName: string): T;
 
-// @public (undocumented)
+// @public
+export const BALANCE_OF_SELECTOR = "0x70a08231";
+
+// @public
+export type BatchEthCallItem = {
+    to: string;
+    data: string;
+};
+
+// @public
+export type BatchItemResult = {
+    status: 'success' | 'error';
+    result?: string;
+    error?: string;
+};
+
+// @public
+export type BlockTag = number | 'safe' | 'finalized';
+
+// @public
+export const buildFunctionSignature: (abi: AbiFunction) => string;
+
+// @public
 export interface CacheAdapter {
-    // (undocumented)
     clear(): Promise<void>;
-    // (undocumented)
     delete(key: string): Promise<void>;
     deleteByPrefix?(prefix: string): Promise<void>;
-    // (undocumented)
     get<T>(key: string): Promise<T | null>;
-    // (undocumented)
     set<T>(key: string, value: T, ttl?: number): Promise<void>;
 }
+
+// @public (undocumented)
+export type CacheErrorHookPayload = {
+    operation: 'get' | 'set' | 'delete' | 'clear';
+    key?: string;
+    error: Error;
+};
 
 // @public
 export const capitalise: (str: string) => string;
 
 // @public
+export type ChainBalanceResult = {
+    status: 'success';
+    balance: string;
+} | {
+    status: 'error';
+    error: string;
+};
+
+// @public
 export type ChainConfig = {
     rpcUrl?: string;
+    rpcUrls?: string[];
     contractAddress?: string;
+    multicallAddress?: string;
 };
 
 // @public (undocumented)
@@ -89,12 +220,47 @@ export function connectWallet(provider: EIP1193Provider): Promise<string[]>;
 
 // @public (undocumented)
 export class ContractClient {
-    constructor(config: GuildPassClientConfig);
+    constructor(config: GuildPassClientConfig, http?: HttpClient);
+    batchEthCall(calls: BatchEthCallItem[], rpcUrl?: string, options?: RequestOptions & {
+        maxBatchSize?: number;
+        chunk?: boolean;
+        chunkConcurrency?: number;
+    }): Promise<BatchItemResult[]>;
     getChainConfig(chainId?: number): ChainConfig;
-    getGuildOwner(params: GuildOwnerParams): Promise<string>;
-    getMembershipTokenBalance(params: TokenBalanceParams): Promise<string>;
-    validateRoleRequirement(params: RoleRequirementParams): Promise<boolean>;
+    getERC1155Balance(params: ERC1155BalanceParams, options?: RequestOptions): Promise<string>;
+    getERC20Balance(params: ERC20BalanceParams, options?: RequestOptions): Promise<string>;
+    getGuildOwner(params: GuildOwnerParams, options?: RequestOptions): Promise<string>;
+    getGuildOwnersBatch(params: GuildOwnersBatchParams, options?: RequestOptions): Promise<BatchItemResult[]>;
+    getMembershipTokenBalance(params: TokenBalanceParams, options?: RequestOptions): Promise<string>;
+    getMembershipTokenBalanceFormatted(params: TokenBalanceParams, options?: RequestOptions): Promise<FormattedTokenBalance>;
+    getMembershipTokenBalances(params: MembershipTokenBalancesParams, options?: RequestOptions): Promise<MembershipTokenBalancesResult>;
+    getMembershipTokenBalancesBatch(params: TokenBalancesBatchParams, options?: RequestOptions): Promise<BatchItemResult[]>;
+    getTokenDecimals(params: TokenBalanceParams, options?: RequestOptions): Promise<number>;
+    ownsERC721Token(params: ERC721TokenParams, options?: RequestOptions): Promise<boolean>;
+    readContract(params: ReadContractParams, options?: RequestOptions): Promise<string>;
+    validateRoleRequirement(params: RoleRequirementParams, options?: RequestOptions): Promise<boolean>;
 }
+
+// @public
+export interface ContractProvider {
+    batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+    ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown>;
+}
+
+// @public (undocumented)
+export const DECIMALS_SELECTOR = "0x313ce567";
+
+// @public (undocumented)
+export const decodeAddressResult: (result: unknown) => string;
+
+// @public
+export function decodeAggregate3(raw: string, expected: number): BatchItemResult[];
+
+// @public (undocumented)
+export const decodeBoolResult: (result: unknown) => boolean;
+
+// @public (undocumented)
+export const decodeUint256Result: (result: unknown) => string;
 
 // @public (undocumented)
 export const DEFAULT_CONFIG: Partial<GuildPassClientConfig>;
@@ -112,14 +278,81 @@ export interface EIP1193Provider {
     }): Promise<any>;
 }
 
+// Warning: (ae-forgotten-export) The symbol "AbiParameter_2" needs to be exported by the entry point index.d.ts
+//
+// @public
+export const encodeAbiParams: (selector: string, inputs: AbiParameter_2[], args: unknown[]) => string;
+
+// @public (undocumented)
+export const encodeAddressArgument: (address: string) => string;
+
+// @public
+export function encodeAggregate3(requests: EthCallRequest[]): string;
+
+// @public (undocumented)
+export const encodeGuildId: (guildId: string) => string;
+
+// @public
+export const encodeInterfaceId: (interfaceId: string) => string;
+
 // @public
 export const encodePathSegment: (segment: string) => string;
+
+// @public (undocumented)
+export const encodeUint256Argument: (value: string, label?: string) => string;
+
+// @public
+export const ERC1155_BALANCE_OF_SELECTOR = "0x00fdd58e";
+
+// @public
+export const ERC1155_INTERFACE_ID = "0xd9b67a26";
+
+// @public
+export type ERC1155BalanceParams = {
+    walletAddress: string;
+    tokenId: string;
+    chainId?: number;
+    contractAddress: string;
+};
+
+// @public
+export const ERC165_INTERFACE_ID = "0x01ffc9a7";
+
+// @public
+export type ERC20BalanceParams = {
+    walletAddress: string;
+    chainId?: number;
+    contractAddress: string;
+};
+
+// @public
+export const ERC721_INTERFACE_ID = "0x80ac58cd";
+
+// @public
+export const ERC721_OWNER_OF_SELECTOR = "0x6352211e";
+
+// @public
+export type ERC721TokenParams = {
+    walletAddress: string;
+    tokenId: string;
+    chainId?: number;
+    contractAddress: string;
+};
 
 // @public (undocumented)
 export type ErrorHookPayload = RequestHookPayload & {
     error: Error;
     durationMs: number;
 };
+
+// @public
+export type EthCallRequest = {
+    to: string;
+    data: string;
+};
+
+// @public
+export function evaluateRule(client: RuleEvaluationClient, rule: AccessRule, context: RuleEvaluationContext): Promise<RuleEvaluationResult>;
 
 // @public (undocumented)
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -128,7 +361,29 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 export const formatIsoDate: (date: string | number | Date) => string;
 
 // @public
+export function formatSiweMessage(msg: SiweMessage): string;
+
+// @public
+export type FormattedTokenBalance = {
+    raw: string;
+    decimals: number;
+    formatted: string;
+};
+
+// @public (undocumented)
+export const formatUnits: (value: string, decimals: number) => string;
+
+// @public
+export function generateSiweNonce(): string;
+
+// @public (undocumented)
+export const GET_GUILD_OWNER_SELECTOR = "0xab4511dc";
+
+// @public
 export function getChainId(provider: EIP1193Provider): Promise<string>;
+
+// @public
+export const getFunctionSelector: (signature: string) => string;
 
 // @public (undocumented)
 export type GetGuildParams = {
@@ -138,12 +393,16 @@ export type GetGuildParams = {
 // @public (undocumented)
 export type GetRolesParams = {
     guildId: string;
+    cursor?: string;
+    limit?: number;
 };
 
 // @public (undocumented)
 export type GetUserRolesParams = {
     walletAddress: string;
     guildId: string;
+    cursor?: string;
+    limit?: number;
 };
 
 // @public (undocumented)
@@ -173,6 +432,16 @@ export type GuildOwnerParams = {
 };
 
 // @public
+export type GuildOwnersBatchParams = {
+    guildIds: string[];
+    chainId?: number;
+    contractAddress?: string;
+    maxBatchSize?: number;
+    chunk?: boolean;
+    chunkConcurrency?: number;
+};
+
+// @public (undocumented)
 export class GuildPassClient {
     constructor(config: GuildPassClientConfig);
     // (undocumented)
@@ -196,16 +465,25 @@ export type GuildPassClientConfig = {
     apiUrl: string;
     chainId?: number;
     rpcUrl?: string;
+    rpcUrls?: string[];
+    contractProvider?: ContractProvider;
     contractAddress?: string;
+    multicallAddress?: string;
+    batchStrategy?: 'jsonrpc' | 'multicall3';
     chains?: Record<number, ChainConfig>;
     apiKey?: string;
     timeoutMs?: number;
     retry?: RetryConfig;
     hooks?: HttpHooks;
     fetch?: FetchLike;
+    rateLimit?: RateLimitConfig;
     validateResponses?: boolean;
     cache?: CacheAdapter;
     cacheTtl?: number;
+    sendClientMetadata?: boolean;
+    clientName?: string;
+    clientVersion?: string;
+    strictInterfaceChecking?: boolean;
 };
 
 // @public (undocumented)
@@ -217,6 +495,7 @@ export class GuildPassError extends Error {
     readonly details?: any;
     // (undocumented)
     static fromHttpError(status: number, details?: any): GuildPassError;
+    requestMeta?: ResponseMetadata;
     // (undocumented)
     readonly status?: number;
 }
@@ -225,6 +504,8 @@ export class GuildPassError extends Error {
 export enum GuildPassErrorCode {
     // (undocumented)
     ABORTED = "ABORTED",
+    // (undocumented)
+    CACHE_ERROR = "CACHE_ERROR",
     // (undocumented)
     CONFLICT = "CONFLICT",
     // (undocumented)
@@ -250,6 +531,16 @@ export enum GuildPassErrorCode {
     // (undocumented)
     SERVER_ERROR = "SERVER_ERROR",
     // (undocumented)
+    SIWE_DOMAIN_MISMATCH = "SIWE_DOMAIN_MISMATCH",
+    // (undocumented)
+    SIWE_EXPIRED = "SIWE_EXPIRED",
+    // (undocumented)
+    SIWE_INVALID_MESSAGE = "SIWE_INVALID_MESSAGE",
+    // (undocumented)
+    SIWE_INVALID_SIGNATURE = "SIWE_INVALID_SIGNATURE",
+    // (undocumented)
+    SIWE_REPLAY_DETECTED = "SIWE_REPLAY_DETECTED",
+    // (undocumented)
     TIMEOUT = "TIMEOUT",
     // (undocumented)
     UNAUTHORISED = "UNAUTHORISED",
@@ -268,42 +559,94 @@ export type GuildRole = {
 // @public (undocumented)
 export class GuildsService {
     constructor(http: HttpClient, validateResponses?: boolean);
-    getGuild(params: GetGuildParams, options?: RequestOptions): Promise<Guild>;
-    getGuildConfig(params: GetGuildParams, options?: RequestOptions): Promise<GuildConfig>;
+    getGuild(params: GetGuildParams): Promise<Guild>;
+    // (undocumented)
+    getGuild(params: GetGuildParams, options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: Guild;
+        meta: ResponseMetadata;
+    }>;
+    getGuildConfig<T extends RequestOptions | undefined = undefined>(params: GetGuildParams): Promise<GuildConfig>;
+    // (undocumented)
+    getGuildConfig(params: GetGuildParams, options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: GuildConfig;
+        meta: ResponseMetadata;
+    }>;
 }
 
 // @public (undocumented)
 export function hasInjectedWallet(): boolean;
+
+// @public
+export type HasRoleParams = {
+    walletAddress: string;
+    guildId: string;
+    roleId: string;
+};
+
+// @public
+export type HasRoleRule = {
+    type: 'hasRole';
+    roleId: string;
+    guildId?: string;
+    walletAddress?: string;
+};
+
+// @public
+export class HealthTracker {
+    constructor(config?: AdaptiveHealthConfig);
+    isHealthy(url: string, now?: number): boolean;
+    latencyOf(url: string): number;
+    get multicallPreferenceThreshold(): number;
+    recordFailure(url: string, now?: number): void;
+    recordSuccess(url: string, latencyMs: number): void;
+    snapshot(url: string): Readonly<UrlHealth> | undefined;
+}
+
+// @public (undocumented)
+export const HEX_32_BYTES_LENGTH = 64;
 
 // @public (undocumented)
 export type HttpClientConfig = {
     retry?: RetryConfig;
     hooks?: HttpHooks;
     fetch?: FetchLike;
+    metadata?: ClientMetadata;
+    rateLimit?: RateLimitConfig;
 };
 
 // @public (undocumented)
 export interface HttpHooks {
+    // (undocumented)
+    onCacheError?: (payload: CacheErrorHookPayload) => void | Promise<void>;
+    onDiscrepancy?: (payload: DiscrepancyHookPayload) => void | Promise<void>;
     // (undocumented)
     onError?: (payload: ErrorHookPayload) => void | Promise<void>;
     // (undocumented)
     onRequest?: (payload: RequestHookPayload) => void | Promise<void>;
     // (undocumented)
     onResponse?: (payload: ResponseHookPayload) => void | Promise<void>;
+    // (undocumented)
+    onRpcFailover?: (payload: RpcFailoverHookPayload) => void | Promise<void>;
 }
 
 // @public (undocumented)
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 // @public (undocumented)
-export type HttpRequestOptions = {
+export type HttpRequestOptions<TBody = unknown> = {
     method?: HttpMethod;
     headers?: Record<string, string>;
-    body?: any;
+    body?: TBody;
     params?: Record<string, string | number | boolean>;
     timeoutMs?: number;
     retry?: RetryConfig;
     signal?: AbortSignal;
+    includeMeta?: boolean;
+    idempotencyKey?: string;
 };
 
 // @public (undocumented)
@@ -311,6 +654,7 @@ export type HttpResponse<T = any> = {
     data: T;
     status: number;
     headers: Headers;
+    meta?: ResponseMeta;
 };
 
 // @public
@@ -328,25 +672,62 @@ export class InMemoryCacheAdapter implements CacheAdapter {
 }
 
 // @public
-export function isAccessCheckResult(value: unknown): value is AccessCheckResult;
+export class InMemoryNonceStore implements NonceStore {
+    constructor(options?: {
+        sweepIntervalMs?: number;
+    });
+    // (undocumented)
+    clear(): Promise<void>;
+    // (undocumented)
+    consume(nonce: string, ttl?: number): Promise<boolean>;
+    dispose(): void;
+    // (undocumented)
+    has(nonce: string): Promise<boolean>;
+    get size(): number;
+    sweepExpired(now?: number): void;
+}
+
+// Warning: (ae-forgotten-export) The symbol "Validator" needs to be exported by the entry point index.d.ts
+//
+// @public
+export const isAccessCheckResult: Validator<AccessCheckResult>;
 
 // @public
 export const isChecksumAddress: (address: string) => boolean;
 
-// @public (undocumented)
-export function isGuild(value: unknown): value is Guild;
+// @public
+export const isGuild: Validator<Guild>;
 
-// @public (undocumented)
-export function isGuildConfig(value: unknown): value is GuildConfig;
+// @public
+export const isGuildConfig: Validator<GuildConfig>;
 
-// @public (undocumented)
-export function isGuildRole(value: unknown): value is GuildRole;
+// @public
+export function isGuildPassError(error: unknown): error is GuildPassError;
 
-// @public (undocumented)
-export function isGuildRoleArray(value: unknown): value is GuildRole[];
+// @public
+export const isGuildRole: Validator<GuildRole>;
 
-// @public (undocumented)
-export function isMembership(value: unknown): value is Membership;
+// @public
+export const isGuildRoleArray: Validator<GuildRole[]>;
+
+// @public
+export const isMembership: Validator<Membership>;
+
+// @public
+export class JsonRpcContractProvider implements ContractProvider {
+    constructor(http: HttpClient, rpcUrls: string | string[], hooks?: HttpHooks, chainId?: number);
+    // (undocumented)
+    batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+    // (undocumented)
+    ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown>;
+    get rpcUrl(): string;
+}
+
+// @public
+export const MAX_ID_LENGTH = 256;
+
+// @public
+export const MAX_SIWE_MESSAGE_LENGTH = 10240;
 
 // @public (undocumented)
 export type Membership = {
@@ -367,8 +748,49 @@ export type MembershipParams = {
 // @public (undocumented)
 export class MembershipService {
     constructor(http: HttpClient, validateResponses?: boolean);
-    getMembership(params: MembershipParams, options?: RequestOptions): Promise<Membership>;
-    isMember(params: MembershipParams, options?: RequestOptions): Promise<boolean>;
+    getMembership<T extends RequestOptions | undefined = undefined>(params: MembershipParams): Promise<Membership>;
+    // (undocumented)
+    getMembership(params: MembershipParams, options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: Membership;
+        meta: ResponseMetadata;
+    }>;
+    isMember<T extends RequestOptions | undefined = undefined>(params: MembershipParams, options?: T): Promise<T extends {
+        includeMeta: true;
+    } ? {
+        data: boolean;
+        meta: ResponseMetadata;
+    } : boolean>;
+}
+
+// @public
+export type MembershipTokenBalancesParams = {
+    walletAddress: string;
+    contractAddress?: string;
+};
+
+// @public
+export type MembershipTokenBalancesResult = Record<number, ChainBalanceResult>;
+
+// Warning: (ae-internal-missing-underscore) The name "mergeRpcUrls" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export function mergeRpcUrls(rpcUrl?: string, rpcUrls?: string[]): string[];
+
+// @public
+export const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
+
+// @public
+export const MULTICALL3_AGGREGATE3_SELECTOR = "0x82ad56cb";
+
+// @public
+export class Multicall3ContractProvider implements ContractProvider {
+    constructor(http: HttpClient, rpcUrls: string | string[], hooks?: HttpHooks, chainId?: number, multicallAddress?: string);
+    // (undocumented)
+    batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+    // (undocumented)
+    ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown>;
 }
 
 // @public (undocumented)
@@ -380,7 +802,52 @@ export type NetworkConfig = {
 };
 
 // @public
+export interface NonceStore {
+    clear?(): Promise<void>;
+    consume(nonce: string, ttl?: number): Promise<boolean>;
+    has?(nonce: string): Promise<boolean>;
+}
+
+// @public
 export const normaliseAddress: (address: string) => string;
+
+// @public
+export type OrRule = {
+    type: 'or';
+    rules: AccessRule[];
+};
+
+// @public
+export function paginateAll<T>(fetchPage: (cursor?: string) => Promise<PaginatedResult<T>>): AsyncGenerator<T, void, unknown>;
+
+// @public (undocumented)
+export type PaginatedResult<T> = {
+    items: T[];
+    nextCursor?: string;
+    hasMore: boolean;
+};
+
+// @public
+export function parseSiweMessage(raw: string): SiweParseResult;
+
+// @public
+export type ReadContractParams = {
+    contractAddress: string;
+    abi: AbiFunction;
+    functionName: string;
+    args: unknown[];
+    chainId?: number;
+};
+
+// @public
+export enum ReadStrategy {
+    // (undocumented)
+    JSON_RPC_BATCH = "JSON_RPC_BATCH",
+    // (undocumented)
+    MULTICALL3 = "MULTICALL3",
+    // (undocumented)
+    SEQUENTIAL = "SEQUENTIAL"
+}
 
 // @public (undocumented)
 export type RequestHookPayload = {
@@ -393,9 +860,15 @@ export type RequestHookPayload = {
 export type RequestOptions = {
     timeoutMs?: number;
     retry?: RetryConfig;
+    signal?: AbortSignal;
+    includeMeta?: boolean;
+    idempotencyKey?: string;
 };
 
 // @public
+export const REQUIREMENT_TYPE_INTERFACE_IDS: Record<string, string | undefined>;
+
+// @public (undocumented)
 export function resolveChainConfig(config: GuildPassClientConfig, chainId: number): ChainConfig;
 
 // @public (undocumented)
@@ -403,6 +876,25 @@ export type ResponseHookPayload = RequestHookPayload & {
     status: number;
     durationMs: number;
     responseHeaders: Record<string, string>;
+};
+
+// @public (undocumented)
+export type ResponseMeta = {
+    status: number;
+    durationMs: number;
+    requestId?: string;
+    correlationId?: string;
+    traceparent?: string;
+    traceId?: string;
+};
+
+// @public (undocumented)
+export type ResponseMetadata = {
+    requestId?: string;
+    correlationId?: string;
+    traceId?: string;
+    status: number;
+    durationMs: number;
 };
 
 // @public (undocumented)
@@ -425,32 +917,205 @@ export type RoleAccessCheckParams = {
 export type RoleRequirementParams = {
     walletAddress: string;
     requirement: AccessRequirement;
+    chainId?: number;
 };
 
 // @public (undocumented)
 export class RolesService {
-    constructor(http: HttpClient, validateResponses?: boolean);
+    constructor(http: HttpClient, validateResponses?: boolean, access?: AccessService | undefined);
+    getRoles(params: GetRolesParams & ({
+        cursor: string;
+    } | {
+        limit: number;
+    }), options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: PaginatedResult<GuildRole>;
+        meta: ResponseMetadata;
+    }>;
+    // (undocumented)
+    getRoles(params: GetRolesParams & ({
+        cursor: string;
+    } | {
+        limit: number;
+    }), options?: RequestOptions): Promise<PaginatedResult<GuildRole>>;
+    // (undocumented)
+    getRoles(params: GetRolesParams, options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: GuildRole[];
+        meta: ResponseMetadata;
+    }>;
+    // (undocumented)
     getRoles(params: GetRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
+    getUserRoles(params: GetUserRolesParams & ({
+        cursor: string;
+    } | {
+        limit: number;
+    }), options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: PaginatedResult<GuildRole>;
+        meta: ResponseMetadata;
+    }>;
+    // (undocumented)
+    getUserRoles(params: GetUserRolesParams & ({
+        cursor: string;
+    } | {
+        limit: number;
+    }), options?: RequestOptions): Promise<PaginatedResult<GuildRole>>;
+    // (undocumented)
+    getUserRoles(params: GetUserRolesParams, options: RequestOptions & {
+        includeMeta: true;
+    }): Promise<{
+        data: GuildRole[];
+        meta: ResponseMetadata;
+    }>;
+    // (undocumented)
     getUserRoles(params: GetUserRolesParams, options?: RequestOptions): Promise<GuildRole[]>;
+    hasRole(params: HasRoleParams, options?: RequestOptions): Promise<boolean>;
 }
+
+// @public (undocumented)
+export type RpcFailoverHookPayload = {
+    chainId?: number;
+    failedUrl: string;
+    nextUrl: string;
+    error: unknown;
+};
+
+// @public
+export type RuleEvaluationClient = {
+    access: {
+        checkAccess: (params: {
+            walletAddress: string;
+            guildId: string;
+            resourceId: string;
+        }, options?: RequestOptions) => Promise<{
+            hasAccess: boolean;
+        }>;
+    };
+    contracts: {
+        getMembershipTokenBalance: (params: {
+            walletAddress: string;
+            chainId?: number;
+            contractAddress?: string;
+        }, options?: RequestOptions) => Promise<string>;
+    };
+    roles: {
+        hasRole: (params: {
+            walletAddress: string;
+            guildId: string;
+            roleId: string;
+        }, options?: RequestOptions) => Promise<boolean>;
+    };
+};
+
+// @public
+export type RuleEvaluationContext = {
+    walletAddress: string;
+    guildId?: string;
+    requestOptions?: RequestOptions;
+};
+
+// @public
+export type RuleEvaluationResult = {
+    granted: boolean;
+};
 
 // @public
 export const shortenAddress: (address: string, chars?: number) => string;
 
+// @public
+export interface SiweMessage {
+    address: string;
+    chainId: number;
+    domain: string;
+    expirationTime?: string;
+    issuedAt: string;
+    nonce: string;
+    notBefore?: string;
+    requestId?: string;
+    resources?: string[];
+    statement?: string;
+    uri: string;
+    version: string;
+}
+
+// @public
+export interface SiweParseResult {
+    data?: SiweMessage;
+    error?: string;
+    success: boolean;
+}
+
+// @public
+export interface SiweVerifyParams {
+    checkExpiry?: boolean;
+    expectedDomain?: string;
+    expectedNonce?: string;
+    message: string;
+    signature: string;
+}
+
+// @public
+export interface SiweVerifyResult {
+    code?: string;
+    data?: SiweMessage;
+    error?: string;
+    success: boolean;
+}
+
 // @public (undocumented)
 export const SUPPORTED_NETWORKS: Record<number, NetworkConfig>;
 
-// @public (undocumented)
-export function switchChain(provider: EIP1193Provider, chainId: string): Promise<void>;
+// @public
+export const SUPPORTS_INTERFACE_SELECTOR = "0x01ffc9a7";
+
+// @public
+export function switchChain(provider: EIP1193Provider, chainId: string, chainParams?: AddEthereumChainParameter): Promise<void>;
 
 // @public
 export const toChecksumAddress: (address: string) => string;
+
+// @public
+export type TokenBalanceAtLeastRule = {
+    type: 'tokenBalanceAtLeast';
+    minAmount: string;
+    walletAddress?: string;
+    chainId?: number;
+    contractAddress?: string;
+};
 
 // @public (undocumented)
 export type TokenBalanceParams = {
     walletAddress: string;
     chainId?: number;
     contractAddress?: string;
+};
+
+// @public
+export type TokenBalancesBatchParams = {
+    walletAddresses: string[];
+    chainId?: number;
+    contractAddress?: string;
+    maxBatchSize?: number;
+    chunk?: boolean;
+    chunkConcurrency?: number;
+};
+
+// @public
+export type UrlCapabilities = {
+    supportsJsonRpcBatch: boolean;
+    multicall3Available: boolean;
+};
+
+// @public
+export type UrlHealth = {
+    consecutiveFailures: number;
+    latencyEmaMs: number;
+    circuitOpen: boolean;
+    openUntil: number;
 };
 
 // @public
@@ -462,6 +1127,12 @@ export const validateAddress: (address: string, options?: {
 export function validateConfig(config: GuildPassClientConfig): void;
 
 // @public
+export const validateConfigField: (field: string, value: any, rules: {
+    required?: boolean;
+    expectedType?: string;
+}) => void;
+
+// @public
 export const validateGuildId: (guildId: string) => void;
 
 // @public
@@ -469,6 +1140,44 @@ export const validateResourceId: (resourceId: string) => void;
 
 // @public
 export const validateRoleId: (roleId: string) => void;
+
+// @public
+export interface ValidationErrorDetails {
+    // (undocumented)
+    field: string;
+    // (undocumented)
+    reason: 'required' | 'format' | 'checksum_failed' | 'invalid_type';
+    // (undocumented)
+    value?: any;
+    // (undocumented)
+    valueType: string;
+}
+
+// @public (undocumented)
+export type VerifiedAccessCheckOptions = RequestOptions & {
+    requirement: AccessRequirement;
+    chainId?: number;
+    throwOnDiscrepancy?: boolean;
+};
+
+// @public (undocumented)
+export type VerifiedAccessCheckResult = {
+    apiResult: AccessCheckResult | null;
+    onChainResult: boolean | null;
+    consistent: boolean;
+    discrepancyReason?: string;
+};
+
+// @public
+export function verifySiweSignature(params: SiweVerifyParams): SiweVerifyResult;
+
+// @public
+export function verifySiweSignatureWithReplayProtection(params: SiweVerifyParams, nonceStore: NonceStore): Promise<SiweVerifyResult>;
+
+// Warnings were encountered during analysis:
+//
+// dist/common-uwB90XDn.d.ts:79:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
+// dist/roles.types-BfOMglGu.d.ts:109:5 - (ae-forgotten-export) The symbol "RateLimitConfig" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

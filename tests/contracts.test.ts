@@ -10,6 +10,7 @@ import {
   GET_GUILD_OWNER_SELECTOR,
   encodeAddressArgument,
   encodeGuildId,
+  encodeUint256Argument,
   decodeAddressResult,
   decodeUint256Result,
 } from '../src/contracts/contractClient';
@@ -211,6 +212,64 @@ describe('ContractClient (Stubs)', () => {
         code: GuildPassErrorCode.INVALID_CONFIG,
         message: 'rpcUrl is required for contract calls',
       });
+  });
+
+  it('should name the chain in the config error when the caller passes a chainId (#393)', async () => {
+    const clientWithoutRpc = new GuildPassClient({
+      apiUrl: BASE_URL,
+      contractAddress: CONTRACT,
+    });
+
+    // Same client as the legacy test above; the only difference is that the caller
+    // asks for a specific chain, which is what earns the chain-named message.
+    await expect(
+      clientWithoutRpc.contracts.getGuildOwner({ guildId: 'guild_1', chainId: 8453 }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: 'No rpcUrl configured for chainId 8453',
+    });
+  });
+
+  it('should name the requested chain when it is absent from the chains map (#393)', async () => {
+    const clientWithChains = new GuildPassClient({
+      apiUrl: BASE_URL,
+      chains: { 8453: { rpcUrl: RPC_URL, contractAddress: CONTRACT } },
+    });
+
+    await expect(clientWithChains.contracts.getGuildOwner({ guildId: 'guild_1', chainId: 8543 }))
+      .rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_CONFIG,
+        message: 'No rpcUrl/contractAddress configured for chainId 8543',
+      });
+  });
+
+  it('should resolve a partial chains entry against the top-level fallback (#393)', async () => {
+    // End-to-end proof of the merge: the entry sets only `contractAddress`, so the
+    // top-level `rpcUrl` has to survive for the call to go out at all.
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: () => Promise.resolve({ result: `0x000000000000000000000000${OWNER.slice(2)}` }),
+    });
+
+    const clientPartial = new GuildPassClient({
+      apiUrl: BASE_URL,
+      rpcUrl: RPC_URL,
+      chains: { 8453: { contractAddress: CONTRACT } },
+    });
+
+    await expect(
+      clientPartial.contracts.getGuildOwner({ guildId: 'guild_1', chainId: 8453 }),
+    ).resolves.toBe(OWNER);
+
+    // The top-level rpcUrl survived the merge — otherwise no request goes out.
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/rpc\.test\.com\/?$/),
+      expect.any(Object),
+    );
+    const request = JSON.parse(mockFetch().mock.calls[0][1].body as string);
+    expect(request.params[0].to).toBe(CONTRACT);
   });
 
   it('should throw a clear config error when contractAddress is missing for guild owner lookup', async () => {
@@ -642,6 +701,46 @@ describe('ContractClient.validateRoleRequirement', () => {
       ).rejects.toMatchObject({ code: GuildPassErrorCode.INVALID_INPUT });
       expect(fetch).not.toHaveBeenCalled();
     });
+
+    it('supports ERC-1155 standard and calls balanceOf(address,uint256) when standard is ERC1155', async () => {
+      mockEthCallResult(hexWord((5).toString(16)));
+
+      await expect(
+        client.contracts.validateRoleRequirement({
+          walletAddress,
+          requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+        }),
+      ).resolves.toBe(true);
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^https:\/\/rpc\.test\.com\/?$/),
+        expect.objectContaining({
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_call',
+            params: [
+              {
+                to: NFT_CONTRACT,
+                data: `0x00fdd58e${encodeAddressArgument(walletAddress)}${encodeUint256Argument('123', 'NFT requirement "id"')}`,
+              },
+              'latest',
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('returns false when ERC-1155 balance is below minAmount', async () => {
+      mockEthCallResult(hexWord((1).toString(16)));
+
+      await expect(
+        client.contracts.validateRoleRequirement({
+          walletAddress,
+          requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+        }),
+      ).resolves.toBe(false);
+    });
   });
 
   describe('ROLE requirements', () => {
@@ -977,6 +1076,48 @@ describe('strictInterfaceChecking', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     const body = JSON.parse(mockFetch().mock.calls[0][1].body as string);
     expect(body.params[0].data).toContain('0x70a08231'); // balanceOf selector
+  });
+
+  it('flag ON, ERC-1155 NFT requirement supports ERC-165 checks with ERC-1155 interface ID', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → true (ERC-165 itself)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // supportsInterface(0xd9b67a26) → true (ERC-1155)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // balanceOf(walletAddress, 123) → 5
+      .mockResolvedValueOnce(mockRpcResponse({ result: hexWord((5).toString(16)) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+      }),
+    ).resolves.toBe(true);
+
+    // 3 calls: 2 ERC-165 checks + 1 balanceOf(address,uint256)
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const body = JSON.parse(mockFetch().mock.calls[2][1].body as string);
+    expect(body.params[0].data).toContain('0x00fdd58e');
+  });
+
+  it('flag ON, ERC-1155 NFT requirement fails when contract lacks ERC-1155 support', async () => {
+    mockFetch()
+      // supportsInterface(0x01ffc9a7) → true (ERC-165 itself)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(true) }))
+      // supportsInterface(0xd9b67a26) → false (NOT ERC-1155)
+      .mockResolvedValueOnce(mockRpcResponse({ result: boolWord(false) }));
+
+    await expect(
+      strictClient.contracts.validateRoleRequirement({
+        walletAddress: WALLET,
+        requirement: { type: 'NFT', address: NFT_CONTRACT, id: '123', standard: 'ERC1155', minAmount: '2' },
+      }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_CONFIG,
+      message: expect.stringContaining('does not support the required interface'),
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1732,6 +1873,148 @@ describe('ContractClient Batch', () => {
     expect(results).toHaveLength(1);
     expect(results[0].status).toBe('success');
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maxBatchSize validation
+// ---------------------------------------------------------------------------
+describe('ContractClient batch maxBatchSize validation', () => {
+  const client = new GuildPassClient({
+    apiUrl: BASE_URL,
+    rpcUrl: RPC_URL,
+    contractAddress: CONTRACT,
+  });
+
+  const WALLET_A = '0x1111111111111111111111111111111111111111';
+  const CALL = { to: CONTRACT, data: '0x70a08231' + '0'.repeat(64) };
+
+  const invalidSizes: ReadonlyArray<readonly [string, number]> = [
+    ['zero', 0],
+    ['negative', -1],
+    ['non-integer', 2.5],
+    ['NaN', NaN],
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(invalidSizes)('batchEthCall rejects a %s maxBatchSize', async (_label, maxBatchSize) => {
+    await expect(
+      client.contracts.batchEthCall([CALL], RPC_URL, { maxBatchSize }),
+    ).rejects.toMatchObject({
+      code: GuildPassErrorCode.INVALID_INPUT,
+      message: expect.stringContaining('must be a positive integer'),
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(invalidSizes)(
+    'getMembershipTokenBalancesBatch rejects a %s maxBatchSize',
+    async (_label, maxBatchSize) => {
+      await expect(
+        client.contracts.getMembershipTokenBalancesBatch({
+          walletAddresses: [WALLET_A],
+          maxBatchSize,
+        }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_INPUT,
+        message: expect.stringContaining('must be a positive integer'),
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(invalidSizes)(
+    'getGuildOwnersBatch rejects a %s maxBatchSize',
+    async (_label, maxBatchSize) => {
+      await expect(
+        client.contracts.getGuildOwnersBatch({
+          guildIds: ['guild_1'],
+          maxBatchSize,
+        }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_INPUT,
+        message: expect.stringContaining('must be a positive integer'),
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  // Regression: a non-positive limit with chunk: true used to make the
+  // chunk-building loop `for (i = 0; i < calls.length; i += limit)` advance by
+  // <= 0 and push slices forever (OOM) before any RPC call. Routed through
+  // batchEthCall (pre-built call data, no calldata encoding) so the loop is
+  // genuinely reachable: without the guard this would hang, with it the call
+  // is rejected up front.
+  it.each(invalidSizes)(
+    'does not enter the chunk-building loop for a %s maxBatchSize with chunk: true',
+    async (_label, maxBatchSize) => {
+      await expect(
+        client.contracts.batchEthCall([CALL, CALL, CALL], RPC_URL, { maxBatchSize, chunk: true }),
+      ).rejects.toMatchObject({
+        code: GuildPassErrorCode.INVALID_INPUT,
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  // Happy-path cases go through batchEthCall, whose success path takes
+  // pre-built call data and therefore does not depend on the calldata-encoding
+  // helpers — keeping these assertions focused on the guard itself.
+  it('leaves the default batch size in place when maxBatchSize is omitted', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000001' },
+        ]),
+    });
+
+    const results = await client.contracts.batchEthCall([CALL], RPC_URL);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('success');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an explicitly undefined maxBatchSize as omitted', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000001' },
+        ]),
+    });
+
+    const results = await client.contracts.batchEthCall([CALL], RPC_URL, { maxBatchSize: undefined });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('success');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a valid positive integer maxBatchSize', async () => {
+    mockFetch().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { jsonrpc: '2.0', id: 1, result: '0x0000000000000000000000000000000000000000000000000000000000000001' },
+        ]),
+    });
+
+    const results = await client.contracts.batchEthCall([CALL], RPC_URL, { maxBatchSize: 1 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('success');
   });
 });
 

@@ -1,4 +1,2 @@
-export * from './address';
-export * from './validation';
-export * from './formatting';
+export * from './merkleTree';
 export * from './constantTime';

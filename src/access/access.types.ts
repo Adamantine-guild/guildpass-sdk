@@ -25,6 +25,12 @@ export type AccessCheckResult = {
 export type AccessCheckBatchOptions = {
   concurrency?: number;
   failFast?: boolean;
+  /**
+   * Opt-in adaptive (AIMD) concurrency: the effective in-flight limit starts
+   * at `concurrency`, halves on HTTP 429/5xx responses, and grows back
+   * gradually on sustained success. Defaults to false (static concurrency).
+   */
+  adaptiveConcurrency?: boolean;
 };
 
 export type AccessCheckBatchResult = {
@@ -33,6 +39,18 @@ export type AccessCheckBatchResult = {
   value?: AccessCheckResult;
   error?: Error;
 };
+
+export type AccessCheckBatchByResourceParams = {
+  walletAddress: string;
+  guildId: string;
+  resourceIds: string[];
+};
+
+export type AccessCheckBatchResourceEntry =
+  | { status: 'fulfilled'; value: AccessCheckResult }
+  | { status: 'rejected'; error: Error };
+
+export type AccessCheckBatchByResourceResult = Record<string, AccessCheckBatchResourceEntry>;
 
 export type VerifiedAccessCheckOptions = RequestOptions & {
   /** The access requirement rule to verify directly against the chain. */

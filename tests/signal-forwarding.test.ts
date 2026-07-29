@@ -169,9 +169,16 @@ describe('Mid-batch cancellation — checkAccessBatch', () => {
       callCount++;
       const isFirst = callCount === 1;
       return new Promise((resolve, reject) => {
-        const delay = isFirst ? 5 : 200;
+        const delay = isFirst ? 5 : 500;
         const timer = setTimeout(() => {
-          resolve(new Response(JSON.stringify({ allowed: true }), {
+          resolve(new Response(JSON.stringify({
+            hasAccess: true,
+            walletAddress: validAddress,
+            guildId: 'guild_1',
+            resourceId: 'res_0',
+            requiredRoles: [],
+            matchedRoles: [],
+          }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           }));
@@ -194,7 +201,7 @@ describe('Mid-batch cancellation — checkAccessBatch', () => {
       signal: controller.signal,
     });
 
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
     controller.abort();
 
     const results = await resultsPromise;
