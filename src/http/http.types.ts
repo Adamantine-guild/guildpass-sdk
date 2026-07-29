@@ -1,6 +1,7 @@
 import type { AccessCheckParams, AccessCheckResult } from '../access/access.types';
 import type { AccessRequirement, ResponseMeta } from '../types/common';
 import type { Middleware } from '../middleware/middleware.types';
+import type { AuthenticationProvider } from '../auth/AuthenticationProvider';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -50,6 +51,7 @@ export type HttpClientConfig = {
   transport?: import('../network/transport.types').HttpTransport;
   metadata?: ClientMetadata;
   rateLimit?: RateLimitConfig;
+  authProvider?: AuthenticationProvider;
 };
 
 export type HttpRequestOptions<TBody = unknown> = {

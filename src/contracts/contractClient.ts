@@ -177,10 +177,11 @@ export class ContractClient {
     this.config = config;
     this.http =
       http ??
-      new HttpClient(config.apiUrl, config.apiKey, config.timeoutMs, {
+      new HttpClient(config.apiUrl, config.authProvider ?? config.apiKey, config.timeoutMs, {
         retry: config.retry,
         hooks: config.hooks,
         fetch: config.fetch,
+        authProvider: config.authProvider,
       });
     // GuildPass SDK: End of logic containment structure block.
   }

@@ -23,7 +23,13 @@ import { encodePathSegment } from '../utils/formatting';
 import type { AccessCheckParams, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult, AccessCheckBatchByResourceParams, AccessCheckBatchByResourceResult, AccessCheckResult } from '../access/access.types';
 import type { MembershipParams } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, HasRoleParams } from '../roles/roles.types';
-import type { GetGuildParams } from '../guilds/guilds.types';
+import type {
+  GetGuildParams,
+  GuildConfig,
+  GuildConfigBatchOptions,
+  GuildConfigBatchParams,
+} from '../guilds/guilds.types';
+import type { BatchItemResult } from '../contracts/contract.types';
 import { DiagnosticsModule } from '../diagnostics/DiagnosticsModule';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
@@ -110,7 +116,7 @@ export class GuildPassClient {
 
     this.http = new HttpClient(
       this.config.apiUrl,
-      this.config.apiKey,
+      this.config.authProvider ?? this.config.apiKey,
       this.config.defaultTimeoutMs ?? this.config.timeoutMs,
       {
         retry: this.config.retry,
@@ -119,6 +125,7 @@ export class GuildPassClient {
         fetch: this.config.fetch,
         transport: this.config.transport,
         rateLimit: this.config.rateLimit,
+        authProvider: this.config.authProvider,
         metadata: {
           sdkVersion: SDK_VERSION,
           clientName: this.config.clientName,
@@ -515,7 +522,7 @@ export class GuildPassClient {
   }
 
   private buildCachedGuildsService(raw: GuildsService): GuildsService {
-    return Object.create(raw, {
+    const cached: GuildsService = Object.create(raw, {
       getGuild: {
         value: async <O extends RequestOptions & { includeMeta?: boolean }>(params: GetGuildParams, options?: O): Promise<O extends { includeMeta: true } ? { data: any; meta: ResponseMetadata } : any> => {
           const key = buildCacheKey('guilds', 'getGuild', params.guildId);
@@ -529,6 +536,31 @@ export class GuildPassClient {
         },
       },
     });
+
+    // The batch method calls `this.getGuildConfig` internally. Left alone it
+    // would run against `raw` and bypass the cache entirely, so it is rebound to
+    // a view that still caches each guild but never coalesces in-flight
+    // requests — mirroring how `checkAccessBatch` is wired above. Coalescing
+    // inside a batch would let one caller's abort or failure affect an
+    // unrelated caller sharing the same key.
+    const neverCoalesce: GuildsService = Object.create(raw, {
+      getGuildConfig: {
+        value: async (params: GetGuildParams, options?: any): Promise<any> => {
+          const key = buildCacheKey('guilds', 'getGuildConfig', params.guildId);
+          return this.withCache(key, () => raw.getGuildConfig(params, options), undefined, false);
+        },
+      },
+    });
+
+    Object.defineProperty(cached, 'getGuildConfigBatch', {
+      value: async (
+        params: GuildConfigBatchParams,
+        options?: RequestOptions & GuildConfigBatchOptions,
+      ): Promise<BatchItemResult<GuildConfig>[]> =>
+        raw.getGuildConfigBatch.call(neverCoalesce, params, options),
+    });
+
+    return cached;
   }
   // GuildPass SDK: End of logic containment structure block.
 }

@@ -213,6 +213,46 @@ Fetches full guild configuration.
 
 - **Returns**: `Promise<GuildConfig>`
 
+### `getGuildConfigBatch(params: { guildIds: string[] }, options?: RequestOptions & { concurrency?: number })`
+
+Fetches configuration for several guilds in one call, with the same
+order-preserving, per-item error isolation as the rest of the batch surface
+(`checkAccessBatch`, `getGuildOwnersBatch`).
+
+```typescript
+const results = await client.guilds.getGuildConfigBatch({
+  guildIds: ['prime-guild', 'second-guild', 'missing-guild'],
+});
+
+results.forEach((entry, i) => {
+  if (entry.status === 'success') {
+    console.log(entry.result.theme);
+  } else {
+    console.error(`guild ${i} failed:`, entry.error);
+  }
+});
+```
+
+- **Returns**: `Promise<BatchItemResult<GuildConfig>[]>` — one entry per input
+  guild ID, in input order. `BatchItemResult<T>` is the shape already used by the
+  contract batch methods; `T` defaults to `string` (raw hex) there, and is
+  parameterised to `GuildConfig` here.
+- **Client-side fan-out.** There is no batch endpoint on the API: this issues one
+  `GET /guilds/:id/config` per ID through a bounded worker pool. It saves the
+  caller the orchestration, not the round trips.
+- **Concurrency**: defaults to `5`, capped at `50`, matching `checkAccessBatch`.
+  Out-of-range values throw `INVALID_INPUT`.
+- **Partial failures**: a guild that 404s or fails response validation becomes an
+  `'error'` entry; its siblings are unaffected and the batch still resolves.
+- **Caching**: each guild is cached individually under
+  `guilds:getGuildConfig:{guildId}`, so a batch call warms the cache for later
+  single lookups and reuses entries a previous call already stored. In-flight
+  deduplication is deliberately disabled inside a batch, so one caller's failure
+  or cancellation cannot affect another sharing the same key.
+- **Duplicate IDs** are preserved: each input position gets its own result.
+- **Errors**: throws `INVALID_INPUT` when `guildIds` is missing, is not an array,
+  or is empty.
+
 ---
 
 ## Contract Module (`client.contracts`)

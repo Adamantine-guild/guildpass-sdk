@@ -4,6 +4,7 @@ import { GuildPassConfigError } from '../errors/errorTypes';
 import { GuildPassErrorCode } from '../errors/errorCodes';
 import type { CacheAdapter } from '../cache/cache.types';
 import type { Middleware } from '../middleware/middleware.types';
+import type { AuthenticationProvider } from '../auth/AuthenticationProvider';
 import { ChainConfig, ContractReadConsensus } from '../contracts/contract.types';
 import { ContractProvider } from '../contracts/providers/provider.types';
 import { validateAddress } from '../utils/validation';
@@ -34,6 +35,7 @@ export type GuildPassClientConfig = {
   batchStrategy?: 'jsonrpc' | 'multicall3';
   /** Per-chain RPC URL and contract address overrides, keyed by chain ID. */
   chains?: Record<number, ChainConfig>;
+  authProvider?: AuthenticationProvider;
   apiKey?: string;
   timeoutMs?: number;
   /**
@@ -135,7 +137,7 @@ export type GuildPassClientConfig = {
  */
 export type PublicClientConfig = Omit<
   GuildPassClientConfig,
-  'apiKey' | 'fetch' | 'transport' | 'hooks' | 'contractProvider' | 'cache' | 'middleware'
+  'apiKey' | 'fetch' | 'transport' | 'hooks' | 'contractProvider' | 'cache' | 'middleware' | 'authProvider'
 >;
 
 /**
@@ -323,6 +325,10 @@ export function validateConfig(config: GuildPassClientConfig): void {
 
   if (config.apiKey !== undefined && typeof config.apiKey !== 'string') {
     throwConfigError('apiKey must be a string', 'apiKey', 'invalid_type', config.apiKey);
+  }
+
+  if (config.authProvider !== undefined && (typeof config.authProvider !== 'object' || config.authProvider === null)) {
+    throwConfigError('authProvider must be an object implementing AuthenticationProvider', 'authProvider', 'invalid_type', config.authProvider);
   }
 
   if (config.rpcUrls !== undefined) {

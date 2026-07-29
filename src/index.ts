@@ -2,6 +2,9 @@
 export * from './client/GuildPassClient';
 export * from './client/GuildPassClientBuilder';
 
+// Auth
+export * from './auth';
+
 // Cache
 export * from './cache/cache.types';
 

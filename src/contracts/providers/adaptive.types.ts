@@ -38,6 +38,10 @@ export type UrlHealth = {
   circuitOpen: boolean;
   /** Epoch millis until which the circuit stays open. Zero when closed. */
   openUntil: number;
+  /** Number of timeout-specific failures recorded. Used by adaptive provider
+   *  to weigh timeout frequency into health scoring independently from
+   *  other transient failures. */
+  timeoutCount?: number;
 };
 
 /**
