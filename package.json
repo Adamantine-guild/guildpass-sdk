@@ -45,6 +45,11 @@
       "types": "./dist/testing.d.ts",
       "require": "./dist/testing.js",
       "import": "./dist/testing.mjs"
+    },
+    "./merkle": {
+      "types": "./dist/merkle.d.ts",
+      "require": "./dist/merkle.js",
+      "import": "./dist/merkle.mjs"
     }
   },
   "files": [

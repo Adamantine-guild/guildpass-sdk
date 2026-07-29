@@ -10,6 +10,7 @@ export default defineConfig({
     'adapters/viem': 'src/adapters/viem.ts',
     'adapters/ethers': 'src/adapters/ethers.ts',
     testing: 'src/testing/index.ts',
+    merkle: 'src/merkle/index.ts',
   },
   format: ['cjs', 'esm'],
   dts: true,

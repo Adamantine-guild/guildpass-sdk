@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`@guildpass/sdk/merkle` subpath** — resolves [#404](https://github.com/Adamantine-Guild/guildpass-sdk/issues/404). Implements a Merkle-proof allowlist verification module for gasless off-chain access checks:
+  - `buildAllowlistTree(addresses)` — constructs a Merkle tree from checksum-normalised, deduplicated addresses using a documented sorted-pair hashing scheme matching OpenZeppelin's `MerkleProof.sol`.
+  - `getProof(tree, address)` — O(log n) Merkle proof generation from a pre-built tree.
+  - `verifyProof(root, address, proof)` — deterministic, side-effect-free proof verification suitable for client-side pre-checks.
+  - `verifyProofFromLeaf(root, leaf, proof)` — verify from a pre-computed leaf hash.
+  - Leaf hashing: `keccak256` of the 20 raw address bytes = `keccak256(abi.encodePacked(address))`.
+  - Internal nodes: sorted-pair hashing (`a ≤ b → keccak256(a ‖ b)`).
+  - Odd-leaf-count trees use **level promotion** (not duplication), avoiding the well-known vulnerability of duplication-based schemes.
+  - Zero new runtime dependencies — reuses `js-sha3` already in the dependency tree.
+  - New `docs/merkle-allowlists.md` documents the full workflow (build → publish root → distribute proofs → verify client-side / server-side) with an explicit security note that client-side proof verification is a UX optimisation, not an authoritative access decision.
 - **`client.guilds.getGuildConfigBatch(params, options?)`** — resolves [#389](https://github.com/Adamantine-Guild/guildpass-sdk/issues/389). Fetches configuration for several guilds in one call, returning `BatchItemResult<GuildConfig>[]` in input order with per-guild failure isolation, matching the contract of `checkAccessBatch` and `getGuildOwnersBatch`.
   - **`BatchItemResult` is now generic**, `BatchItemResult<T = string>`. The default preserves the existing meaning (raw hex from the contract batch methods) so every current call site and consumer type stays source-compatible; batch methods resolving richer values parameterise it instead.
   - Client-side fan-out over the existing `GET /guilds/:id/config` endpoint — no batch endpoint is assumed — through a bounded worker pool. `concurrency` defaults to `5` and is capped at `50`, matching `checkAccessBatch`.
