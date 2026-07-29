@@ -1,105 +1,234 @@
-// GuildPass SDK: Pull in package or module bindings.
-import { AdaptiveHealthConfig, UrlHealth } from './adaptive.types';
+import {
+  ProviderConfig,
+  ProviderMetrics,
+  ProviderHealthStatus,
+  HealthWeights,
+} from './provider.types';
 
-const DEFAULTS: Required<AdaptiveHealthConfig> = {
-  failureThreshold: 3,
-  cooldownMs: 30000,
-  latencyEmaAlpha: 0.3,
-  multicallPreferenceThreshold: 3,
+/**
+ * Default health scoring weights
+ */
+const DEFAULT_WEIGHTS: HealthWeights = {
+  latencyWeight: 0.3,
+  errorWeight: 0.3,
+  timeoutWeight: 0.3,
+  successWeight: 0.1,
 };
 
 /**
- * Tracks rolling health per RPC URL and implements a per-URL circuit breaker.
- *
- * The breaker is a classic three-state machine collapsed into two flags:
- * - Closed: calls flow normally; failures accumulate.
- * - Open: once `failureThreshold` consecutive failures are seen, the circuit
- *   opens for `cooldownMs`. While open, the URL is reported unhealthy so the
- *   router skips it.
- * - Half-open (implicit): after the cooldown elapses, `isHealthy` reports the
- *   URL usable again for a single trial. A success closes the circuit; a
- *   failure re-opens it for another cooldown window.
- *
- * Latency is smoothed with an exponential moving average so a single slow
- * response does not dominate routing decisions.
+ * Health tracker for providers
+ * 
+ * Maintains rolling health scores per provider based on:
+ * - Latency
+ * - Error rate
+ * - Timeout frequency
+ * - Success rate
  */
 export class HealthTracker {
-  private readonly config: Required<AdaptiveHealthConfig>;
-  private readonly health = new Map<string, UrlHealth>();
+  private metrics: Map<string, ProviderMetrics> = new Map();
+  private weights: HealthWeights;
+  private decayFactor: number = 0.9; // Exponential moving average decay
+  private healthCheckInterval: number = 30000; // 30 seconds
 
-  constructor(config?: AdaptiveHealthConfig) {
-    this.config = { ...DEFAULTS, ...config };
-  }
-
-  /** Returns the (lazily created) health record for a URL. */
-  private get(url: string): UrlHealth {
-    let record = this.health.get(url);
-    if (!record) {
-      record = {
-        consecutiveFailures: 0,
-        latencyEmaMs: 0,
-        circuitOpen: false,
-        openUntil: 0,
-      };
-      this.health.set(url, record);
-    }
-    return record;
+  constructor(weights?: Partial<HealthWeights>) {
+    this.weights = {
+      ...DEFAULT_WEIGHTS,
+      ...weights,
+    };
   }
 
   /**
-   * Reports a usable URL: the circuit is closed unless it is open and still
-   * inside its cooldown window. Once the cooldown passes, the URL becomes
-   * usable again (half-open trial) even before an explicit success.
+   * Record a successful request
    */
-  public isHealthy(url: string, now: number = Date.now()): boolean {
-    const record = this.get(url);
-    if (record.circuitOpen && now >= record.openUntil) {
-      // Cooldown elapsed: allow a half-open trial call through.
-      record.circuitOpen = false;
-    }
-    return !record.circuitOpen;
-  }
-
-  /** Records a successful call: resets failures and updates latency EMA. */
-  public recordSuccess(url: string, latencyMs: number): void {
-    const record = this.get(url);
-    record.consecutiveFailures = 0;
-    record.circuitOpen = false;
-    record.openUntil = 0;
-    record.latencyEmaMs =
-      record.latencyEmaMs === 0
-        ? latencyMs
-        : this.config.latencyEmaAlpha * latencyMs +
-          (1 - this.config.latencyEmaAlpha) * record.latencyEmaMs;
+  recordSuccess(
+    providerName: string,
+    latency: number,
+  ): void {
+    const metrics = this.getOrCreateMetrics(providerName);
+    metrics.totalRequests++;
+    metrics.successfulRequests++;
+    metrics.latestLatency = latency;
+    metrics.averageLatency = this.updateMovingAverage(
+      metrics.averageLatency,
+      latency,
+      this.decayFactor,
+    );
+    metrics.lastUpdated = Date.now();
+    this.updateHealthScore(metrics);
   }
 
   /**
-   * Records a transient failure. When consecutive failures reach the
-   * threshold the circuit trips open for the configured cooldown.
+   * Record a failed request
    */
-  public recordFailure(url: string, now: number = Date.now()): void {
-    const record = this.get(url);
-    record.consecutiveFailures += 1;
-    if (record.consecutiveFailures >= this.config.failureThreshold) {
-      record.circuitOpen = true;
-      record.openUntil = now + this.config.cooldownMs;
+  recordFailure(
+    providerName: string,
+    error: Error,
+  ): void {
+    const metrics = this.getOrCreateMetrics(providerName);
+    metrics.totalRequests++;
+    metrics.failedRequests++;
+    metrics.lastUpdated = Date.now();
+    this.updateHealthScore(metrics);
+  }
+
+  /**
+   * Record a timeout
+   */
+  recordTimeout(
+    providerName: string,
+  ): void {
+    const metrics = this.getOrCreateMetrics(providerName);
+    metrics.totalRequests++;
+    metrics.timedOutRequests++;
+    metrics.lastUpdated = Date.now();
+    this.updateHealthScore(metrics);
+  }
+
+  /**
+   * Get provider health score
+   */
+  getHealthScore(providerName: string): number {
+    const metrics = this.metrics.get(providerName);
+    if (!metrics) {
+      return 0;
     }
+    return metrics.healthScore;
   }
 
-  /** Current smoothed latency for a URL, or Infinity if never measured. */
-  public latencyOf(url: string): number {
-    const record = this.health.get(url);
-    return record && record.latencyEmaMs > 0 ? record.latencyEmaMs : Infinity;
+  /**
+   * Get provider health status
+   */
+  getHealthStatus(providerName: string): ProviderHealthStatus {
+    const score = this.getHealthScore(providerName);
+    if (score >= 70) {
+      return ProviderHealthStatus.HEALTHY;
+    } else if (score >= 40) {
+      return ProviderHealthStatus.DEGRADED;
+    } else if (score > 0) {
+      return ProviderHealthStatus.UNHEALTHY;
+    }
+    return ProviderHealthStatus.UNKNOWN;
   }
 
-  /** Batch size at or above which Multicall3 is strongly preferred. */
-  public get multicallPreferenceThreshold(): number {
-    return this.config.multicallPreferenceThreshold;
+  /**
+   * Get all provider metrics
+   */
+  getAllMetrics(): Map<string, ProviderMetrics> {
+    return this.metrics;
   }
 
-  /** Test/observability hook: read-only snapshot of a URL's health. */
-  public snapshot(url: string): Readonly<UrlHealth> | undefined {
-    const record = this.health.get(url);
-    return record ? { ...record } : undefined;
+  /**
+   * Check if a provider is healthy
+   */
+  isHealthy(providerName: string): boolean {
+    const status = this.getHealthStatus(providerName);
+    return status === ProviderHealthStatus.HEALTHY;
+  }
+
+  /**
+   * Check if a provider is degraded
+   */
+  isDegraded(providerName: string): boolean {
+    const status = this.getHealthStatus(providerName);
+    return status === ProviderHealthStatus.DEGRADED;
+  }
+
+  /**
+   * Check if a provider is unhealthy
+   */
+  isUnhealthy(providerName: string): boolean {
+    const status = this.getHealthStatus(providerName);
+    return status === ProviderHealthStatus.UNHEALTHY;
+  }
+
+  /**
+   * Reset metrics for a provider
+   */
+  resetMetrics(providerName: string): void {
+    this.metrics.delete(providerName);
+  }
+
+  /**
+   * Update health score for a provider
+   */
+  private updateHealthScore(metrics: ProviderMetrics): void {
+    // Calculate rates
+    const errorRate = metrics.totalRequests > 0
+      ? metrics.failedRequests / metrics.totalRequests
+      : 0;
+    const timeoutRate = metrics.totalRequests > 0
+      ? metrics.timedOutRequests / metrics.totalRequests
+      : 0;
+    const successRate = metrics.totalRequests > 0
+      ? metrics.successfulRequests / metrics.totalRequests
+      : 0;
+
+    metrics.errorRate = errorRate;
+    metrics.timeoutRate = timeoutRate;
+
+    // Calculate score components (0-100)
+    // Lower latency = higher score
+    const latencyScore = Math.max(0, 100 - metrics.averageLatency / 10);
+    
+    // Lower error rate = higher score
+    const errorScore = Math.max(0, 100 - (errorRate * 100));
+    
+    // Lower timeout rate = higher score
+    const timeoutScore = Math.max(0, 100 - (timeoutRate * 100));
+    
+    // Higher success rate = higher score
+    const successScore = successRate * 100;
+
+    // Weighted sum
+    const rawScore = (
+      latencyScore * this.weights.latencyWeight +
+      errorScore * this.weights.errorWeight +
+      timeoutScore * this.weights.timeoutWeight +
+      successScore * this.weights.successWeight
+    );
+
+    // Apply decay to smooth score changes
+    const previousScore = metrics.healthScore || 50;
+    metrics.healthScore = this.updateMovingAverage(
+      previousScore,
+      rawScore,
+      this.decayFactor,
+    );
+
+    // Clamp to 0-100
+    metrics.healthScore = Math.max(0, Math.min(100, metrics.healthScore));
+  }
+
+  /**
+   * Get or create metrics for a provider
+   */
+  private getOrCreateMetrics(providerName: string): ProviderMetrics {
+    if (!this.metrics.has(providerName)) {
+      this.metrics.set(providerName, {
+        totalRequests: 0,
+        successfulRequests: 0,
+        failedRequests: 0,
+        timedOutRequests: 0,
+        averageLatency: 0,
+        latestLatency: 0,
+        errorRate: 0,
+        timeoutRate: 0,
+        healthScore: 50, // Start at neutral
+        lastUpdated: Date.now(),
+        lastHealthCheck: Date.now(),
+      });
+    }
+    return this.metrics.get(providerName)!;
+  }
+
+  /**
+   * Update moving average with exponential decay
+   */
+  private updateMovingAverage(
+    current: number,
+    newValue: number,
+    decay: number,
+  ): number {
+    return current * decay + newValue * (1 - decay);
   }
 }

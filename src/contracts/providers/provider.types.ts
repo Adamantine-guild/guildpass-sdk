@@ -1,37 +1,83 @@
-// GuildPass SDK: Import external module dependencies.
-import { RequestOptions } from '../../types/common';
-import { BatchItemResult } from '../contract.types';
-
-/** A single read-only contract call request (pre-encoded calldata). */
-export type EthCallRequest = {
-  /** The contract address to call. */
-  to: string;
-  /** The 4-byte selector + ABI-encoded arguments (pre-encoded hex string). */
-  data: string;
-};
+/**
+ * Provider health status
+ */
+export enum ProviderHealthStatus {
+  HEALTHY = 'healthy',
+  DEGRADED = 'degraded',
+  UNHEALTHY = 'unhealthy',
+  UNKNOWN = 'unknown',
+}
 
 /**
- * Abstraction over "how an eth_call reaches a chain". The SDK ships a default
- * implementation that speaks raw JSON-RPC over fetch, and optional adapters
- * (subpath exports `@guildpass/sdk/adapters/viem` and
- * `@guildpass/sdk/adapters/ethers`) that translate an existing viem
- * `PublicClient` or ethers `Provider` into this interface.
- *
- * Implementations must preserve the SDK's error semantics: provider-level
- * failures throw `GuildPassError` with code `HTTP_ERROR`; malformed results
- * surface as `INVALID_RESPONSE` when decoded by the caller.
+ * Provider metrics for health scoring
  */
-export interface ContractProvider {
-  /**
-   * Executes a single read-only `eth_call` and resolves with the raw
-   * (undecoded) hex result.
-   */
-  ethCall(request: EthCallRequest, options?: RequestOptions): Promise<unknown>;
+export interface ProviderMetrics {
+  /** Total number of requests */
+  totalRequests: number;
+  /** Number of successful requests */
+  successfulRequests: number;
+  /** Number of failed requests */
+  failedRequests: number;
+  /** Number of timed-out requests */
+  timedOutRequests: number;
+  /** Average latency in milliseconds */
+  averageLatency: number;
+  /** Latest latency in milliseconds */
+  latestLatency: number;
+  /** Error rate (0-1) */
+  errorRate: number;
+  /** Timeout rate (0-1) */
+  timeoutRate: number;
+  /** Health score (0-100) */
+  healthScore: number;
+  /** Last update timestamp */
+  lastUpdated: number;
+  /** Last health check timestamp */
+  lastHealthCheck: number;
+}
 
-  /**
-   * Executes multiple read-only `eth_call`s and resolves with ordered
-   * per-item results. Individual failures are reported per item and must not
-   * reject the whole batch.
-   */
-  batchEthCall(requests: EthCallRequest[], options?: RequestOptions): Promise<BatchItemResult[]>;
+/**
+ * Provider configuration
+ */
+export interface ProviderConfig {
+  /** Provider name/identifier */
+  name: string;
+  /** Provider URL */
+  url: string;
+  /** Timeout in milliseconds */
+  timeout: number;
+  /** Maximum retries */
+  maxRetries: number;
+  /** Health check interval in milliseconds */
+  healthCheckInterval: number;
+  /** Whether the provider is enabled */
+  enabled: boolean;
+  /** Weight for provider selection (higher = preferred) */
+  weight: number;
+}
+
+/**
+ * Health scoring weights
+ */
+export interface HealthWeights {
+  /** Weight for latency (0-1) */
+  latencyWeight: number;
+  /** Weight for error rate (0-1) */
+  errorWeight: number;
+  /** Weight for timeout rate (0-1) */
+  timeoutWeight: number;
+  /** Weight for success rate (0-1) */
+  successWeight: number;
+}
+
+/**
+ * Provider selection result
+ */
+export interface ProviderSelection {
+  /** Selected provider */
+  provider: ProviderConfig;
+  /** Selected provider's health score */
+  score: number;
+  /** Reason for selection */
+  reason: string;
 }
