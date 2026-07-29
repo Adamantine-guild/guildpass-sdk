@@ -325,6 +325,158 @@ the object handed to the underlying service method or `HttpClient` (see
 `stripDeduplicate()` in `GuildPassClient.ts`), so it can't leak into request
 options a service forwards to the transport.
 
+### 9. Middleware (Interceptor) Pipeline
+
+The SDK provides a middleware mechanism for consumers to intercept, observe, or modify
+every HTTP request and response without monkey-patching or forking the SDK.
+
+#### Configuration
+
+Pass an ordered `middleware` array in the client config:
+
+```ts
+import { GuildPassClient, createMiddleware } from '@guildpass/sdk';
+
+const telemetry = createMiddleware('telemetry', {
+  onRequest(payload) {
+    payload.headers['X-Request-Source'] = 'my-app';
+    payload.headers['X-Correlation-ID'] = crypto.randomUUID();
+  },
+  onResponse(payload) {
+    console.log(`[${payload.request.method}] ${payload.request.path} → ${payload.status} (${payload.durationMs}ms)`);
+  },
+  onError(payload) {
+    console.error(`[${payload.request.method}] ${payload.request.path} failed`, payload.error);
+  },
+});
+
+const client = new GuildPassClient({
+  apiUrl: 'https://api.guildpass.xyz',
+  middleware: [telemetry],
+});
+```
+
+#### Middleware Interface
+
+```ts
+interface Middleware {
+  name: string;
+  onRequest?(payload: RequestMiddlewarePayload): void | Promise<void>;
+  onResponse?(payload: ResponseMiddlewarePayload): void | Promise<void>;
+  onError?(payload: ErrorMiddlewarePayload): void | Promise<void>;
+}
+```
+
+- `onRequest`: Called before the HTTP request is dispatched. Mutations to
+  `payload.headers` and `payload.body` are carried forward to the actual fetch call.
+- `onResponse`: Called after a successful HTTP response. Receives parsed data,
+  status, response headers, and wall-clock duration. Throwing here triggers the error path.
+- `onError`: Called when `onRequest`, `onResponse`, or the network itself fails.
+  Error-phase middleware runs in reverse registration order.
+
+#### Execution Order
+
+```
+Request:  M1 → M2 → M3 → HttpClient → Backend
+Response: M1 ← M2 ← M3 ← HttpClient ← Backend
+```
+
+Registered middleware executes in registration order on the request path and in
+reverse registration order on the response/error path.
+
+#### Interaction with Other Layers
+
+The middleware pipeline sits at a specific point in the SDK's layered architecture.
+Understanding this ordering is critical for correct middleware design:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Service Layer (checkAccess, getMembership, etc.)        │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │  Caching (withCache)                              │  │
+│  │  • Cache hit → return immediately, no middleware  │  │
+│  │  • Cache miss → continue below                    │  │
+│  │  ┌─────────────────────────────────────────────┐  │  │
+│  │  │  HttpClient                                  │  │  │
+│  │  │  1. Middleware request phase (forward)       │  │  │
+│  │  │  2. Pre-request hooks (legacy)              │  │  │
+│  │  │  ┌───────────────────────────────────────┐  │  │  │
+│  │  │  │  Retry Loop                           │  │  │  │
+│  │  │  │  3. Rate limit (TokenBucket.acquire)  │  │  │  │
+│  │  │  │  4. Transport.execute (fetch)         │  │  │  │
+│  │  │  │  5. Retry on retryable status         │  │  │  │
+│  │  │  └───────────────────────────────────────┘  │  │  │
+│  │  │  6. Post-response hooks (legacy)            │  │  │
+│  │  │  7. Middleware response phase (reverse)     │  │  │
+│  │  └─────────────────────────────────────────────┘  │  │
+│  │  • Store result in cache                          │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key interactions:**
+
+| Layer | Relationship to Middleware | Notes |
+|-------|---------------------------|-------|
+| **Caching** | Wraps middleware (outside) | Middleware never fires on cache hits. Only fires on cache misses and after cache store. |
+| **Retry** | Wraps transport (inside) | Middleware request fires once before the retry loop. Middleware response fires once after the final attempt. |
+| **Rate limiting** | Inside retry loop | Per-attempt throttling; middleware does not see individual retry attempts. |
+| **Hooks** (legacy) | Alongside middleware | Hooks fire after middleware on the request path, and before middleware on the response path. Hooks are observation-only; middleware can mutate. |
+
+#### Error Handling
+
+If `onRequest` throws, the remaining pipeline is skipped and the error is passed to
+each downstream middleware's `onError` in reverse order, then re-thrown. The real
+network call is never made.
+
+If `onResponse` throws, the same reverse-order error propagation occurs through the
+error path before the error is re-thrown to the caller.
+
+Errors thrown inside `onError` handlers are silently swallowed to prevent infinite
+error loops.
+
+#### Usage Patterns
+
+**Adding telemetry headers:**
+```ts
+createMiddleware('telemetry', {
+  onRequest(payload) {
+    payload.headers['X-Request-ID'] = crypto.randomUUID();
+    payload.headers['X-Client-Version'] = '1.0.0';
+  },
+});
+```
+
+**Request/response logging:**
+```ts
+createMiddleware('logger', {
+  onRequest(payload) {
+    console.log(`→ ${payload.method} ${payload.path}`);
+  },
+  onResponse(payload) {
+    console.log(`← ${payload.status} ${payload.request.path} (${payload.durationMs}ms)`);
+  },
+  onError(payload) {
+    console.error(`✗ ${payload.request.path}`, payload.error);
+  },
+});
+```
+
+**Short-circuiting (e.g. for testing):**
+```ts
+const mockMiddleware: Middleware = {
+  name: 'mock',
+  onRequest() {
+    throw new Error('SYNTHETIC'); // Prevents real network call
+  },
+  onError(payload) {
+    if (payload.error.message === 'SYNTHETIC') {
+      // Could store synthetic data for retrieval
+    }
+  },
+};
+```
+
 ## Data Flow
 
 1. Developer initializes `GuildPassClient` with an optional `cache`.
