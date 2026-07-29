@@ -136,6 +136,8 @@ export class AdaptiveContractProvider implements ContractProvider {
 export type AdaptiveHealthConfig = {
     failureThreshold?: number;
     cooldownMs?: number;
+    onCircuitOpen?: (url: string, openUntil: number) => void;
+    onCircuitClosed?: (url: string) => void;
     latencyEmaAlpha?: number;
     multicallPreferenceThreshold?: number;
 };
@@ -174,6 +176,13 @@ export type AndRule = {
     rules: AccessRule[];
 };
 
+// @public (undocumented)
+export class ApiKeyAuthenticationProvider implements AuthenticationProvider {
+    constructor(apiKey: string);
+    // (undocumented)
+    getAuthorizationHeaders(): Record<string, string>;
+}
+
 // @public
 export const areAddressesEqual: (addr1: string, addr2: string) => boolean;
 
@@ -185,6 +194,12 @@ export function assertValidRequest<T>(value: unknown, guard: ((value: unknown) =
 // @public
 export function assertValidResponse<T>(value: unknown, guard: ((value: unknown) => value is T) & Partial<ExplainingValidator<T>>, typeName: string, context?: ResponseValidationContext): T;
 
+// @public (undocumented)
+export interface AuthenticationProvider {
+    getAuthorizationHeaders(): Promise<Record<string, string>> | Record<string, string>;
+    onUnauthorized?(): Promise<boolean>;
+}
+
 // @public
 export const BALANCE_OF_SELECTOR = "0x70a08231";
 
@@ -195,9 +210,9 @@ export type BatchEthCallItem = {
 };
 
 // @public
-export type BatchItemResult = {
+export type BatchItemResult<T = string> = {
     status: 'success' | 'error';
-    result?: string;
+    result?: T;
     error?: string;
 };
 
@@ -282,6 +297,8 @@ export class ContractClient {
         chunkConcurrency?: number;
     }): Promise<BatchItemResult[]>;
     getChainConfig(chainId?: number): ChainConfig;
+    // (undocumented)
+    getCircuitBreakerSnapshot(): Record<string, UrlHealth>;
     getERC1155Balance(params: ERC1155BalanceParams, options?: RequestOptions): Promise<string>;
     getERC20Balance(params: ERC20BalanceParams, options?: RequestOptions): Promise<string>;
     getGuildOwner(params: GuildOwnerParams, options?: RequestOptions): Promise<string>;
@@ -573,6 +590,16 @@ export type GuildConfig = {
     socialLinks?: Record<string, string>;
 };
 
+// @public
+export type GuildConfigBatchOptions = {
+    concurrency?: number;
+};
+
+// @public
+export type GuildConfigBatchParams = {
+    guildIds: string[];
+};
+
 // @public (undocumented)
 export type GuildOwnerParams = {
     guildId: string;
@@ -621,6 +648,10 @@ export class GuildPassClient {
     clearCache(): Promise<void>;
     // (undocumented)
     readonly contracts: ContractClient;
+    // Warning: (ae-forgotten-export) The symbol "DiagnosticsModule" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly diagnostics: DiagnosticsModule;
     getConfig(): PublicClientConfig;
     // (undocumented)
     readonly guilds: GuildsService;
@@ -641,6 +672,8 @@ export class GuildPassClientBuilder {
     withApiKey(apiKey: string): this;
     // (undocumented)
     withApiUrl(apiUrl: string): this;
+    // (undocumented)
+    withAuthProvider(authProvider: AuthenticationProvider): this;
     // (undocumented)
     withBatchStrategy(strategy: 'jsonrpc' | 'multicall3'): this;
     // (undocumented)
@@ -694,6 +727,7 @@ export type GuildPassClientConfig = {
     multicallAddress?: string;
     batchStrategy?: 'jsonrpc' | 'multicall3';
     chains?: Record<number, ChainConfig>;
+    authProvider?: AuthenticationProvider;
     apiKey?: string;
     timeoutMs?: number;
     defaultTimeoutMs?: number;
@@ -874,6 +908,7 @@ export class GuildsService {
     }>;
     // (undocumented)
     getGuildConfig(params: GetGuildParams, options?: RequestOptions): Promise<GuildConfig>;
+    getGuildConfigBatch(params: GuildConfigBatchParams, options?: RequestOptions & GuildConfigBatchOptions): Promise<BatchItemResult<GuildConfig>[]>;
 }
 
 // @public
@@ -912,6 +947,8 @@ export class HealthTracker {
     recordFailure(url: string, now?: number): void;
     recordSuccess(url: string, latencyMs: number): void;
     snapshot(url: string): Readonly<UrlHealth> | undefined;
+    // (undocumented)
+    snapshotAll(): Record<string, Readonly<UrlHealth>>;
 }
 
 // @public (undocumented)
@@ -926,6 +963,7 @@ export type HttpClientConfig = {
     transport?: HttpTransport;
     metadata?: ClientMetadata;
     rateLimit?: RateLimitConfig;
+    authProvider?: AuthenticationProvider;
 };
 
 // @public (undocumented)
@@ -1186,8 +1224,11 @@ export type PaginatedResult<T> = {
 // @public
 export function parseSiweMessage(raw: string): SiweParseResult;
 
+// @public (undocumented)
+export const parseUnits: (value: string, decimals: number) => string;
+
 // @public
-export type PublicClientConfig = Omit<GuildPassClientConfig, 'apiKey' | 'fetch' | 'transport' | 'hooks' | 'contractProvider' | 'cache' | 'middleware'>;
+export type PublicClientConfig = Omit<GuildPassClientConfig, 'apiKey' | 'fetch' | 'transport' | 'hooks' | 'contractProvider' | 'cache' | 'middleware' | 'authProvider'>;
 
 // @public
 export type ReadContractParams = {
@@ -1623,7 +1664,7 @@ export function verifyTypedDataSignature(domain: EIP712Domain, types: EIP712Type
 
 // Warnings were encountered during analysis:
 //
-// dist/common-CabkBCAt.d.ts:224:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
+// dist/common-_RgT9NFP.d.ts:239:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

@@ -77,12 +77,17 @@ export type BatchEthCallItem = {
 
 /**
  * Result of a single item in a batch response.
- * On success, `status` is `'success'` and `result` contains the raw hex output.
+ * On success, `status` is `'success'` and `result` contains the item's value.
  * On failure, `status` is `'error'` and `error` contains a descriptive message.
+ *
+ * `T` defaults to `string`, which is the raw hex output returned by the
+ * contract batch methods, so `BatchItemResult` on its own keeps meaning exactly
+ * what it always did. Batch methods that resolve richer values parameterise it
+ * instead — for example `BatchItemResult<GuildConfig>`.
  */
-export type BatchItemResult = {
+export type BatchItemResult<T = string> = {
   status: 'success' | 'error';
-  result?: string;
+  result?: T;
   error?: string;
 };
 
