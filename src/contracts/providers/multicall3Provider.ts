@@ -4,6 +4,7 @@ import { GuildPassErrorCode } from '../../errors/errorCodes';
 import { HttpClient } from '../../http/httpClient';
 import { RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
+import { batchItemError } from '../batchErrors';
 import { ContractProvider, EthCallRequest } from './provider.types';
 import { JsonRpcContractProvider } from './jsonRpcProvider';
 import { HttpHooks } from '../../http/http.types';
@@ -230,13 +231,17 @@ export function decodeAggregate3(raw: string, expected: number): BatchItemResult
     results.push(
       successWord === 1
         ? { status: 'success', result: '0x' + dataHex }
-        : { status: 'error', error: decodeRevertReason(dataHex) },
+        : // `success == false` on a structurally valid response means the call
+          // reached the contract and reverted — the same event the JSON-RPC
+          // path reports as HTTP_ERROR. Which strategy the adaptive provider
+          // picked must not change an item's classification.
+          batchItemError(decodeRevertReason(dataHex), GuildPassErrorCode.HTTP_ERROR),
     );
   }
 
   // Defensive: a structurally valid but short array still pads, as before.
   while (results.length < expected) {
-    results.push({ status: 'error', error: 'Missing Multicall3 result' });
+    results.push(batchItemError('Missing Multicall3 result', GuildPassErrorCode.INVALID_RESPONSE));
   }
 
   // No trailing `slice` needed: `length > expected` now throws above.

@@ -4,6 +4,7 @@ import { GuildPassErrorCode } from '../../errors/errorCodes';
 import { HttpClient } from '../../http/httpClient';
 import { BlockTag, RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
+import { batchItemError } from '../batchErrors';
 import { ContractProvider, EthCallRequest } from './provider.types';
 import { HttpHooks, RpcFailoverHookPayload } from '../../http/http.types';
 import { MAX_RPC_RESPONSE_BYTES, assertResultWithinCap, exceedsResponseCap } from './hexGuards';
@@ -263,33 +264,45 @@ export class JsonRpcContractProvider implements ContractProvider {
       const payload = responseMap.get(expectedId);
 
       if (!payload) {
-        results.push({
-          status: 'error',
-          error: `No response for batch item ${i} (id: ${expectedId})`,
-        });
+        // The node returned a batch array that omits an id we asked for: a
+        // malformed envelope, same class of fault as a non-array response.
+        results.push(
+          batchItemError(
+            `No response for batch item ${i} (id: ${expectedId})`,
+            GuildPassErrorCode.INVALID_RESPONSE,
+          ),
+        );
       } else if (payload.error) {
-        results.push({
-          status: 'error',
-          error: payload.error.message ?? `RPC error (code: ${payload.error.code})`,
-        });
+        // The single-call path wraps this exact same `payload.error` as
+        // HTTP_ERROR, and `isTransientError` keys off that; the batch path must
+        // not disagree with it about an identical wire event.
+        results.push(
+          batchItemError(
+            payload.error.message ?? `RPC error (code: ${payload.error.code})`,
+            GuildPassErrorCode.HTTP_ERROR,
+          ),
+        );
       } else if (payload.result === undefined || payload.result === null) {
-        results.push({
-          status: 'error',
-          error: `Empty result for batch item ${i}`,
-        });
+        results.push(
+          batchItemError(`Empty result for batch item ${i}`, GuildPassErrorCode.INVALID_RESPONSE),
+        );
       } else if (typeof payload.result !== 'string') {
-        results.push({
-          status: 'error',
-          error: `Unexpected result type for batch item ${i}`,
-        });
+        results.push(
+          batchItemError(
+            `Unexpected result type for batch item ${i}`,
+            GuildPassErrorCode.INVALID_RESPONSE,
+          ),
+        );
       } else if (exceedsResponseCap(payload.result)) {
         // Unlike the single-call path, one oversized item must not sink the
         // whole batch: the per-item contract is an error entry, exactly as for
         // an RPC error or a wrong-typed result.
-        results.push({
-          status: 'error',
-          error: `Result for batch item ${i} exceeds the ${MAX_RPC_RESPONSE_BYTES}-byte response cap`,
-        });
+        results.push(
+          batchItemError(
+            `Result for batch item ${i} exceeds the ${MAX_RPC_RESPONSE_BYTES}-byte response cap`,
+            GuildPassErrorCode.INVALID_RESPONSE,
+          ),
+        );
       } else {
         results.push({
           status: 'success',

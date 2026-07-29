@@ -17,6 +17,14 @@ export enum GuildPassErrorCode {
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
   ABORTED = 'ABORTED',
   CACHE_ERROR = 'CACHE_ERROR',
+  /**
+   * A WebSocket transport failure: the socket could not be opened, was closed
+   * mid-request, exhausted its reconnect budget, or the provider was destroyed
+   * with requests still in flight.
+   *
+   * Only surfaced by `WebSocketContractProvider`.
+   */
+  WS_CONNECTION_ERROR = 'WS_CONNECTION_ERROR',
   // SIWE (Sign-In With Ethereum) error codes
   SIWE_INVALID_SIGNATURE = 'SIWE_INVALID_SIGNATURE',
   SIWE_EXPIRED = 'SIWE_EXPIRED',
@@ -38,7 +46,10 @@ export enum GuildPassErrorCode {
    * results (raw values grouped by equality, plus per-provider failure
    * messages) so callers can identify the disagreeing endpoint(s).
    *
-   * Only thrown when the opt-in `contractReadConsensus` config is set.
+   * Only surfaced when the opt-in `contractReadConsensus` config is set. The
+   * batch read paths do not throw it: an item that fails to reach quorum
+   * becomes an error entry carrying this code in its `BatchItemResult.code`,
+   * leaving its siblings unaffected.
    */
   CONSENSUS_MISMATCH = 'CONSENSUS_MISMATCH',
   // GuildPass SDK: End of logic containment structure block.

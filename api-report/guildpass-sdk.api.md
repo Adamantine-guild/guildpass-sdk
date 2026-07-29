@@ -214,6 +214,7 @@ export type BatchItemResult<T = string> = {
     status: 'success' | 'error';
     result?: T;
     error?: string;
+    code?: GuildPassErrorCode;
 };
 
 // @public
@@ -836,7 +837,8 @@ export enum GuildPassErrorCode {
     // (undocumented)
     UNKNOWN_ERROR = "UNKNOWN_ERROR",
     // (undocumented)
-    UNVERIFIABLE_RESPONSE = "UNVERIFIABLE_RESPONSE"
+    UNVERIFIABLE_RESPONSE = "UNVERIFIABLE_RESPONSE",
+    WS_CONNECTION_ERROR = "WS_CONNECTION_ERROR"
 }
 
 // @public
@@ -946,9 +948,11 @@ export class HealthTracker {
     get multicallPreferenceThreshold(): number;
     recordFailure(url: string, now?: number): void;
     recordSuccess(url: string, latencyMs: number): void;
+    recordTimeout(url: string, now?: number): void;
     snapshot(url: string): Readonly<UrlHealth> | undefined;
     // (undocumented)
     snapshotAll(): Record<string, Readonly<UrlHealth>>;
+    timeoutCount(url: string): number;
 }
 
 // @public (undocumented)
@@ -1502,6 +1506,12 @@ export interface SiweVerifyResult {
     success: boolean;
 }
 
+// @public
+export interface SubscribableContractProvider extends ContractProvider {
+    destroy(): void;
+    subscribe(contractAddress: string, callback: TransferCallback): Promise<() => void>;
+}
+
 // @public (undocumented)
 export const SUPPORTED_NETWORKS: Record<number, NetworkConfig>;
 
@@ -1538,6 +1548,18 @@ export type TokenBalancesBatchParams = {
     maxBatchSize?: number;
     chunk?: boolean;
     chunkConcurrency?: number;
+};
+
+// @public
+export type TransferCallback = (event: TransferEvent) => void;
+
+// @public
+export type TransferEvent = {
+    from: string;
+    to: string;
+    value: bigint;
+    transactionHash: string;
+    blockNumber: number;
 };
 
 // @public (undocumented)
@@ -1583,6 +1605,7 @@ export type UrlHealth = {
     latencyEmaMs: number;
     circuitOpen: boolean;
     openUntil: number;
+    timeoutCount?: number;
 };
 
 // @public
@@ -1662,9 +1685,19 @@ export function verifySiweSignatureWithReplayProtection(params: SiweVerifyAsyncP
 // @public
 export function verifyTypedDataSignature(domain: EIP712Domain, types: EIP712Types, primaryType: string, message: EIP712Message, signature: string, expectedSigner: string): EIP712VerifyResult;
 
+// @public
+export type WebSocketProviderConfig = {
+    wssUrl: string;
+    maxReconnects?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    subscribeTimeoutMs?: number;
+    requestTimeoutMs?: number;
+};
+
 // Warnings were encountered during analysis:
 //
-// dist/common-_RgT9NFP.d.ts:239:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
+// dist/errorCodes-DuQ7Uugs.d.ts:239:5 - (ae-forgotten-export) The symbol "ClientMetadata" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

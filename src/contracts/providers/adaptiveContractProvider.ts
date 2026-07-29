@@ -4,6 +4,8 @@ import { GuildPassErrorCode } from '../../errors/errorCodes';
 import { HttpClient } from '../../http/httpClient';
 import { RequestOptions } from '../../types/common';
 import { BatchItemResult } from '../contract.types';
+import { batchItemError } from '../batchErrors';
+import { toErrorCode } from '../../errors/toErrorCode';
 import { ContractProvider, EthCallRequest } from './provider.types';
 import { JsonRpcContractProvider } from './jsonRpcProvider';
 import { HealthTracker } from './healthTracker';
@@ -399,10 +401,14 @@ export class AdaptiveContractProvider implements ContractProvider {
         // A transient error here should bubble so the caller can fail the URL
         // over; a contract-level error is a legitimate per-item failure.
         if (isTransient(err)) throw err;
-        results.push({
-          status: 'error',
-          error: err instanceof Error ? err.message : 'eth_call failed',
-        });
+        // The caught GuildPassError carries the only precise classification
+        // available for this item; flattening it to a string would discard it.
+        results.push(
+          batchItemError(
+            err instanceof Error ? err.message : 'eth_call failed',
+            toErrorCode(err, GuildPassErrorCode.UNKNOWN_ERROR),
+          ),
+        );
       }
     }
     return results;

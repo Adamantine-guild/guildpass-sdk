@@ -241,7 +241,11 @@ describe('decodeAggregate3 — structural hardening (#401)', () => {
 
     expect(results).toEqual([
       { status: 'success', result: `0x${word(5)}` },
-      { status: 'error', error: 'Reverted: Insufficient balance' },
+      {
+        status: 'error',
+        error: 'Reverted: Insufficient balance',
+        code: GuildPassErrorCode.HTTP_ERROR,
+      },
     ]);
   });
 
@@ -251,8 +255,16 @@ describe('decodeAggregate3 — structural hardening (#401)', () => {
 
     expect(decodeAggregate3(payload, 3)).toEqual([
       { status: 'success', result: `0x${word(9)}` },
-      { status: 'error', error: 'Missing Multicall3 result' },
-      { status: 'error', error: 'Missing Multicall3 result' },
+      {
+        status: 'error',
+        error: 'Missing Multicall3 result',
+        code: GuildPassErrorCode.INVALID_RESPONSE,
+      },
+      {
+        status: 'error',
+        error: 'Missing Multicall3 result',
+        code: GuildPassErrorCode.INVALID_RESPONSE,
+      },
     ]);
   });
 
@@ -272,7 +284,11 @@ describe('decodeAggregate3 — structural hardening (#401)', () => {
       revertBody;
 
     expect(decodeAggregate3(payload, 1)).toEqual([
-      { status: 'error', error: 'Multicall3 item reverted' },
+      {
+        status: 'error',
+        error: 'Multicall3 item reverted',
+        code: GuildPassErrorCode.HTTP_ERROR,
+      },
     ]);
   });
 });
@@ -381,5 +397,7 @@ describe('JSON-RPC batch correlation by id (#401 AC2)', () => {
 
     expect(results[0]).toEqual({ status: 'success', result: '5' });
     expect(results[1].status).toBe('error');
+    // An oversized item is an unusable response, not a contract-level failure.
+    expect(results[1].code).toBe(GuildPassErrorCode.INVALID_RESPONSE);
   });
 });
