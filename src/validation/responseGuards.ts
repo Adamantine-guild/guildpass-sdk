@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Runtime shape guards for the SDK's core public response types.
  *
  * Built on the composable schema DSL from `schema.ts` — zero runtime
@@ -23,7 +23,7 @@ import {
 } from './schema';
 
 import type { AccessCheckResult } from '../access/access.types';
-import type { Membership } from '../membership/membership.types';
+import type { Membership, MembershipEvent } from '../membership/membership.types';
 import type { GuildRole } from '../roles/roles.types';
 import type { Guild, GuildConfig } from '../guilds/guilds.types';
 import type { AccessRequirement } from '../types/common';
@@ -76,6 +76,21 @@ export const isMembership: Validator<Membership> = object({
   joinedAt: optional(string()),
   expiresAt: optional(string()),
 });
+
+/**
+ * Checks whether `value` conforms to the {@link MembershipEvent} shape.
+ */
+export const isMembershipEvent: Validator<MembershipEvent> = object({
+  id: nonEmptyString(),
+  type: nonEmptyString(),
+  timestamp: nonEmptyString(),
+  data: optional((v: unknown): v is Record<string, any> => typeof v === 'object' && v !== null && !Array.isArray(v)),
+});
+
+/**
+ * Checks whether `value` is an array of {@link MembershipEvent} objects.
+ */
+export const isMembershipEventArray: Validator<MembershipEvent[]> = array(isMembershipEvent);
 
 /**
  * Checks whether `value` conforms to the {@link GuildRole} shape.

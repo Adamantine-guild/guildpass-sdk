@@ -82,3 +82,42 @@ describe('MembershipService request options forwarding', () => {
     });
   });
 });
+
+describe('MembershipService getHistory', () => {
+  it('fetches historical membership events without pagination params', async () => {
+    const mockEvents = [
+      { id: '1', type: 'JOIN', timestamp: '2026-01-01T00:00:00Z' }
+    ];
+    const { get, service } = createService(mockEvents);
+
+    const result = await service.getHistory({ walletAddress: validAddress, guildId: 'guild_1' });
+
+    expect(get).toHaveBeenCalledWith(`/guilds/guild_1/members/${validAddress}/history`, {});
+    expect(result).toEqual(mockEvents);
+  });
+
+  it('fetches historical membership events with pagination params', async () => {
+    const mockResponse = {
+      items: [{ id: '1', type: 'JOIN', timestamp: '2026-01-01T00:00:00Z' }],
+      nextCursor: 'abc',
+      hasMore: true
+    };
+    const { get, service } = createService(mockResponse);
+
+    const result = await service.getHistory({ walletAddress: validAddress, guildId: 'guild_1', cursor: '123', limit: 10 });
+
+    expect(get).toHaveBeenCalledWith(`/guilds/guild_1/members/${validAddress}/history`, {
+      params: { cursor: '123', limit: 10 }
+    });
+    expect(result).toEqual(mockResponse);
+  });
+
+  it('throws a GuildPassConfigError for an invalid wallet address', async () => {
+    const { get, service } = createService([]);
+
+    await expect(
+      service.getHistory({ walletAddress: 'not-an-address', guildId: 'guild_1' }),
+    ).rejects.toBeInstanceOf(GuildPassConfigError);
+    expect(get).not.toHaveBeenCalled();
+  });
+});

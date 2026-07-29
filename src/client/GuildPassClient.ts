@@ -21,7 +21,7 @@ import { normaliseAddress } from '../utils/address';
 import { validateAddress } from '../utils/validation';
 import { encodePathSegment } from '../utils/formatting';
 import type { AccessCheckParams, RoleAccessCheckParams, AccessCheckBatchOptions, AccessCheckBatchResult, AccessCheckBatchByResourceParams, AccessCheckBatchByResourceResult, AccessCheckResult } from '../access/access.types';
-import type { MembershipParams } from '../membership/membership.types';
+import type { MembershipParams, GetHistoryParams } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams, HasRoleParams } from '../roles/roles.types';
 import type {
   GetGuildParams,
@@ -218,6 +218,7 @@ export class GuildPassClient {
       `${buildCacheKey('access', 'checkAccess', guildId)}:`,
       `${buildCacheKey('access', 'checkRoleAccess', guildId)}:`,
       `${buildCacheKey('membership', 'getMembership', guildId)}:`,
+      `${buildCacheKey('membership', 'getHistory', guildId)}:`,
       buildCacheKey('roles', 'getRoles', guildId),
       `${buildCacheKey('roles', 'getRoles', guildId)}:`,
       `${buildCacheKey('roles', 'getUserRoles', guildId)}:`,
@@ -462,6 +463,15 @@ export class GuildPassClient {
           const wallet = normaliseAddress(params.walletAddress);
           const key = buildCacheKey('membership', 'getMembership', params.guildId, wallet);
           return this.withCache(key, () => raw.getMembership(params, stripDeduplicate(options) as any), undefined, options?.deduplicate ?? (options?.signal ? false : undefined)) as any;
+        },
+      },
+      getHistory: {
+        value: async <O extends RequestOptions & { includeMeta?: boolean }>(params: GetHistoryParams, options?: O): Promise<O extends { includeMeta: true } ? { data: any; meta: ResponseMetadata } : any> => {
+          const wallet = normaliseAddress(params.walletAddress);
+          const cursorKey = params.cursor ?? '';
+          const limitKey = params.limit !== undefined ? String(params.limit) : '';
+          const key = buildCacheKey('membership', 'getHistory', params.guildId, wallet, cursorKey, limitKey);
+          return this.withCache(key, () => raw.getHistory(params, stripDeduplicate(options) as any), undefined, options?.deduplicate ?? (options?.signal ? false : undefined)) as any;
         },
       },
       isMember: {
