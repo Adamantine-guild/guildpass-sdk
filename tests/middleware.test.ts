@@ -8,7 +8,7 @@ import { createMiddleware } from '../src/middleware/middleware.pipeline';
 import type { Middleware } from '../src/middleware/middleware.types';
 
 const BASE_URL = 'https://api.test.com';
-const VALID_WALLET = '0x742d35Cc6634C0532925a3b844Bc9e7595f2bEEF';
+const VALID_WALLET = '0x742d35cC6634c0532925A3B844Bc9E7595F2BEEF';
 const VALID_GUILD = 'guild_1';
 const VALID_RESOURCE = 'resource_1';
 
