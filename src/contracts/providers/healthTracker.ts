@@ -103,6 +103,25 @@ export class HealthTracker {
     }
   }
 
+  /**
+   * Records a timeout failure. Delegates to recordFailure for circuit-breaker
+   * logic and additionally increments a timeout-specific counter so the
+   * adaptive provider can factor timeout frequency into health scoring.
+   */
+  public recordTimeout(url: string, now: number = Date.now()): void {
+    const record = this.get(url);
+    record.timeoutCount = (record.timeoutCount ?? 0) + 1;
+    this.recordFailure(url, now);
+  }
+
+  /**
+   * Returns the number of timeout failures recorded for a URL.
+   */
+  public timeoutCount(url: string): number {
+    const record = this.health.get(url);
+    return record?.timeoutCount ?? 0;
+  }
+
   /** Current smoothed latency for a URL, or Infinity if never measured. */
   public latencyOf(url: string): number {
     const record = this.health.get(url);
