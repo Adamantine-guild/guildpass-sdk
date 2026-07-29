@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+- **`client.guilds.getGuildConfigBatch(params, options?)`** — resolves [#389](https://github.com/Adamantine-Guild/guildpass-sdk/issues/389). Fetches configuration for several guilds in one call, returning `BatchItemResult<GuildConfig>[]` in input order with per-guild failure isolation, matching the contract of `checkAccessBatch` and `getGuildOwnersBatch`.
+  - **`BatchItemResult` is now generic**, `BatchItemResult<T = string>`. The default preserves the existing meaning (raw hex from the contract batch methods) so every current call site and consumer type stays source-compatible; batch methods resolving richer values parameterise it instead.
+  - Client-side fan-out over the existing `GET /guilds/:id/config` endpoint — no batch endpoint is assumed — through a bounded worker pool. `concurrency` defaults to `5` and is capped at `50`, matching `checkAccessBatch`.
+  - Each guild is cached individually under `guilds:getGuildConfig:{guildId}`, so a batch call warms the cache for later single lookups and reuses entries already stored. In-flight deduplication is disabled inside the batch so one caller's failure or cancellation cannot affect another sharing a key.
+  - Throws `INVALID_INPUT` for a missing, non-array or empty `guildIds`, and for a `concurrency` outside `1..50`.
 - **EIP-1271 smart-contract wallet support for SIWE** — resolves [#213](https://github.com/Adamantine-Guild/guildpass-sdk/issues/213). New `verifySiweSignatureAsync(params)` runs the same EIP-4361 checks as `verifySiweSignature` and, when the signature does not verify as an EOA signature, asks the claimed address's contract via `isValidSignature(bytes32,bytes)`. Safe, Argent and other account-abstraction wallets can now sign in.
   - The fallback fires on **any** signature failure, not only a recovered-address mismatch. This is load-bearing: an EIP-1271 signature has no fixed length, so a multi-owner Safe signature is rejected by the 65-byte guard before ECDSA recovery is ever attempted — a fallback keyed on the mismatch alone would never reach a real contract wallet.
   - Domain, nonce, expiry and `notBefore` failures stay terminal and are returned unchanged; a contract signature cannot rescue a message addressed to the wrong domain.

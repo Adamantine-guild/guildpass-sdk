@@ -925,3 +925,71 @@ describe('GuildPassClient – deleteByPrefix-absent adapter fallback', () => {
     await expect(client.invalidateWalletCache('not-an-address')).rejects.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// getGuildConfigBatch cache wiring (#389)
+// ---------------------------------------------------------------------------
+
+describe('GuildPassClient – getGuildConfigBatch cache wiring', () => {
+  const configFor = (id: string) => ({ id, theme: 'dark' });
+
+  it('populates the per-guild cache from a batch call', async () => {
+    // The batch method calls getGuildConfig internally. Without rebinding it in
+    // the client it would run against the raw service and bypass the cache
+    // entirely, silently making batch results uncacheable.
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+
+    vi.spyOn(client['http'] as any, 'get').mockImplementation(async (path: string) =>
+      configFor(path.split('/')[2]),
+    );
+
+    await client.guilds.getGuildConfigBatch({ guildIds: ['g1', 'g2'] });
+
+    expect(await adapter.get('guilds:getGuildConfig:g1')).toEqual(configFor('g1'));
+    expect(await adapter.get('guilds:getGuildConfig:g2')).toEqual(configFor('g2'));
+  });
+
+  it('serves a subsequent single lookup from the cache the batch filled', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockImplementation(async (path: string) => configFor(path.split('/')[2]));
+
+    await client.guilds.getGuildConfigBatch({ guildIds: ['g1'] });
+    expect(httpSpy).toHaveBeenCalledTimes(1);
+
+    const single = await client.guilds.getGuildConfig({ guildId: 'g1' });
+
+    expect(single).toEqual(configFor('g1'));
+    expect(httpSpy).toHaveBeenCalledTimes(1); // still 1: served from cache
+  });
+
+  it('reads through the cache instead of refetching inside the batch', async () => {
+    const adapter = new InMemoryCacheAdapter();
+    await adapter.set('guilds:getGuildConfig:g1', configFor('g1'));
+
+    const client = new GuildPassClient({ ...BASE_CONFIG, cache: adapter });
+    const httpSpy = vi
+      .spyOn(client['http'] as any, 'get')
+      .mockImplementation(async (path: string) => configFor(path.split('/')[2]));
+
+    const results = await client.guilds.getGuildConfigBatch({ guildIds: ['g1', 'g2'] });
+
+    expect(results[0]).toEqual({ status: 'success', result: configFor('g1') });
+    expect(httpSpy).toHaveBeenCalledTimes(1); // only g2 went to the network
+  });
+
+  it('still works with no cache adapter configured', async () => {
+    const client = new GuildPassClient(BASE_CONFIG);
+    vi.spyOn(client['http'] as any, 'get').mockImplementation(async (path: string) =>
+      configFor(path.split('/')[2]),
+    );
+
+    const results = await client.guilds.getGuildConfigBatch({ guildIds: ['g1'] });
+
+    expect(results[0]).toEqual({ status: 'success', result: configFor('g1') });
+  });
+});
