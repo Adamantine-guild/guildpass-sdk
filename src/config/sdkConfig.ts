@@ -128,6 +128,16 @@ export type GuildPassClientConfig = {
    * must layer the verification themselves.
    */
   contractReadConsensus?: ContractReadConsensus;
+  /**
+   * Optional configuration for the real-time cache invalidation watcher.
+   */
+  watcher?: {
+    /** 
+     * How often to poll for new blocks in milliseconds when using an HTTP RPC URL.
+     * Default: 10000 (10s)
+     */
+    pollingIntervalMs?: number;
+  };
 };
 
 /**

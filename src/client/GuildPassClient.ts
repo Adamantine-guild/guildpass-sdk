@@ -97,6 +97,7 @@ export class GuildPassClient {
   private readonly cacheTtl: number | undefined;
   private readonly deduplication: boolean;
   private readonly inFlightRequests = new Map<string, Promise<any>>();
+  private watcher?: import('../chain/ChainWatcher').ChainWatcher;
 
   // GuildPass SDK: Class member structure property or constructor.
   constructor(config: GuildPassClientConfig) {
@@ -562,5 +563,73 @@ export class GuildPassClient {
 
     return cached;
   }
+  // ---------------------------------------------------------------------------
+  // Real-time Cache Invalidation (ChainWatcher)
+  // ---------------------------------------------------------------------------
+
+  private getWatcher(): import('../chain/ChainWatcher').ChainWatcher {
+    if (!this.watcher) {
+      // Lazy initialization to avoid starting timers/sockets if unused
+      const { ChainWatcher } = require('../chain/ChainWatcher');
+      this.watcher = new ChainWatcher({
+        config: this.config,
+        onInvalidateWallet: (walletAddress: string) => {
+          this.invalidateWalletCache(walletAddress).catch(() => {});
+        },
+        onInvalidateGuild: (guildId: string) => {
+          this.invalidateGuildCache(guildId).catch(() => {});
+        },
+      });
+    }
+    return this.watcher!;
+  }
+
+  /**
+   * Watch a wallet address for relevant on-chain events (e.g. token transfers).
+   * Automatically invalidates cached data for this wallet when an event is observed.
+   */
+  public watchWallet(walletAddress: string): void {
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
+    this.getWatcher().watchWallet(walletAddress);
+  }
+
+  /**
+   * Stop watching a wallet address for on-chain events.
+   */
+  public unwatchWallet(walletAddress: string): void {
+    validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
+    this.watcher?.unwatchWallet(walletAddress);
+  }
+
+  /**
+   * Watch a guild ID for relevant on-chain events (e.g. ownership changes).
+   * Automatically invalidates cached data for this guild when an event is observed.
+   */
+  public watchGuild(guildId: string): void {
+    this.getWatcher().watchGuild(guildId);
+  }
+
+  /**
+   * Stop watching a guild ID for on-chain events.
+   */
+  public unwatchGuild(guildId: string): void {
+    this.watcher?.unwatchGuild(guildId);
+  }
+
+  /**
+   * Stop all active watchers and clean up background intervals or sockets.
+   * This should be called before the process exits if watchers were used.
+   */
+  public stopWatching(): void {
+    this.watcher?.stopWatching();
+  }
+
+  /**
+   * Dispose of the client, stopping any background activity (like watchers).
+   */
+  public dispose(): void {
+    this.stopWatching();
+  }
+
   // GuildPass SDK: End of logic containment structure block.
 }

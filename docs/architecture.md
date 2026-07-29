@@ -125,7 +125,16 @@ method and never `import` viem or ethers. Both libraries are optional peer depen
 only; the core package stays zero-runtime-dependency, and consumers who don't import the
 adapter subpaths see no bundle-size increase.
 
-### 7. Cross-Provider Consensus Verification (issue #307)
+### 7. ChainWatcher (Real-time Cache Invalidation)
+
+A stateful, long-lived background component (`src/chain/ChainWatcher.ts`) that proactively invalidates cached SDK data by watching on-chain events.
+
+- **Lifecycle**: Initialized lazily via `GuildPassClient.watchWallet` or `watchGuild`. It maintains active WebSocket subscriptions (`eth_subscribe`) or HTTP polling intervals (`setInterval` + `eth_getLogs`) depending on the configured RPC transport.
+- **Teardown**: Because it introduces a long-lived process into an otherwise request-response library, applications must explicitly call `client.stopWatching()` or `client.dispose()` to clear timers and sockets before exiting, avoiding memory leaks.
+- **Degradation**: Falls back to interval-based HTTP polling when WebSockets are unavailable, ensuring compatibility with Edge and serverless environments.
+- **Consistency**: It is strictly eventual and best-effort; it intentionally does not buffer deep reorganizations, choosing speed of invalidation over theoretical reorg safety.
+
+### 8. Cross-Provider Consensus Verification (issue #307)
 
 The opt-in `contractReadConsensus` config adds a second, complementary guarantee on top
 of `rpcUrls` failover: not just _availability_ (the primary URL answers) but also

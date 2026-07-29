@@ -117,6 +117,7 @@
     "@typescript-eslint/parser": "^7.0.0",
     "esbuild": "^0.28.1",
     "eslint": "^8.56.0",
+    "ethers": "^6.17.0",
     "fast-check": "3.22.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.2.5",
