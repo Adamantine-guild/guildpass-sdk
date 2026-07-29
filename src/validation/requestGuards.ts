@@ -15,7 +15,7 @@
 
 import { object, nonEmptyString, number, string, optional, type Validator } from './schema';
 import type { AccessCheckParams, RoleAccessCheckParams } from '../access/access.types';
-import type { MembershipParams } from '../membership/membership.types';
+import type { MembershipParams, GetHistoryParams } from '../membership/membership.types';
 import type { GetRolesParams, GetUserRolesParams } from '../roles/roles.types';
 import type { GetGuildParams } from '../guilds/guilds.types';
 
@@ -43,6 +43,16 @@ export const isRoleAccessCheckParams: Validator<RoleAccessCheckParams> = object(
 export const isMembershipParams: Validator<MembershipParams> = object({
   walletAddress: nonEmptyString(),
   guildId: nonEmptyString(),
+});
+
+/**
+ * Checks whether `value` conforms to the {@link GetHistoryParams} shape.
+ */
+export const isGetHistoryParams: Validator<GetHistoryParams> = object({
+  walletAddress: nonEmptyString(),
+  guildId: nonEmptyString(),
+  cursor: optional(string()),
+  limit: optional(number()),
 });
 
 /**

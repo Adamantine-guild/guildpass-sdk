@@ -3,14 +3,16 @@ import { HttpClient } from '../http/httpClient';
 // GuildPass SDK: Pull in package or module bindings.
 import { validateAddress, validateGuildId } from '../utils/validation';
 import { normaliseAddress } from '../utils/address';
+import { encodePathSegment } from '../utils/formatting';
 import { assertValidResponse } from '../validation/assertResponse';
 import { assertValidRequest } from '../validation/assertRequest';
-import { isMembership } from '../validation/responseGuards';
-import { isMembershipParams } from '../validation/requestGuards';
+import { isMembership, isMembershipEventArray } from '../validation/responseGuards';
+import { isMembershipParams, isGetHistoryParams } from '../validation/requestGuards';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
 // GuildPass SDK: Import external module dependencies.
-import { Membership, MembershipParams } from './membership.types';
+import { Membership, MembershipParams, MembershipEvent, GetHistoryParams } from './membership.types';
+import { PaginatedResult } from '../utils/pagination';
 
 // GuildPass SDK: Core operational type definition.
 export class MembershipService {
@@ -88,6 +90,74 @@ export class MembershipService {
     // GuildPass SDK: Send back computed results to the caller.
     return (result as any).isActive as any;
     // GuildPass SDK: End of logic containment structure block.
+  }
+
+  /**
+   * Fetches historical membership events for a wallet.
+   */
+  public async getHistory(params: GetHistoryParams & ({ cursor: string } | { limit: number }), options: RequestOptions & { includeMeta: true }): Promise<{ data: PaginatedResult<MembershipEvent>; meta: ResponseMetadata }>;
+  public async getHistory(params: GetHistoryParams & ({ cursor: string } | { limit: number }), options?: RequestOptions): Promise<PaginatedResult<MembershipEvent>>;
+  public async getHistory(params: GetHistoryParams, options: RequestOptions & { includeMeta: true }): Promise<{ data: MembershipEvent[]; meta: ResponseMetadata }>;
+  public async getHistory(params: GetHistoryParams, options?: RequestOptions): Promise<MembershipEvent[]>;
+  public async getHistory(params: GetHistoryParams, options?: RequestOptions): Promise<any> {
+    assertValidRequest(params, isGetHistoryParams, 'GetHistoryParams', { endpoint: 'GET /guilds/:id/members/:address/history' });
+    const { walletAddress, guildId, cursor, limit } = params;
+
+    validateAddress(walletAddress, { strict: this.strictAddressChecksum });
+    validateGuildId(guildId);
+
+    const path = `/guilds/${encodePathSegment(guildId)}/members/${encodePathSegment(normaliseAddress(walletAddress))}/history`;
+    
+    const reqOptions: any = { ...options };
+    if (cursor !== undefined || limit !== undefined) {
+      reqOptions.params = { ...reqOptions.params, ...(cursor !== undefined && { cursor }), ...(limit !== undefined && { limit }) };
+    }
+
+    const result = await this.http.get<any>(path, reqOptions);
+    const hasPagination = cursor !== undefined || limit !== undefined;
+
+    return this.handlePaginatedResponse(result, options, hasPagination, isMembershipEventArray, 'MembershipEvent[]', `GET ${path}`);
+  }
+
+  private handlePaginatedResponse<T>(
+    result: any,
+    options: RequestOptions | undefined,
+    hasPaginationParams: boolean,
+    guard: (val: unknown) => val is T[],
+    typeName: string,
+    endpoint?: string
+  ): any {
+    const responseData = options?.includeMeta ? result.data : result;
+    const meta = options?.includeMeta ? result.meta : undefined;
+
+    let finalData;
+
+    if (hasPaginationParams) {
+      if (Array.isArray(responseData)) {
+        finalData = { items: responseData, hasMore: false };
+      } else {
+        finalData = responseData;
+      }
+      if (this.validateResponses) {
+        assertValidResponse(finalData.items, guard, typeName, { endpoint });
+      }
+    } else {
+      if (Array.isArray(responseData)) {
+        finalData = responseData;
+      } else if (responseData && Array.isArray(responseData.items)) {
+        finalData = responseData.items;
+      } else {
+        finalData = responseData;
+      }
+      if (this.validateResponses) {
+        assertValidResponse(finalData, guard, typeName, { endpoint });
+      }
+    }
+
+    if (options?.includeMeta) {
+      return { data: finalData, meta };
+    }
+    return finalData;
   }
   // GuildPass SDK: End of logic containment structure block.
 }

@@ -15,3 +15,17 @@ export type Membership = {
   expiresAt?: string;
   // GuildPass SDK: End of logic containment structure block.
 };
+
+export type GetHistoryParams = {
+  walletAddress: string;
+  guildId: string;
+  cursor?: string;
+  limit?: number;
+};
+
+export type MembershipEvent = {
+  id: string;
+  type: string;
+  timestamp: string;
+  data?: Record<string, any>;
+};
