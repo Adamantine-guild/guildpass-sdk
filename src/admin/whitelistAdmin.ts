@@ -1,11 +1,11 @@
 import { ethers } from 'ethers';
-import { buildWhitelistTree, MerkleTree } from '../utils/merkleTree';
+import { MerkleWhitelist } from './MerkleWhitelist';
 
 export interface WhitelistAdmin {
   buildTree(addresses: string[]): {
     root: string;
     getProof: (address: string) => string[];
-    tree: MerkleTree;
+    tree: MerkleWhitelist;
   };
   publishRoot(root: string, version?: number): Promise<void>;
   rotateWhitelist(newRoot: string, version?: number): Promise<void>;
@@ -18,7 +18,7 @@ export function createWhitelistAdmin(
 ): WhitelistAdmin {
   return {
     buildTree(addresses: string[]) {
-      const { root, tree, getProof } = buildWhitelistTree(addresses);
+      const { root, tree, getProof } = MerkleWhitelist.buildFromAddresses(addresses);
       return { root, getProof, tree };
     },
 
@@ -66,10 +66,10 @@ export function createWhitelistAdmin(
 
 export function generateWhitelist(addresses: string[]): {
   root: string;
-  tree: MerkleTree;
+  tree: MerkleWhitelist;
   proofs: Map<string, string[]>;
 } {
-  const { root, tree, getProof } = buildWhitelistTree(addresses);
+  const { root, tree, getProof } = MerkleWhitelist.buildFromAddresses(addresses);
   
   const proofs = new Map<string, string[]>();
   for (const address of addresses) {
