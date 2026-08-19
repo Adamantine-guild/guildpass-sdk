@@ -61,6 +61,14 @@ export interface CacheAdapter {
   deleteByPrefix?(prefix: string): Promise<void>;
 }
 
+export type CacheInvalidationRequest =
+  | string
+  | { key: string }
+  | { prefix: string }
+  | { pattern: string };
+
+export type CacheInvalidationKind = 'key' | 'prefix';
+
 interface CacheEntry<T> {
   value: T;
   expiresAt: number | null;
