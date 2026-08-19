@@ -1,10 +1,23 @@
 import { GuildPassClient } from '../client/GuildPassClient';
+import type { CacheAdapter } from '../cache/cache.types';
 
 export interface WatchOptions {
   chainId: number;
   contractAddress: string;
   onDegraded?: (reason: string) => void;
   confirmations?: number;
+}
+
+export async function invalidateByPrefixWithFallback(
+  adapter: CacheAdapter | undefined,
+  prefix: string,
+): Promise<void> {
+  if (!adapter) return;
+  if (adapter.deleteByPrefix) {
+    await adapter.deleteByPrefix(prefix);
+    return;
+  }
+  await adapter.clear();
 }
 
 export class WatchAndInvalidateService {

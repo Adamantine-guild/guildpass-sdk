@@ -16,7 +16,7 @@ import { MembershipService } from '../membership/membership.service';
 import { SDK_VERSION } from '../config/version';
 // GuildPass SDK: Import external module dependencies.
 import { RolesService } from '../roles/roles.service';
-import { CacheAdapter } from '../cache/cache.types';
+import { CacheAdapter, CacheInvalidationKind, CacheInvalidationRequest } from '../cache/cache.types';
 import { normaliseAddress } from '../utils/address';
 import { validateAddress } from '../utils/validation';
 import { encodePathSegment } from '../utils/formatting';
@@ -33,6 +33,8 @@ import type { BatchItemResult } from '../contracts/contract.types';
 import { DiagnosticsModule } from '../diagnostics/DiagnosticsModule';
 import type { RequestOptions } from '../types/common';
 import type { ResponseMetadata } from '../http/http.types';
+import { GuildPassConfigError } from '../errors/errorTypes';
+import { GuildPassErrorCode } from '../errors/errorCodes';
 
 /**
  * The main GuildPass SDK this.
@@ -93,7 +95,11 @@ export class GuildPassClient {
   private readonly http: HttpClient;
   // GuildPass SDK: Class member structure property or constructor.
   private readonly config: GuildPassClientConfig;
-  private readonly cache: CacheAdapter | undefined;
+  private readonly cacheAdapter: CacheAdapter | undefined;
+  public readonly cache: {
+    invalidate: (request: CacheInvalidationRequest) => Promise<void>;
+    clear: () => Promise<void>;
+  };
   private readonly cacheTtl: number | undefined;
   private readonly deduplication: boolean;
   private readonly inFlightRequests = new Map<string, Promise<any>>();
@@ -110,7 +116,11 @@ export class GuildPassClient {
 
     emitSecurityConfigWarnings(this.config);
 
-    this.cache = this.config.cache;
+    this.cacheAdapter = this.config.cache;
+    this.cache = {
+      invalidate: (request: CacheInvalidationRequest) => this.invalidateCache(request),
+      clear: () => this.clearCache(),
+    };
     this.cacheTtl = this.config.cacheTtl;
     this.deduplication = this.config.deduplication ?? true;
 
@@ -212,8 +222,73 @@ export class GuildPassClient {
    * Call this after any mutation that may affect guild data, membership, roles,
    * or access decisions for that guild.
    */
+  
+  private normalizeInvalidationRequest(
+    request: CacheInvalidationRequest,
+  ): { kind: CacheInvalidationKind; value: string } {
+    if (typeof request === 'string') {
+      const key = request.trim();
+      if (!key) {
+        throw new GuildPassConfigError(
+          'cache.invalidate key must not be empty',
+          GuildPassErrorCode.INVALID_INPUT,
+        );
+      }
+      return { kind: 'key', value: key };
+    }
+  
+    if ('key' in request) {
+      const key = request.key?.trim();
+      if (!key) {
+        throw new GuildPassConfigError(
+          'cache.invalidate key must not be empty',
+          GuildPassErrorCode.INVALID_INPUT,
+        );
+      }
+      return { kind: 'key', value: key };
+    }
+  
+    const rawPrefix = 'prefix' in request ? request.prefix : request.pattern;
+    const prefix = rawPrefix?.trim();
+    if (!prefix) {
+      throw new GuildPassConfigError(
+        'cache.invalidate prefix/pattern must not be empty',
+        GuildPassErrorCode.INVALID_INPUT,
+      );
+    }
+  
+    return { kind: 'prefix', value: prefix };
+  }
+  
+  private async invalidateCache(request: CacheInvalidationRequest): Promise<void> {
+    if (!this.cacheAdapter) return;
+  
+    const normalized = this.normalizeInvalidationRequest(request);
+  
+    try {
+      if (normalized.kind === 'key') {
+        await this.cacheAdapter.delete(normalized.value);
+        return;
+      }
+  
+      if (this.cacheAdapter.deleteByPrefix) {
+        await this.cacheAdapter.deleteByPrefix(normalized.value);
+        return;
+      }
+  
+      // Fallback for adapters that cannot do prefix invalidation.
+      await this.cacheAdapter.clear();
+    } catch (error: any) {
+      this.handleCacheError(
+        normalized.kind === 'key' ? 'delete' : this.cacheAdapter.deleteByPrefix ? 'delete' : 'clear',
+        error,
+        normalized.value,
+      );
+    }
+  }
+
   public async invalidateGuildCache(guildId: string): Promise<void> {
-    if (!this.cache) return;
+    if (!this.cacheAdapter) return;
     const prefixes = [
       `${buildCacheKey('access', 'checkAccess', guildId)}:`,
       `${buildCacheKey('access', 'checkRoleAccess', guildId)}:`,
@@ -228,10 +303,10 @@ export class GuildPassClient {
     try {
       // Use deleteByPrefix if the adapter supports it; otherwise fall back to
       // exact-key deletion (legacy behaviour that may miss nested entries).
-      if (this.cache.deleteByPrefix) {
-        await Promise.all(prefixes.map((p) => this.cache!.deleteByPrefix!(p)));
+      if (this.cacheAdapter.deleteByPrefix) {
+        await Promise.all(prefixes.map((p) => this.cacheAdapter!.deleteByPrefix!(p)));
       } else {
-        await Promise.all(prefixes.map((k) => this.cache!.delete(k)));
+        await Promise.all(prefixes.map((k) => this.cacheAdapter!.delete(k)));
       }
     } catch (error: any) {
       this.handleCacheError('delete', error);
@@ -245,26 +320,26 @@ export class GuildPassClient {
    */
   public async invalidateWalletCache(walletAddress: string): Promise<void> {
     validateAddress(walletAddress, { strict: this.config.strictAddressChecksum });
-    if (!this.cache) return;
+    if (!this.cacheAdapter) return;
     const wallet = normaliseAddress(walletAddress);
     try {
       // Use deleteByPrefix to remove only wallet-scoped entries instead of
       // clearing the entire cache. Falls back to full clear for adapters
       // that don't support prefix deletion.
-      if (this.cache.deleteByPrefix) {
-        await this.cache.deleteByPrefix(`${buildCacheKey('wallet', wallet)}:`);
+      if (this.cacheAdapter.deleteByPrefix) {
+        await this.cacheAdapter.deleteByPrefix(`${buildCacheKey('wallet', wallet)}:`);
       } else {
-        await this.cache.clear();
+        await this.cacheAdapter.clear();
       }
     } catch (error: any) {
-      this.handleCacheError(this.cache.deleteByPrefix ? 'delete' : 'clear', error);
+      this.handleCacheError(this.cacheAdapter.deleteByPrefix ? 'delete' : 'clear', error);
     }
   }
 
   /** Clears the entire cache. */
   public async clearCache(): Promise<void> {
     try {
-      await this.cache?.clear();
+      await this.cacheAdapter?.clear();
     } catch (error: any) {
       this.handleCacheError('clear', error);
     }
@@ -353,9 +428,9 @@ export class GuildPassClient {
     const effectiveTtl = ttlOverride ?? this.cacheTtl;
     const shouldDeduplicate = deduplicate ?? this.deduplication;
 
-    if (this.cache) {
+    if (this.cacheAdapter) {
       try {
-        const cached = await this.cache.get<T>(key);
+        const cached = await this.cacheAdapter.get<T>(key);
         if (cached !== null) {
           this.diagnostics.recordCacheHit(key);
           return cached;
@@ -370,9 +445,9 @@ export class GuildPassClient {
 
     const execute = async (): Promise<T> => {
       const result = await fn();
-      if (this.cache) {
+      if (this.cacheAdapter) {
         try {
-          await this.cache.set(key, result, effectiveTtl);
+          await this.cacheAdapter.set(key, result, effectiveTtl);
         } catch (error: any) {
           this.handleCacheError('set', error, key);
         }
