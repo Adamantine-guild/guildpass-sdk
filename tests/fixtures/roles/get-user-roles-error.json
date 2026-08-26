@@ -1,9 +1,0 @@
-{
-  "errors": [
-    {
-      "msg": "User roles not found",
-      "param": "walletAddress",
-      "location": "params"
-    }
-  ]
-}

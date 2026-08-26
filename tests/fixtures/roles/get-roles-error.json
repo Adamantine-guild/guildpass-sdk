@@ -1,9 +1,0 @@
-{
-  "errors": [
-    {
-      "msg": "Roles not found for this guild",
-      "param": "guildId",
-      "location": "params"
-    }
-  ]
-}

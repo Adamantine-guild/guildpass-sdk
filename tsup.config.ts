@@ -1,23 +1,12 @@
-import { defineConfig } from 'tsup';
+import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: {
-    index: 'src/index.ts',
-    client: 'src/client/index.ts',
-    errors: 'src/errors/index.ts',
-    utils: 'src/utils/index.ts',
-    types: 'src/types/index.ts',
-    'adapters/viem': 'src/adapters/viem.ts',
-    'adapters/ethers': 'src/adapters/ethers.ts',
-    testing: 'src/testing/index.ts',
-    merkle: 'src/merkle/index.ts',
-  },
-  format: ['cjs', 'esm'],
-  dts: true,
-  splitting: true,
-  sourcemap: true,
-  clean: true,
-  minify: true,
-  treeshake: true,
-  outDir: 'dist',
+    entry: ["src/index.ts"],
+    format: ["esm"],
+    dts: true,
+    sourcemap: true,
+    clean: true,
+    splitting: false,
+    treeshake: true,
+    target: "es2022"
 });

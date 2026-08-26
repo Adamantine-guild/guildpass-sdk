@@ -1,9 +1,0 @@
-{
-  "errors": [
-    {
-      "msg": "Guild config not found",
-      "param": "guildId",
-      "location": "params"
-    }
-  ]
-}
