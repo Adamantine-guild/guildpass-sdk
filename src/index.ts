@@ -2,6 +2,7 @@ export * from "./client/index.js";
 export * from "./diagnostics/index.js";
 export * from "./headers/index.js";
 export * from "./middleware/index.js";
+export * from "./security/index.js";
 export * from "./types/index.js";
 export * from "./utils/querySerializer.js";
 export * from "./utils/batchPlanner.js";
