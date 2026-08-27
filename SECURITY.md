@@ -1,82 +1,574 @@
 # Security Policy
 
+Security-sensitive behaviour in GuildPass SDK V2 should remain small, explicit, testable, and isolated from unrelated SDK functionality.
+
+GuildPass SDK is a client-side TypeScript package. Security concerns therefore focus primarily on how the SDK validates untrusted data, handles credentials, constructs requests, verifies cryptographic material, and exposes errors to consumers.
+
+---
+
 ## Supported Versions
 
-| Version      | Supported |
-| ------------ | --------- |
-| 0.1.x (main) | ✅ Yes    |
+GuildPass SDK V2 is currently under active development.
+
+| Version | Supported |
+| --- | --- |
+| `0.2.x` / `main` | Yes |
+| `0.1.x` | Legacy only |
+
+Security fixes are expected to target the current V2 codebase unless a maintainer explicitly decides otherwise.
+
+---
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in the GuildPass SDK, **do not** open a public GitHub issue.
+Do not open a public GitHub issue for a suspected security vulnerability.
 
-### How to report
+Report security issues privately.
 
-1. **Email** **cerealboxx123@gmail.com** with subject `[SECURITY] guildpass-sdk — <brief description>`.
-2. Include:
-   - Description of the vulnerability
-   - Steps or code to reproduce it
-   - Potential impact (e.g., data exposure, authentication bypass)
-   - Suggested mitigations (optional)
-3. We will acknowledge receipt within **72 hours** and provide an initial assessment within **7 days**.
+### Preferred Reporting Method
 
-### Scope
+If GitHub private vulnerability reporting is enabled for the repository, use the repository's **Security** tab and submit a private vulnerability report.
 
-The SDK is a client-side TypeScript library. Security concerns are primarily about how it handles and transmits data.
+Otherwise, email:
 
-See [`docs/security/threat-model.md`](./docs/security/threat-model.md) for a consolidated analysis of `apiKey`, RPC, and cache trust boundaries.
+```text
+cerealboxx123@gmail.com
+```
 
-**In-scope concerns:**
+Suggested subject:
 
-- Leakage of `apiKey` or other credentials in logs, error messages, or HTTP headers
-- Incorrect validation of API responses that could lead to privilege escalation
-- Prototype pollution or injection vulnerabilities in request/response handling
-- Bundling of secret values that should remain server-side only
+```text
+[SECURITY] guildpass-sdk - brief description
+```
 
-**Out-of-scope:**
+Include as much of the following as possible:
 
-- Vulnerabilities in `guildpass-core` backend — report to that repository
-- Vulnerabilities in third-party bundlers or runtimes consuming the SDK
-- Issues in the `dist/` build output that are caused by an outdated local build
+- a clear description of the vulnerability;
+- affected SDK version or commit;
+- affected module or file;
+- reproduction steps;
+- proof-of-concept code where appropriate;
+- potential impact;
+- expected behaviour;
+- suggested mitigation, if known.
 
-### Hardening notes
+Avoid sending real credentials, private keys, Stellar secret seeds, production API keys, or other unnecessary sensitive data.
 
-Findings from internal hardening work, recorded here so the audited surface and its
-limits are visible. These were found and fixed in-repo, not reported externally, so the
-coordinated-disclosure window below does not apply to them.
+---
 
-**JSON-RPC response decoding** (see [#401](https://github.com/Adamantine-Guild/guildpass-sdk/issues/401)) — audited every path that
-interprets bytes returned by an RPC endpoint.
+## What Not to Do
 
-Already correct, confirmed by review and now pinned by tests:
+When investigating a vulnerability:
 
-- The single-value decoders (`decodeAddressResult`, `decodeUint256Result`,
-  `decodeBoolResult`, and the ERC-165 checks) validate the exact 32-byte word format
-  before extracting anything, so truncated or over-long words are rejected rather than
-  padded.
-- JSON-RPC batch responses are correlated back to requests by their JSON-RPC `id`, never
-  by array position, so a reordered batch cannot attribute one call's result to another.
-- A batch response that is not an array is rejected outright.
+- do not access data that does not belong to you;
+- do not attempt destructive testing;
+- do not disrupt production services;
+- do not publish exploit details before maintainers have had a reasonable opportunity to investigate;
+- do not include real secrets in public reproductions.
 
-Fixed:
+Use minimal, controlled test cases whenever possible.
 
-- `aggregate3` return decoding interpreted node-controlled offsets and lengths without
-  validation. A malformed envelope could decode into a plausible-looking result instead
-  of an error — including a reported *success* carrying no data, and a reported contract
-  *revert* that never happened — and an oversized array-length word drove an effectively
-  unbounded loop. All offsets, lengths and flags are now bounds- and alignment-checked
-  before use, and every rejection surfaces as `INVALID_RESPONSE`.
-- Revert-reason decoding trusted an attacker-controlled string length; it is now bounded
-  by the data actually present and still degrades to a generic message rather than
-  throwing.
+---
 
-**Response size cap** — the SDK will not parse a single `eth_call` result larger than
-**10 MiB**. The limit is checked on the payload length before any decoding work runs.
-See [`docs/api-reference.md`](./docs/api-reference.md) for the full contract.
+# Security Scope
 
-### Disclosure Policy
+GuildPass SDK V2 has a deliberately smaller security surface than the legacy SDK.
 
-- We ask for a **90-day** coordinated disclosure window.
-- We will credit reporters in release notes unless you prefer anonymity.
+Relevant areas include:
 
-Thank you for helping keep the GuildPass SDK secure.
+- HTTP transport;
+- runtime response validation;
+- configuration parsing;
+- Stellar address and signature handling;
+- request signing;
+- capability or authentication tokens;
+- API-key handling;
+- secret redaction;
+- request fingerprinting;
+- cancellation and timeout behaviour;
+- cache boundaries;
+- webhook verification;
+- cryptographic helpers;
+- package exports;
+- dependency security.
+
+Not every area above is necessarily implemented yet. Security documentation must distinguish between implemented behaviour and planned functionality.
+
+---
+
+# Credential Handling
+
+The SDK must not expose credentials through:
+
+- logs;
+- errors;
+- debug metadata;
+- serialized request contexts;
+- diagnostic events;
+- thrown configuration objects.
+
+Sensitive values may include:
+
+```text
+API keys
+Bearer tokens
+session tokens
+capability tokens
+webhook secrets
+signing secrets
+private keys
+Stellar secret seeds
+```
+
+Where diagnostics require identifying a credential, prefer a non-reversible fingerprint rather than the original value.
+
+---
+
+# Stellar Secret Keys
+
+GuildPass SDK should never require a consumer to provide a Stellar secret seed merely to perform read-only SDK operations.
+
+Where signing is required, signing should remain with the caller's wallet, signer, or explicitly trusted signing component.
+
+Never:
+
+```text
+log a Stellar secret seed
+persist it in SDK state
+include it in diagnostics
+send it to GuildPass Core
+embed it in browser bundles
+```
+
+---
+
+# Untrusted Input
+
+Data crossing a trust boundary must be treated as untrusted.
+
+Examples include:
+
+- GuildPass API responses;
+- configuration values;
+- HTTP headers;
+- URLs;
+- query parameters;
+- Stellar addresses;
+- encoded signatures;
+- webhook payloads;
+- JSON metadata;
+- cached external data.
+
+TypeScript types alone are not sufficient protection because they do not exist at runtime.
+
+Security-sensitive modules should validate inputs before relying on them.
+
+---
+
+# HTTP Transport Security
+
+Transport code should take care when handling:
+
+- request URLs;
+- headers;
+- authentication credentials;
+- redirects;
+- timeouts;
+- cancellation;
+- response parsing;
+- response size limits.
+
+Do not automatically forward sensitive headers to a different origin after URL manipulation or redirects unless that behaviour is explicitly safe.
+
+Transport errors should not expose complete request objects when those objects may contain secrets.
+
+---
+
+# Response Validation
+
+External API responses should not be assumed to match TypeScript interfaces.
+
+When a response controls SDK behaviour, validate the relevant runtime shape before using it.
+
+Malformed data should produce a controlled SDK error rather than:
+
+- silently producing incorrect state;
+- causing unsafe type assumptions;
+- being interpreted as valid authorization data.
+
+---
+
+# Error Handling
+
+Public errors should reveal enough information for consumers to handle failures without exposing secrets or unnecessary internal state.
+
+Prefer:
+
+- stable error codes;
+- safe error messages;
+- structured metadata;
+- preserved internal causes where appropriate.
+
+Avoid exposing:
+
+- authorization headers;
+- complete request objects;
+- secret configuration;
+- raw sensitive payloads;
+- private cryptographic material.
+
+---
+
+# Logging and Diagnostics
+
+SDK diagnostics must assume that logs can leave the application boundary.
+
+Do not emit sensitive values by default.
+
+Where structured metadata is supported, sanitize it before exposing it to:
+
+- loggers;
+- event listeners;
+- telemetry systems;
+- debugging hooks.
+
+Nested data should be considered, not only top-level keys.
+
+---
+
+# Cryptographic Operations
+
+Cryptographic code should use standard, reviewed primitives.
+
+Do not invent custom cryptographic algorithms.
+
+Security-sensitive code should define:
+
+- exact byte encoding;
+- canonical message format;
+- hashing algorithm;
+- signature format;
+- domain separation where applicable;
+- replay behaviour;
+- timestamp handling where applicable.
+
+Equivalent logical inputs should not produce ambiguous byte representations.
+
+---
+
+# Signature Verification
+
+Where the SDK verifies signatures:
+
+- verify against the exact expected bytes;
+- validate encoding before cryptographic operations;
+- reject malformed signatures;
+- distinguish signature mismatch from parser failure where appropriate;
+- avoid accepting alternate representations unintentionally.
+
+A syntactically valid account identifier is not proof that the caller controls the corresponding account.
+
+---
+
+# Replay Protection
+
+Signed payloads may require replay protection depending on their use.
+
+Possible controls include:
+
+- nonces;
+- expiration timestamps;
+- network binding;
+- domain binding;
+- unique request identifiers.
+
+Do not assume that signature validity alone prevents replay.
+
+---
+
+# API Keys
+
+If API-key functionality is implemented, API keys should be:
+
+- treated as secrets;
+- scoped where possible;
+- removable from logs;
+- rotatable;
+- revocable.
+
+The SDK should avoid unnecessarily copying API keys into broadly accessible objects.
+
+---
+
+# Request Headers
+
+Header composition should guard against:
+
+- accidental credential overwrite;
+- newline injection;
+- unsafe forwarding;
+- duplicate protected headers;
+- leaking secrets through diagnostics.
+
+Authentication headers should be handled separately from arbitrary user metadata where practical.
+
+---
+
+# URL Handling
+
+Avoid constructing URLs through unchecked string concatenation.
+
+Prefer standard URL primitives.
+
+Validate configuration such as:
+
+```text
+baseUrl
+```
+
+before using it for network requests.
+
+Security-sensitive code should consider whether credentials could accidentally be sent to an unexpected host.
+
+---
+
+# Prototype Pollution and Object Injection
+
+Code that merges external objects into configuration, headers, metadata, or request state should avoid unsafe generic assignment patterns.
+
+Treat special keys such as:
+
+```text
+__proto__
+constructor
+prototype
+```
+
+carefully when processing untrusted data.
+
+Prefer creating narrow validated objects instead of copying arbitrary input wholesale.
+
+---
+
+# Cancellation and Timeouts
+
+Cancellation and timeout behaviour can affect security and resource exhaustion.
+
+Operations should avoid leaving uncontrolled work running after a caller reasonably expects cancellation.
+
+Where an operation cannot be forcibly interrupted, document that limitation.
+
+Timeouts should be bounded and validated.
+
+---
+
+# Resource Exhaustion
+
+Security-sensitive parsers and utilities should consider:
+
+- oversized payloads;
+- deeply nested data;
+- unbounded loops;
+- unbounded concurrency;
+- attacker-controlled lengths;
+- excessive retry behaviour.
+
+Where practical, enforce reasonable bounds before expensive processing begins.
+
+---
+
+# Caching
+
+Cached data should not silently cross security boundaries.
+
+Cache keys should include all values necessary to distinguish security-relevant contexts.
+
+Do not reuse cached authorization or identity data across:
+
+- different users;
+- different communities;
+- different networks;
+- different credentials;
+
+unless the cache contract explicitly makes that safe.
+
+---
+
+# Request Deduplication
+
+Concurrent request deduplication must not cause one caller's sensitive context to be reused for another incompatible request.
+
+A request fingerprint should include all security-relevant request attributes.
+
+Do not deduplicate solely by URL when headers, body, network, or authentication context can change the meaning of the request.
+
+---
+
+# Webhook Verification
+
+Webhook verification code should authenticate the original raw request bytes.
+
+Do not:
+
+```text
+parse JSON
+serialize it again
+then verify the signature
+```
+
+unless the provider's signing protocol explicitly specifies such canonicalisation.
+
+Timestamp validation only limits replay duration. It does not automatically guarantee single-use delivery.
+
+---
+
+# Browser Security
+
+Consumers may use the SDK in browser environments.
+
+Never assume that values embedded in frontend JavaScript are secret.
+
+Long-lived privileged credentials should not be shipped inside browser bundles.
+
+The SDK should not encourage consumers to expose server-side secrets through frontend configuration.
+
+---
+
+# Dependency Security
+
+Runtime dependencies should remain minimal.
+
+New dependencies should be evaluated for:
+
+- maintenance status;
+- published security vulnerabilities;
+- transitive dependency size;
+- runtime privileges;
+- browser compatibility;
+- necessity.
+
+Avoid introducing a large dependency for functionality that can be implemented safely using standard platform APIs.
+
+---
+
+# Supply Chain Security
+
+Changes affecting:
+
+```text
+package.json
+pnpm-lock.yaml
+.github/workflows/
+release configuration
+package publishing
+```
+
+have elevated security significance.
+
+Review unexpected dependency or workflow changes carefully.
+
+Never commit registry tokens or publishing credentials.
+
+---
+
+# GitHub Actions
+
+Workflow changes may alter repository permissions or execute attacker-controlled code.
+
+Changes under:
+
+```text
+.github/workflows/
+```
+
+should receive additional review.
+
+PR automation should never bypass required security checks simply because a pull request is otherwise mergeable.
+
+---
+
+# Generated Build Output
+
+Files under:
+
+```text
+dist/
+```
+
+are generated artifacts.
+
+Security fixes should be made in source code, not only in generated output.
+
+Generated output should correspond to reviewed source before release.
+
+---
+
+# Out-of-Scope Reports
+
+The following normally belong elsewhere:
+
+- vulnerabilities in `guildpass-core`;
+- vulnerabilities entirely within Stellar infrastructure;
+- vulnerabilities entirely inside a third-party runtime;
+- local environment compromise unrelated to the SDK;
+- stale generated `dist/` output when the source itself is already fixed.
+
+If the SDK contributes to or amplifies the vulnerability, the report may still be relevant.
+
+---
+
+# Testing Security-Sensitive Changes
+
+Security-related changes should include tests for failure cases.
+
+Depending on the module, consider:
+
+```text
+malformed input
+invalid signatures
+incorrect network
+expired values
+replayed values
+oversized payloads
+unexpected object keys
+secret redaction
+incorrect response types
+concurrent callers
+timeout boundaries
+```
+
+A security fix should preferably include a regression test that would fail without the fix.
+
+---
+
+# Disclosure
+
+Please allow maintainers reasonable time to investigate and remediate confirmed vulnerabilities before public disclosure.
+
+Where appropriate, reporters may be credited in release notes unless anonymity is requested.
+
+---
+
+# Legacy V1 Security Notes
+
+Security documentation from SDK V1 may reference:
+
+- EVM JSON-RPC;
+- `eth_call`;
+- ERC-165;
+- `aggregate3`;
+- Solidity ABI decoding;
+- EIP-712;
+- SIWE;
+- ethers;
+- viem.
+
+Those mechanisms are not part of the default GuildPass SDK V2 architecture.
+
+Do not treat previous V1 hardening notes as descriptions of the current V2 attack surface.
+
+Historical fixes remain relevant to repository history, but should not be presented as active V2 implementation guarantees.
+
+---
+
+Thank you for helping keep GuildPass SDK secure.

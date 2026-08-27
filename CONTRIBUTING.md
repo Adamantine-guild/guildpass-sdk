@@ -1,233 +1,990 @@
 # Contributing to GuildPass SDK
 
-Thank you for your interest in contributing to the GuildPass SDK! This is the official TypeScript SDK for the GuildPass protocol.
+Thank you for contributing to GuildPass SDK.
 
-## Table of Contents
+GuildPass SDK V2 is the official TypeScript SDK for interacting with the GuildPass ecosystem. The current SDK is being rebuilt as a smaller, Stellar-first package with a strong focus on predictable APIs, strict typing, runtime safety, low dependency overhead, and independently testable modules.
 
-- [Code of Conduct](#code-of-conduct)
-- [Ways to Contribute](#ways-to-contribute)
-- [Finding Issues](#finding-issues)
-- [Development Setup](#development-setup)
-- [Coding Standards](#coding-standards)
-- [Branching & Commits](#branching--commits)
-- [Submitting a Pull Request](#submitting-a-pull-request)
-- [Review Process](#review-process)
-- [Communication](#communication)
+This guide explains how to contribute to the current V2 codebase.
 
 ---
 
-## Code of Conduct
+## Before You Start
 
-By participating you agree to our [Code of Conduct](./CODE_OF_CONDUCT.md).
+Please read:
 
----
+- `README.md`
+- `CODE_OF_CONDUCT.md`
+- `SECURITY.md`
 
-## Ways to Contribute
+If you are working from an issue, read the full issue before starting.
 
-- Fix bugs in existing service modules
-- Add new service methods with full TypeScript types
-- Write or improve Vitest unit tests
-- Improve TypeDoc documentation comments on public APIs
-- Improve the usage guides in `docs/`
-- Add new code examples in `examples/`
-- Fix TypeScript strict mode issues
-- Improve error messages and error types
+GuildPass campaign issues normally define:
 
----
+- the problem;
+- the expected outcome;
+- suggested implementation boundaries;
+- acceptance criteria;
+- likely affected files;
+- an independence requirement.
 
-## Finding Issues
-
-1. Browse issues directly on GitHub:
-   - [`good first issue`](https://github.com/Adamantine-Guild/guildpass-sdk/issues?q=label%3A%22good+first+issue%22)
-   - [`help wanted`](https://github.com/Adamantine-Guild/guildpass-sdk/issues?q=label%3A%22help+wanted%22)
-2. Comment `I'd like to work on this` on the GitHub issue you'd like to work on.
-3. Wait for a maintainer to assign it before starting — this avoids duplicate effort.
+Treat the issue as the primary source of truth for your contribution.
 
 ---
 
-## Development Setup
+# Current SDK Direction
 
-### Prerequisites
+GuildPass SDK V2 is a clean rebuild of the previous SDK.
 
-- Node.js 18+
-- pnpm (recommended)
+The current direction is:
 
-### Steps
+- TypeScript-first;
+- Stellar-first;
+- ESM-first;
+- runtime-safe public APIs;
+- minimal runtime dependencies;
+- small independently testable modules;
+- predictable public exports;
+- compatibility with modern JavaScript runtimes.
+
+The previous SDK contained functionality such as:
+
+- ethers adapters;
+- viem adapters;
+- SIWE;
+- EIP-712;
+- EVM contract providers;
+- multicall infrastructure;
+- generic multichain abstractions.
+
+Those are not part of the default V2 architecture.
+
+Do not restore legacy V1 functionality unless an issue explicitly asks for it.
+
+---
+
+# Repository Structure
+
+The current SDK V2 structure is intentionally small.
+
+```text
+guildpass-sdk/
+│
+├── src/
+│   ├── client/
+│   ├── config/
+│   ├── errors/
+│   ├── stellar/
+│   ├── testing/
+│   ├── transport/
+│   ├── types/
+│   └── index.ts
+│
+├── tests/
+├── logo/
+├── .github/
+├── package.json
+├── pnpm-lock.yaml
+├── tsconfig.json
+├── tsup.config.ts
+├── vitest.config.ts
+├── README.md
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── SECURITY.md
+└── LICENSE
+```
+
+Some directories may be introduced or expanded as new features are added.
+
+---
+
+# Contribution Principles
+
+## 1. Keep Contributions Focused
+
+A pull request should solve one issue.
+
+Avoid combining unrelated:
+
+- features;
+- refactors;
+- formatting changes;
+- dependency upgrades;
+- documentation rewrites;
+- tooling changes.
+
+Small PRs are easier to review, test, and merge.
+
+---
+
+## 2. Keep Campaign Issues Independent
+
+GuildPass contributor issues are intentionally designed so different contributors can work concurrently.
+
+Do not make your implementation depend on another open issue unless the issue explicitly requires it.
+
+Do not import code from another contributor's unmerged branch.
+
+If your task needs a small helper that does not yet exist, implement the minimum self-contained functionality required for your issue.
+
+---
+
+## 3. Keep the Public API Small
+
+Anything exported through:
+
+```ts
+src/index.ts
+```
+
+should be treated as part of the SDK's public contract.
+
+Do not export internal helpers simply because they are reusable internally.
+
+Before adding a public export, consider whether SDK consumers genuinely need it.
+
+---
+
+## 4. Prefer Strong Types
+
+Use TypeScript deliberately.
+
+Prefer:
+
+- discriminated unions;
+- explicit interfaces;
+- readonly values where appropriate;
+- narrow function contracts;
+- `unknown` at untrusted boundaries;
+- runtime validation where TypeScript alone is insufficient.
+
+Avoid:
+
+- unnecessary `any`;
+- broad unsafe casts;
+- `as unknown as`;
+- suppressing type errors instead of fixing them.
+
+---
+
+## 5. Runtime Validation Matters
+
+TypeScript types disappear at runtime.
+
+Any data coming from:
+
+- HTTP responses;
+- user configuration;
+- Stellar values;
+- encoded payloads;
+- external APIs;
+
+should be treated as untrusted until validated.
+
+---
+
+## 6. Keep Runtime Dependencies Minimal
+
+SDK dependencies affect every application that installs the package.
+
+Before adding a runtime dependency, consider:
+
+- whether the platform already provides the required functionality;
+- whether the functionality can be implemented safely in a small local module;
+- bundle-size impact;
+- browser/runtime compatibility;
+- maintenance status;
+- security implications.
+
+New runtime dependencies should be justified in the PR description.
+
+---
+
+## 7. Preserve Deterministic Behaviour
+
+Equivalent inputs should produce equivalent outputs.
+
+Avoid behaviour that unnecessarily depends on:
+
+- object insertion order;
+- global mutable state;
+- system time;
+- uncontrolled randomness;
+- network availability.
+
+Where time or randomness is needed, design it so tests can control it.
+
+---
+
+# Development Setup
+
+## Prerequisites
+
+Install:
+
+- Git
+- Node.js 24 or newer
+- pnpm 11.x
+
+Check your versions:
 
 ```bash
-# 1. Fork and clone
-git clone https://github.com/<your-username>/guildpass-sdk.git
+node --version
+pnpm --version
+```
+
+The repository currently uses:
+
+```text
+pnpm 11.16.0
+```
+
+---
+
+# Fork and Clone
+
+Fork:
+
+```text
+Adamantine-guild/guildpass-sdk
+```
+
+Then clone your fork:
+
+```bash
+git clone https://github.com/<YOUR_USERNAME>/guildpass-sdk.git
 cd guildpass-sdk
+```
 
-# 2. Install dependencies
+Add the upstream repository:
+
+```bash
+git remote add upstream https://github.com/Adamantine-guild/guildpass-sdk.git
+```
+
+Verify:
+
+```bash
+git remote -v
+```
+
+You should have:
+
+```text
+origin    your fork
+upstream  Adamantine-guild/guildpass-sdk
+```
+
+---
+
+# Sync Before Starting Work
+
+Before creating a feature branch:
+
+```bash
+git checkout main
+git fetch upstream
+git pull upstream main
+git push origin main
+```
+
+Always branch from the latest `main`.
+
+---
+
+# Create a Branch
+
+Do not work directly on `main`.
+
+Recommended branch prefixes:
+
+```text
+feat/
+fix/
+test/
+docs/
+refactor/
+chore/
+ci/
+```
+
+Examples:
+
+```bash
+git checkout -b feat/stellar-account-parser
+```
+
+```bash
+git checkout -b feat/request-transport
+```
+
+```bash
+git checkout -b fix/config-validation
+```
+
+---
+
+# Install Dependencies
+
+Run:
+
+```bash
 pnpm install
+```
 
-# 3. Build the SDK (tsup)
+For reproducible verification:
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+pnpm may request approval for expected dependency build scripts.
+
+If required:
+
+```bash
+pnpm approve-builds
+```
+
+Only approve packages you recognise and that are required by the SDK toolchain.
+
+---
+
+# Development Commands
+
+## Typecheck
+
+```bash
+pnpm typecheck
+```
+
+This runs TypeScript without producing build output.
+
+---
+
+## Build
+
+```bash
 pnpm build
-
-# 4. Run tests to confirm everything works
-pnpm test:run
 ```
 
-### Project structure
+The SDK uses `tsup`.
 
-| Path           | Purpose                                   |
-| -------------- | ----------------------------------------- |
-| `src/`         | SDK source code (services, types, client) |
-| `src/index.ts` | Public API entry point                    |
-| `tests/`       | Vitest unit tests                         |
-| `docs/`        | Markdown documentation guides             |
-| `examples/`    | Usage examples                            |
-| `dist/`        | Build output (generated, do not edit)     |
+Current build output includes:
 
----
-
-## Coding Standards
-
-- **TypeScript only** — no plain JavaScript files.
-- **No `any`** without a clear comment explaining why.
-- **Public APIs must have TypeDoc comments** — every exported function, class, and type.
-- **Tests required** — every new public method must have at least one Vitest unit test.
-- **No side effects** — the package sets `"sideEffects": false`. Keep it that way.
-- **Minimal dependencies** — the SDK has zero runtime dependencies by design. Do not add any without prior discussion with a maintainer.
-- **Formatting** — run `pnpm format` (Prettier) before submitting.
-- **Linting** — run `pnpm lint` (ESLint) and fix all reported issues.
-- **Keep the public API clean** — prefer extending existing interfaces over adding new ones.
-
----
-
-## Test Fixtures
-
-The SDK's test suite uses a set of fixture files to mock API responses. These fixtures are located in the `tests/fixtures` directory and are organized by service module.
-
-### Purpose
-
-The fixtures ensure that the SDK's tests are run against a consistent and predictable set of data that mirrors the real GuildPass backend's API contract. This prevents tests from passing with outdated or incorrect mock data.
-
-### Structure
-
-Fixture files are JSON files, with each file representing a specific API endpoint response. The directory structure is as follows:
-
-```
-tests/fixtures/
-├───access/
-│   ├───check-access-success.json
-│   └───...
-├───guilds/
-│   └───...
-├───membership/
-│   └───...
-└───roles/
-    └───...
+```text
+dist/index.js
+dist/index.js.map
+dist/index.d.ts
 ```
 
-Each service has its own directory, and within that directory, there are separate files for success and error cases for each endpoint.
-
-### Updating Fixtures
-
-When the GuildPass backend API contract changes, the corresponding fixture files must be updated. To do this, follow these steps:
-
-1.  **Identify the affected endpoint:** Determine which API endpoint has changed and locate the corresponding fixture file in the `tests/fixtures` directory.
-2.  **Update the fixture file:** Modify the JSON file to reflect the new API response structure.
-3.  **Run the tests:** Run the test suite to ensure that the SDK's response parsing and handling logic is compatible with the new fixture.
-4.  **Commit the changes:** Commit the updated fixture file along with any code changes.
+Do not edit files inside `dist/` manually.
 
 ---
 
-## Branching & Commits
-
-- Branch off `main`: `git checkout -b feat/short-description` or `fix/short-description`
-- Conventional commits:
-  - `feat: add client.membership.getHistory() method`
-  - `fix: handle 404 response from access.checkAccess()`
-  - `test: add unit tests for roles service`
-  - `docs: add SIWE authentication example`
-  - `chore: upgrade vitest to 2.x`
-  - `refactor: extract HTTP client into shared utility`
-
----
-
-## Submitting a Pull Request
-
-1. Push your branch to your fork.
-2. Open a PR against `Adamantine-Guild/guildpass-sdk` on `main`.
-3. Fill in the [PR template](.github/PULL_REQUEST_TEMPLATE.md) completely.
-4. Ensure these pass before submitting:
+## Run Tests
 
 ```bash
-pnpm typecheck    # Must pass with no errors
-pnpm lint         # Fix all reported issues
-pnpm test:run     # All tests must pass
-pnpm build        # Build must succeed
+pnpm test
 ```
 
-### PR Quality Expectations
-
-- All new public methods/types have TypeDoc comments.
-- New behaviour is covered by at least one Vitest test.
-- No new runtime dependencies without prior maintainer approval.
-- Public API changes include documentation updates in `docs/`.
-- Semver impact is noted in the PR description (patch / minor / major).
+The SDK uses Vitest.
 
 ---
 
-## Review Process
-
-- A maintainer will review your PR within **5 business days**.
-- Address requested changes promptly.
-- Breaking changes (major version) require additional design discussion.
-- Once approved and CI passes, a maintainer merges and releases.
-
----
-
-## Communication
-
-- GitHub Issues: preferred for all task discussion
-- Contact: cerealboxx123@gmail.com
-
----
-
-## Public API Changes
-
-We monitor changes to our public API surface closely to prevent accidental breaking changes.
-
-If you modify exported classes, interfaces, or types:
-
-1. Run `pnpm api-report` locally to update the API baseline file (`api-report/guildpass-sdk.api.md`).
-2. Commit the updated `guildpass-sdk.api.md` file alongside your code changes.
-3. Your pull request will display a diff of the API changes for maintainer review.
-
-### Checking semver impact before a release
-
-Maintainers can compare the regenerated API report against the last release tag to decide the correct version bump. This is **local tooling only** — it is not part of the release GitHub Actions workflow.
+## Watch Tests
 
 ```bash
-# Regenerate api-report/, diff against the latest v*.*.* tag, print semver guidance
-pnpm check-api-diff
+pnpm test:watch
 ```
 
-The script:
+---
 
-- Runs `pnpm build` and `pnpm api-report:ci` to refresh `api-report/guildpass-sdk.api.md`
-- Loads the baseline from the **latest semver release tag** (`v*.*.*`)
-- If no tags exist yet, falls back to the last **committed** `api-report/` on `HEAD`
-- Classifies each difference:
-  - **Added export** → non-breaking
-  - **Removed export** or **changed signature** → breaking
-- Recommends a version bump using the project's current stage:
-  - **Pre-1.0** (`0.x.y`): breaking → minor, additive → patch
-  - **Post-1.0**: breaking → major, additive → minor
-- Exits with code `1` when breaking changes are detected
-
-Useful flags:
+## Development Build
 
 ```bash
-# Skip regeneration when you already ran api-report:ci
-pnpm check-api-diff -- --skip-regenerate
-
-# Compare against a specific tag or file (e.g. in tests)
-pnpm check-api-diff -- --baseline-tag v0.1.0
-pnpm check-api-diff -- --baseline-file /tmp/old.api.md
+pnpm dev
 ```
 
-Before tagging a release, update `package.json` and add a matching `CHANGELOG.md` entry so the tag and package version align (see README → **Versioning and changelog**).
+This runs `tsup` in watch mode.
+
+---
+
+## Lint
+
+```bash
+pnpm lint
+```
+
+---
+
+## Format
+
+```bash
+pnpm format
+```
+
+---
+
+# Required Validation
+
+Before opening a pull request, run:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm build
+pnpm test
+```
+
+All applicable checks should pass.
+
+If your contribution changes linted files, also run:
+
+```bash
+pnpm lint
+```
+
+---
+
+# Testing Expectations
+
+Tests are part of the implementation.
+
+New behaviour should include appropriate tests.
+
+Tests should cover, where relevant:
+
+- expected behaviour;
+- malformed input;
+- boundary values;
+- deterministic ordering;
+- cancellation;
+- timeouts;
+- concurrency;
+- security-sensitive input;
+- runtime type failures.
+
+Bug fixes should preferably include a regression test demonstrating the previous failure.
+
+---
+
+# Test Design
+
+Prefer isolated tests that do not depend on external services.
+
+For most SDK utilities:
+
+```text
+Input
+  │
+  ▼
+Module
+  │
+  ▼
+Deterministic output
+```
+
+should be testable without:
+
+- network access;
+- GuildPass Core running;
+- Stellar RPC;
+- Redis;
+- PostgreSQL.
+
+Mock external behaviour only where the issue genuinely concerns integration boundaries.
+
+---
+
+# Stellar Contributions
+
+GuildPass SDK V2 is Stellar-first.
+
+When implementing Stellar functionality:
+
+- validate real Stellar formats rather than only prefixes;
+- distinguish supported and unsupported StrKey types;
+- avoid unnecessary network requests;
+- keep network-specific functionality isolated;
+- avoid introducing EVM dependencies unless explicitly requested.
+
+For example, this is not sufficient validation:
+
+```ts
+address.startsWith("G");
+```
+
+Proper Stellar validation should use the appropriate encoding and checksum rules.
+
+---
+
+# SDK Client Contributions
+
+The SDK client should remain a thin developer-facing interface.
+
+A client method should typically:
+
+```text
+Validate caller input
+        │
+        ▼
+Build request
+        │
+        ▼
+Use transport
+        │
+        ▼
+Validate response
+        │
+        ▼
+Return typed result
+```
+
+Avoid embedding unrelated:
+
+- retry logic;
+- validation logic;
+- request serialisation;
+- domain calculations;
+
+directly inside every client method.
+
+Reusable behaviour should live in focused modules.
+
+---
+
+# Transport Contributions
+
+Transport code should remain independent of GuildPass domain endpoints where possible.
+
+Transport concerns include:
+
+- HTTP methods;
+- headers;
+- URL construction;
+- timeouts;
+- cancellation;
+- response parsing;
+- transport errors.
+
+Transport modules should not contain membership or governance business logic.
+
+---
+
+# Error Handling
+
+Public SDK errors should be predictable.
+
+Prefer:
+
+- stable error codes;
+- structured metadata;
+- safe public messages;
+- preserved causes internally where useful.
+
+Do not expose:
+
+- raw credentials;
+- private keys;
+- authentication headers;
+- arbitrary secret-bearing objects;
+- sensitive raw payloads.
+
+Do not make consumers parse free-form error strings to determine error categories.
+
+---
+
+# Security-Sensitive Code
+
+Take additional care when working on:
+
+- Stellar signatures;
+- authentication;
+- capability tokens;
+- webhook verification;
+- API keys;
+- cryptographic hashing;
+- request signing;
+- secret handling;
+- replay protection.
+
+Security-sensitive changes should include targeted failure tests.
+
+---
+
+# Cancellation
+
+SDK operations that may wait on external work should use `AbortSignal` where appropriate.
+
+Cancellation behaviour should be explicit.
+
+Do not silently swallow caller cancellation.
+
+Distinguish between:
+
+- caller cancellation;
+- timeout;
+- transport failure;
+
+where the public API needs to expose those differences.
+
+---
+
+# Timeouts
+
+Timeout behaviour should be:
+
+- bounded;
+- documented;
+- testable;
+- distinct from ordinary request failure.
+
+Avoid tests that depend on long real-time waits when controllable time or small deterministic timers can be used instead.
+
+---
+
+# Concurrency
+
+Concurrency-sensitive utilities should define their atomic behaviour.
+
+Examples include:
+
+- request deduplication;
+- batching;
+- async task scheduling;
+- cache coordination.
+
+Avoid naive:
+
+```text
+check
+then set
+```
+
+patterns where concurrent callers can race.
+
+---
+
+# Immutability
+
+SDK code should avoid unexpectedly mutating caller-owned objects.
+
+Prefer defensive copies for:
+
+- configuration;
+- headers;
+- arrays;
+- metadata;
+- registry definitions.
+
+Public APIs should document mutation behaviour when mutation is unavoidable.
+
+---
+
+# Browser and Runtime Compatibility
+
+Avoid unnecessary reliance on Node-only APIs in code intended to run in browser-compatible environments.
+
+Prefer standard APIs such as:
+
+- `fetch`;
+- `AbortController`;
+- `URL`;
+- `URLSearchParams`;
+- Web-compatible cryptographic APIs where appropriate.
+
+Node-specific behaviour should be introduced only when clearly required.
+
+---
+
+# Package Output
+
+The SDK currently builds as ESM.
+
+The public package entry point is:
+
+```text
+dist/index.js
+```
+
+with declarations:
+
+```text
+dist/index.d.ts
+```
+
+Do not add CommonJS output unless there is a documented compatibility requirement.
+
+---
+
+# Public Exports
+
+Public SDK exports are defined through:
+
+```ts
+src/index.ts
+```
+
+Avoid deep imports such as:
+
+```ts
+import { something } from "@guildpass/sdk/src/internal";
+```
+
+Consumers should use documented package exports only.
+
+---
+
+# Adding Dependencies
+
+If you add a dependency, explain in your PR:
+
+- why it is needed;
+- why existing platform APIs are insufficient;
+- whether it is runtime or development-only;
+- any impact on bundle size;
+- any security or compatibility implications.
+
+Avoid adding large dependencies to solve small utility problems.
+
+---
+
+# Code Style
+
+Prefer:
+
+- small focused functions;
+- explicit naming;
+- readable control flow;
+- clear public contracts;
+- limited side effects;
+- meaningful tests.
+
+Avoid comments that merely repeat what the code already says.
+
+Comments are most useful when documenting:
+
+- security assumptions;
+- non-obvious edge cases;
+- protocol requirements;
+- compatibility decisions.
+
+---
+
+# Commit Messages
+
+Use clear scoped commit messages.
+
+Recommended format:
+
+```text
+type(scope): description
+```
+
+Examples:
+
+```text
+feat(stellar): add Stellar account parser
+feat(transport): add timeout-aware request handling
+fix(config): reject malformed base URLs
+test(validation): cover nested response failures
+docs(sdk): update contribution guide
+```
+
+---
+
+# Submitting a Pull Request
+
+Push your branch:
+
+```bash
+git push origin <YOUR_BRANCH>
+```
+
+Then open a pull request against:
+
+```text
+Adamantine-guild/guildpass-sdk
+```
+
+Target:
+
+```text
+main
+```
+
+Reference the issue using:
+
+```text
+Closes #123
+```
+
+---
+
+# Pull Request Expectations
+
+A good PR should explain:
+
+## What changed?
+
+Describe the implementation.
+
+## Why?
+
+Explain the problem being solved.
+
+## How was it tested?
+
+List the commands you ran.
+
+For example:
+
+```text
+pnpm typecheck
+pnpm build
+pnpm test
+```
+
+## Important design decisions
+
+Document any:
+
+- trade-offs;
+- security decisions;
+- compatibility implications;
+- intentionally excluded functionality.
+
+---
+
+# Issue Scope
+
+Do not expand an issue significantly beyond its acceptance criteria.
+
+If you discover another problem:
+
+- mention it separately;
+- suggest or create another issue;
+- keep the current PR focused.
+
+---
+
+# Independent Issue Policy
+
+Many GuildPass SDK campaign issues contain an **Independence Requirement**.
+
+This means your implementation must:
+
+- work from the current `main`;
+- not wait for another open issue;
+- not depend on another contributor's branch;
+- remain independently mergeable.
+
+This requirement exists so multiple contributors can work concurrently.
+
+---
+
+# Continuous Integration
+
+GuildPass SDK uses GitHub Actions to validate changes.
+
+The expected CI path is:
+
+```text
+Install dependencies
+        │
+        ▼
+Typecheck
+        │
+        ▼
+Build
+        │
+        ▼
+Tests
+```
+
+Pull requests with failing required checks are not ready to merge.
+
+---
+
+# PR Automation
+
+GuildPass repositories use central PR automation maintained by Adamantine Guild.
+
+The automation can:
+
+- inspect workflow status;
+- detect failed checks;
+- wait for pending checks;
+- detect merge conflicts;
+- comment when intervention is required;
+- merge eligible pull requests.
+
+CI should be treated as part of the contribution contract.
+
+---
+
+# Workflow Changes
+
+Changes under:
+
+```text
+.github/workflows/
+```
+
+are security-sensitive.
+
+Do not modify workflows as part of an unrelated feature.
+
+Workflow changes may require manual maintainer review because they can affect repository permissions and automation behaviour.
+
+---
+
+# Documentation
+
+Update documentation when your change materially affects:
+
+- installation;
+- public SDK APIs;
+- configuration;
+- runtime behaviour;
+- supported Stellar behaviour;
+- contributor workflow.
+
+Do not document functionality that has not actually been implemented unless it is clearly labelled as planned.
+
+---
+
+# Security Reporting
+
+Do not report vulnerabilities through public issues.
+
+Follow:
+
+```text
+SECURITY.md
+```
+
+for responsible disclosure instructions.
+
+---
+
+# Code of Conduct
+
+All contributors must follow:
+
+```text
+CODE_OF_CONDUCT.md
+```
+
+---
+
+# Need Help?
+
+If an issue is unclear, ask a focused question on the issue before implementing a substantially different interpretation.
+
+Avoid large speculative pull requests without alignment.
+
+---
+
+Thank you for helping build GuildPass SDK V2.
