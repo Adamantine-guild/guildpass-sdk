@@ -1,9 +1,9 @@
 ---
 name: Documentation Improvement
 about: Report missing, incorrect, or confusing SDK documentation
-title: 'docs: <short description>'
-labels: ['documentation']
-assignees: ''
+title: "docs: <short description>"
+labels: ["documentation"]
+assignees: ""
 ---
 
 ## What documentation needs improvement?

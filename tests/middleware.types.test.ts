@@ -2,7 +2,7 @@
  * Type tests for middleware pipeline generic propagation.
  * These tests verify that the TypeScript type system correctly
  * infers and propagates context and result types through the pipeline.
- * 
+ *
  * Note: This file contains only type-level tests and is not executed by vitest.
  * The types are verified by TypeScript during the typecheck step.
  */
@@ -27,17 +27,17 @@ describe("Type tests", () => {
   const middleware: Middleware<Context, Result> = async (ctx, next) => {
     // Context type should be inferred correctly
     const id: string = ctx.userId;
-    
+
     // Next should return the correct result type
     const result: Result = await next();
-    
+
     return result;
   };
 
   const terminal: TerminalHandler<Context, Result> = async (ctx) => {
     // Context type should be inferred correctly
     const id: string = ctx.userId;
-    
+
     return { data: id };
   };
 }
@@ -58,9 +58,9 @@ describe("Type tests", () => {
     // Complex nested context should be accessible
     const userId: string = ctx.user.id;
     const timestamp: number = ctx.metadata.timestamp;
-    
+
     const result: Result = await next();
-    
+
     return result;
   };
 }
@@ -73,9 +73,9 @@ describe("Type tests", () => {
   const middleware: Middleware<Context, Result> = async (ctx, next) => {
     // Union type should be preserved
     const type: "request" | "response" = ctx.type;
-    
+
     const result: Result = await next();
-    
+
     return result;
   };
 }
@@ -146,7 +146,7 @@ describe("Type tests", () => {
   const middleware: Middleware<Context, Result> = async (ctx, next) => {
     // Readonly context should be accessible
     const id: string = ctx.id;
-    
+
     const result: Result = await next();
     return result;
   };
@@ -161,7 +161,7 @@ describe("Type tests", () => {
     // Optional properties should be handled correctly
     const id: string = ctx.id;
     const tags: string[] | undefined = ctx.metadata?.tags;
-    
+
     const result: Result = await next();
     return result;
   };
@@ -235,7 +235,7 @@ describe("Type tests", () => {
   const m2: Middleware<ObjContext, ArrResult> = async (ctx, next) => {
     const count: number = ctx.items.length;
     const result: ArrResult = await next();
-    return result.map(v => v * count);
+    return result.map((v) => v * count);
   };
 }
 
@@ -246,12 +246,12 @@ describe("Type tests", () => {
 
   const asyncMiddleware: Middleware<Context, Result> = async (ctx, next) => {
     // Should work with async/await
-    await new Promise(resolve => setTimeout(resolve, ctx.delay));
+    await new Promise((resolve) => setTimeout(resolve, ctx.delay));
     return next();
   };
 
   const asyncTerminal: TerminalHandler<Context, Result> = async (ctx) => {
-    await new Promise(resolve => setTimeout(resolve, ctx.delay));
+    await new Promise((resolve) => setTimeout(resolve, ctx.delay));
     return { timestamp: Date.now() };
   };
 }

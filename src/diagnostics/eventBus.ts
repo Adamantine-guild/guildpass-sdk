@@ -1,17 +1,11 @@
-import type {
-  EventListener,
-  EventMap,
-  EventBusOptions,
-} from "./types.js";
+import type { EventListener, EventMap, EventBusOptions } from "./types.js";
 
 /**
  * Error thrown when maximum listener limit is exceeded.
  */
 export class MaxListenersError extends Error {
   constructor(eventName: string, maxListeners: number) {
-    super(
-      `Maximum listeners (${maxListeners}) exceeded for event "${eventName}"`
-    );
+    super(`Maximum listeners (${maxListeners}) exceeded for event "${eventName}"`);
     this.name = "MaxListenersError";
   }
 }
@@ -28,7 +22,7 @@ export class DuplicateListenerError extends Error {
 
 /**
  * A typed event bus for SDK diagnostics and observability.
- * 
+ *
  * Features:
  * - Strongly typed event names and payloads
  * - Subscribe/unsubscribe with lifecycle management
@@ -37,14 +31,11 @@ export class DuplicateListenerError extends Error {
  * - Maximum listener limits to guard against leaks
  * - Duplicate listener prevention (optional)
  * - No console logging by default
- * 
+ *
  * @template TEvents - Event map interface defining event names and payload types
  */
 export class EventBus<TEvents extends EventMap> {
-  private readonly listeners: Map<
-    keyof TEvents,
-    Array<EventListener<unknown>>
-  > = new Map();
+  private readonly listeners: Map<keyof TEvents, Array<EventListener<unknown>>> = new Map();
 
   private readonly maxListeners: number;
   private readonly allowDuplicateListeners: boolean;
@@ -58,7 +49,7 @@ export class EventBus<TEvents extends EventMap> {
 
   /**
    * Subscribe to an event.
-   * 
+   *
    * @param eventName - The name of the event to subscribe to
    * @param listener - The listener function to call when the event is emitted
    * @returns An unsubscribe function that removes the listener when called
@@ -67,7 +58,7 @@ export class EventBus<TEvents extends EventMap> {
    */
   subscribe<K extends keyof TEvents>(
     eventName: K,
-    listener: EventListener<TEvents[K]>
+    listener: EventListener<TEvents[K]>,
   ): () => void {
     const eventListeners = this.listeners.get(eventName);
 
@@ -80,14 +71,14 @@ export class EventBus<TEvents extends EventMap> {
 
     // Check max listeners limit
     if (eventListeners.length >= this.maxListeners) {
-      throw new MaxListenersError(
-        String(eventName),
-        this.maxListeners
-      );
+      throw new MaxListenersError(String(eventName), this.maxListeners);
     }
 
     // Check for duplicate listeners if not allowed
-    if (!this.allowDuplicateListeners && eventListeners.includes(listener as EventListener<unknown>)) {
+    if (
+      !this.allowDuplicateListeners &&
+      eventListeners.includes(listener as EventListener<unknown>)
+    ) {
       throw new DuplicateListenerError(String(eventName));
     }
 
@@ -99,21 +90,18 @@ export class EventBus<TEvents extends EventMap> {
 
   /**
    * Unsubscribe a listener from an event.
-   * 
+   *
    * @param eventName - The name of the event to unsubscribe from
    * @param listener - The listener function to remove
    */
-  unsubscribe<K extends keyof TEvents>(
-    eventName: K,
-    listener: EventListener<TEvents[K]>
-  ): void {
+  unsubscribe<K extends keyof TEvents>(eventName: K, listener: EventListener<TEvents[K]>): void {
     const eventListeners = this.listeners.get(eventName);
     if (eventListeners) {
       const index = eventListeners.indexOf(listener as EventListener<unknown>);
       if (index !== -1) {
         eventListeners.splice(index, 1);
       }
-      
+
       // Clean up empty arrays to avoid memory retention
       if (eventListeners.length === 0) {
         this.listeners.delete(eventName);
@@ -123,11 +111,11 @@ export class EventBus<TEvents extends EventMap> {
 
   /**
    * Emit an event to all subscribed listeners.
-   * 
+   *
    * Listeners are invoked in the order they were subscribed.
    * If a listener throws, the error is caught and reported via onError callback (if provided),
    * but does not prevent other listeners from being invoked.
-   * 
+   *
    * @param eventName - The name of the event to emit
    * @param event - The event payload to pass to listeners
    */
@@ -155,7 +143,7 @@ export class EventBus<TEvents extends EventMap> {
 
   /**
    * Get the number of listeners for a specific event.
-   * 
+   *
    * @param eventName - The name of the event
    * @returns The number of listeners subscribed to the event
    */
@@ -166,7 +154,7 @@ export class EventBus<TEvents extends EventMap> {
 
   /**
    * Remove all listeners for a specific event, or all events if no event name is provided.
-   * 
+   *
    * @param eventName - Optional event name to clear listeners for. If omitted, all listeners are removed.
    */
   removeAllListeners<K extends keyof TEvents>(eventName?: K): void {
@@ -179,7 +167,7 @@ export class EventBus<TEvents extends EventMap> {
 
   /**
    * Get the names of all events that currently have listeners.
-   * 
+   *
    * @returns Array of event names with active listeners
    */
   eventNames(): Array<keyof TEvents> {

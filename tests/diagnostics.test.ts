@@ -208,11 +208,7 @@ describe("EventBus", () => {
         path: "/api/test",
       });
 
-      expect(onError).toHaveBeenCalledWith(
-        expect.any(Error),
-        "request:start",
-        listener
-      );
+      expect(onError).toHaveBeenCalledWith(expect.any(Error), "request:start", listener);
     });
 
     it("silently suppresses errors when no onError callback", () => {
@@ -230,7 +226,7 @@ describe("EventBus", () => {
           requestId: "123",
           method: "GET",
           path: "/api/test",
-        })
+        }),
       ).not.toThrow();
     });
   });
@@ -243,9 +239,7 @@ describe("EventBus", () => {
       bus.subscribe("request:start", listener);
       bus.subscribe("request:start", listener);
 
-      expect(() =>
-        bus.subscribe("request:start", listener)
-      ).toThrowError(MaxListenersError);
+      expect(() => bus.subscribe("request:start", listener)).toThrowError(MaxListenersError);
     });
 
     it("allows unlimited listeners when maxListeners is Infinity", () => {
@@ -272,9 +266,7 @@ describe("EventBus", () => {
       }
 
       // Should throw on 11th
-      expect(() => bus.subscribe("request:start", listener)).toThrowError(
-        MaxListenersError
-      );
+      expect(() => bus.subscribe("request:start", listener)).toThrowError(MaxListenersError);
     });
   });
 
@@ -287,9 +279,7 @@ describe("EventBus", () => {
 
       bus.subscribe("request:start", listener);
 
-      expect(() =>
-        bus.subscribe("request:start", listener)
-      ).toThrowError(DuplicateListenerError);
+      expect(() => bus.subscribe("request:start", listener)).toThrowError(DuplicateListenerError);
     });
 
     it("allows duplicate listener registration by default", () => {
@@ -435,9 +425,7 @@ describe("EventBus", () => {
   describe("no console logging", () => {
     it("does not log to console by default", () => {
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      const consoleErrorSpy = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => {});
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       const bus = new EventBus<DiagnosticsEvents>();
       const listener = vi.fn(() => {

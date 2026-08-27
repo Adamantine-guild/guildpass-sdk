@@ -2,12 +2,7 @@
 export type QueryScalar = string | number | boolean | Date;
 
 /** A supported query value; nullish values are omitted from the output. */
-export type QueryValue =
-  | QueryScalar
-  | readonly string[]
-  | readonly number[]
-  | null
-  | undefined;
+export type QueryValue = QueryScalar | readonly string[] | readonly number[] | null | undefined;
 
 /** Immutable query parameter input accepted by {@link serializeQuery}. */
 export type QueryParameters = Readonly<Record<string, QueryValue>>;
@@ -65,7 +60,7 @@ export function serializeQuery(parameters: QueryParameters): string {
       for (const item of value) {
         if (typeof item !== "string" && typeof item !== "number") {
           throw new InvalidQueryValueError(
-            `Query parameter "${key}" contains an unsupported array item`
+            `Query parameter "${key}" contains an unsupported array item`,
           );
         }
         search.append(key, serializeScalar(item, key));

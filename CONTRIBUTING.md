@@ -134,7 +134,7 @@ If your task needs a small helper that does not yet exist, implement the minimum
 Anything exported through:
 
 ```ts
-src/index.ts
+src / index.ts;
 ```
 
 should be treated as part of the SDK's public contract.
@@ -723,7 +723,7 @@ Do not add CommonJS output unless there is a documented compatibility requiremen
 Public SDK exports are defined through:
 
 ```ts
-src/index.ts
+src / index.ts;
 ```
 
 Avoid deep imports such as:
