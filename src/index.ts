@@ -7,4 +7,5 @@ export * from "./types/index.js";
 export * from "./utils/querySerializer.js";
 export * from "./utils/batchPlanner.js";
 export * from "./utils/pagination.js";
+export * from "./time/index.js";
 export * from "./stellar/index.js";
