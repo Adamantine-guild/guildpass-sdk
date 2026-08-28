@@ -1,11 +1,11 @@
 export interface GuildPassClientOptions {
-    baseUrl: string;
+  baseUrl: string;
 }
 
 export class GuildPassClient {
-    readonly baseUrl: string;
+  readonly baseUrl: string;
 
-    constructor(options: GuildPassClientOptions) {
-        this.baseUrl = options.baseUrl;
-    }
+  constructor(options: GuildPassClientOptions) {
+    this.baseUrl = options.baseUrl;
+  }
 }

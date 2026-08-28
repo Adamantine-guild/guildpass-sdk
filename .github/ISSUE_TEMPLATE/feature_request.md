@@ -1,9 +1,9 @@
 ---
 name: Feature Request
 about: Suggest a new SDK method, service module, or capability
-title: 'feat: <short description>'
-labels: ['feature', 'needs-triage']
-assignees: ''
+title: "feat: <short description>"
+labels: ["feature", "needs-triage"]
+assignees: ""
 ---
 
 ## Problem Statement

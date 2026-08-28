@@ -1,62 +1,62 @@
 {
-    "name": "@guildpass/sdk",
-    "version": "0.2.0",
-    "description": "Official TypeScript SDK for interacting with GuildPass.",
-    "type": "module",
-    "main": "./dist/index.js",
-    "module": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.js"
-        }
-    },
-    "files": [
-        "dist",
-        "README.md",
-        "LICENSE"
-    ],
-    "scripts": {
-        "dev": "tsup --watch",
-        "build": "tsup",
-        "test": "vitest run",
-        "test:watch": "vitest",
-        "typecheck": "tsc --noEmit",
-        "lint": "eslint .",
-        "format": "prettier --write ."
-    },
-    "keywords": [
-        "guildpass",
-        "stellar",
-        "soroban",
-        "membership",
-        "access-control",
-        "sdk",
-        "typescript"
-    ],
-    "author": "GuildPass",
-    "license": "MIT",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/Adamantine-guild/guildpass-sdk.git"
-    },
-    "bugs": {
-        "url": "https://github.com/Adamantine-guild/guildpass-sdk/issues"
-    },
-    "homepage": "https://github.com/Adamantine-guild/guildpass-sdk#readme",
-    "engines": {
-        "node": ">=24"
-    },
-    "packageManager": "pnpm@11.16.0",
-    "sideEffects": false,
-    "dependencies": {},
-    "devDependencies": {
-        "@types/node": "^24.0.0",
-        "eslint": "^9.0.0",
-        "prettier": "^3.0.0",
-        "tsup": "^8.0.0",
-        "typescript": "^5.9.0",
-        "vitest": "^3.0.0"
+  "name": "@guildpass/sdk",
+  "version": "0.2.0",
+  "description": "Official TypeScript SDK for interacting with GuildPass.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "keywords": [
+    "guildpass",
+    "stellar",
+    "soroban",
+    "membership",
+    "access-control",
+    "sdk",
+    "typescript"
+  ],
+  "author": "GuildPass",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Adamantine-guild/guildpass-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Adamantine-guild/guildpass-sdk/issues"
+  },
+  "homepage": "https://github.com/Adamantine-guild/guildpass-sdk#readme",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.16.0",
+  "sideEffects": false,
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
 }

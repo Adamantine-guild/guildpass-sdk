@@ -7,7 +7,7 @@ export type EventListener<TEvent> = (event: TEvent) => void;
 /**
  * Event map interface that defines all possible events and their payload types.
  * Implementations should extend this interface with their specific events.
- * 
+ *
  * @example
  * interface MyEvents {
  *   "request:start": { requestId: string; method: string };

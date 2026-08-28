@@ -10,10 +10,10 @@ GuildPass SDK is a client-side TypeScript package. Security concerns therefore f
 
 GuildPass SDK V2 is currently under active development.
 
-| Version | Supported |
-| --- | --- |
-| `0.2.x` / `main` | Yes |
-| `0.1.x` | Legacy only |
+| Version          | Supported   |
+| ---------------- | ----------- |
+| `0.2.x` / `main` | Yes         |
+| `0.1.x`          | Legacy only |
 
 Security fixes are expected to target the current V2 codebase unless a maintainer explicitly decides otherwise.
 

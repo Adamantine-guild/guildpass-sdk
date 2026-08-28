@@ -137,9 +137,7 @@ describe("MiddlewarePipeline", () => {
         throw new Error("Terminal error");
       };
 
-      await expect(pipeline.execute(undefined, terminal)).rejects.toThrow(
-        "Terminal error"
-      );
+      await expect(pipeline.execute(undefined, terminal)).rejects.toThrow("Terminal error");
     });
 
     it("propagates errors from inner middleware", async () => {
@@ -155,9 +153,7 @@ describe("MiddlewarePipeline", () => {
 
       const terminal: TerminalHandler<void, void> = async () => {};
 
-      await expect(pipeline.execute(undefined, terminal)).rejects.toThrow(
-        "Middleware error"
-      );
+      await expect(pipeline.execute(undefined, terminal)).rejects.toThrow("Middleware error");
     });
 
     it("allows middleware to catch and handle errors from inner middleware", async () => {

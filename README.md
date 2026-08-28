@@ -210,15 +210,15 @@ Some directories may currently contain only the initial V2 foundation and will e
 
 GuildPass SDK V2 uses a deliberately small toolchain.
 
-| Technology | Purpose |
-| --- | --- |
+| Technology | Purpose                             |
+| ---------- | ----------------------------------- |
 | TypeScript | SDK implementation and public types |
-| Node.js | Development and build runtime |
-| pnpm | Dependency management |
-| tsup | SDK bundling |
-| Vitest | Unit testing |
-| ESLint | Static code analysis |
-| Prettier | Code formatting |
+| Node.js    | Development and build runtime       |
+| pnpm       | Dependency management               |
+| tsup       | SDK bundling                        |
+| Vitest     | Unit testing                        |
+| ESLint     | Static code analysis                |
+| Prettier   | Code formatting                     |
 
 The SDK currently targets:
 
@@ -553,7 +553,7 @@ Not every internal helper should become part of the package's public API.
 Code exported through:
 
 ```ts
-src/index.ts
+src / index.ts;
 ```
 
 should be treated as part of the SDK's external contract.

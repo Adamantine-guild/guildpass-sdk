@@ -12,14 +12,14 @@ export class MultipleNextCallsError extends Error {
 
 /**
  * A middleware pipeline that composes middleware functions with deterministic execution order.
- * 
+ *
  * Execution semantics:
  * - Middleware execute in registration order (outer to inner)
  * - Post-processing (after await next()) executes in reverse order (inner to outer)
  * - Each middleware can only call next() once
  * - Errors propagate correctly through the chain
  * - Context is controlled by the caller (can be immutable or mutable)
- * 
+ *
  * @template TContext - The context type passed through middleware
  * @template TResult - The result type returned from the terminal handler
  */
@@ -41,15 +41,12 @@ export class MiddlewarePipeline<TContext, TResult> {
 
   /**
    * Execute the middleware pipeline with a terminal handler.
-   * 
+   *
    * @param context - The context to pass through middleware
    * @param terminal - The final handler to execute after all middleware
    * @returns A promise that resolves with the terminal handler's result
    */
-  async execute(
-    context: TContext,
-    terminal: TerminalHandler<TContext, TResult>
-  ): Promise<TResult> {
+  async execute(context: TContext, terminal: TerminalHandler<TContext, TResult>): Promise<TResult> {
     if (this.middleware.length === 0) {
       return terminal(context);
     }
@@ -77,7 +74,7 @@ export class MiddlewarePipeline<TContext, TResult> {
   private createNextWrapper(
     context: TContext,
     middleware: Middleware<TContext, TResult>,
-    nextChain: () => Promise<TResult>
+    nextChain: () => Promise<TResult>,
   ): () => Promise<TResult> {
     let nextCalled = false;
 

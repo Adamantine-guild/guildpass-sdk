@@ -7,13 +7,11 @@
  */
 export type Middleware<TContext, TResult> = (
   context: TContext,
-  next: () => Promise<TResult>
+  next: () => Promise<TResult>,
 ) => Promise<TResult>;
 
 /**
  * Terminal handler that executes when all middleware have completed.
  * This is the final operation in the middleware chain.
  */
-export type TerminalHandler<TContext, TResult> = (
-  context: TContext
-) => Promise<TResult>;
+export type TerminalHandler<TContext, TResult> = (context: TContext) => Promise<TResult>;

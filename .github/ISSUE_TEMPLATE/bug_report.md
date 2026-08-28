@@ -1,9 +1,9 @@
 ---
 name: Bug Report
 about: Report a broken or unexpected behaviour in the SDK
-title: 'bug: <short description>'
-labels: ['bug', 'needs-triage']
-assignees: ''
+title: "bug: <short description>"
+labels: ["bug", "needs-triage"]
+assignees: ""
 ---
 
 ## Describe the Bug
@@ -12,9 +12,9 @@ assignees: ''
 
 ```typescript
 // Minimal reproduction:
-import { GuildPassClient } from '@guildpass/sdk';
+import { GuildPassClient } from "@guildpass/sdk";
 
-const client = new GuildPassClient({ apiUrl: '...' });
+const client = new GuildPassClient({ apiUrl: "..." });
 // ...
 ```
 

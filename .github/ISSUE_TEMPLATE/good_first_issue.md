@@ -1,9 +1,9 @@
 ---
 name: Good First Issue
 about: A well-scoped SDK task suitable for contributors new to this codebase
-title: 'chore: <short description>'
-labels: ['good first issue', 'help wanted']
-assignees: ''
+title: "chore: <short description>"
+labels: ["good first issue", "help wanted"]
+assignees: ""
 ---
 
 ## Task Summary
