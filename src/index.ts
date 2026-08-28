@@ -9,3 +9,5 @@ export * from "./utils/batchPlanner.js";
 export * from "./utils/pagination.js";
 export * from "./time/index.js";
 export * from "./stellar/index.js";
+export * from "./transport/index.js";
+export * from "./errors/index.js";
