@@ -1,11 +1,3 @@
-export interface GuildPassClientOptions {
-  baseUrl: string;
-}
-
-export class GuildPassClient {
-  readonly baseUrl: string;
-
-  constructor(options: GuildPassClientOptions) {
-    this.baseUrl = options.baseUrl;
-  }
-}
+export * from "./config.js";
+export * from "./configErrors.js";
+export * from "./client.js";
