@@ -114,13 +114,13 @@ export function literal<T extends string | number | boolean>(value: T): Schema<T
 }
 
 /**
- * Optional schema - allows undefined or null, or validates against the underlying schema.
+ * Optional schema - allows undefined or delegates to the underlying schema if present.
  */
 export function optional<T>(schema: Schema<T>): Schema<T | undefined> {
   return {
     parse(input: unknown, path: string[] = [], depth: number = 0): ValidationResult<T | undefined> {
       checkDepth(depth);
-      if (input === undefined || input === null) {
+      if (input === undefined) {
         return { success: true, data: undefined };
       }
       return schema.parse(input, path, depth);
@@ -196,11 +196,15 @@ export function object<T extends Record<string, Schema<any>>>(
 
 /**
  * Union schema - tries each schema sequentially until one succeeds.
- * If all fail, returns a structured union error.
+ * If all fail, returns a structured union validation error.
  */
-export function union<T>(...schemas: Schema<T>[]): Schema<T> {
+export function union<T>(...schemas: Schema<T>[]): Schema<T>;
+export function union<T, U>(...schemas: [Schema<T>, Schema<U>]): Schema<T | U>;
+export function union<T, U, V>(...schemas: [Schema<T>, Schema<U>, Schema<V>]): Schema<T | U | V>;
+export function union<T, U, V, W>(...schemas: [Schema<T>, Schema<U>, Schema<V>, Schema<W>]): Schema<T | U | V | W>;
+export function union(...schemas: Schema<any>[]): Schema<any> {
   return {
-    parse(input: unknown, path: string[] = [], depth: number = 0): ValidationResult<T> {
+    parse(input: unknown, path: string[] = [], depth: number = 0): ValidationResult<any> {
       checkDepth(depth);
       const errors: string[] = [];
 
