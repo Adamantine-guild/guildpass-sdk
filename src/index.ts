@@ -1,4 +1,5 @@
 export * from "./client/index.js";
+export * from "./context/RequestContext.js";
 export * from "./diagnostics/index.js";
 export * from "./headers/index.js";
 export * from "./middleware/index.js";
