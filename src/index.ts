@@ -16,3 +16,4 @@ export * from "./time/index.js";
 export * from "./stellar/index.js";
 export * from "./transport/index.js";
 export * from "./errors/index.js";
+export * from "./capabilities/index.js";
