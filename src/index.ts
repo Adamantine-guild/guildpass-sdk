@@ -3,6 +3,7 @@ export * from "./client/index.js";
 export * from "./context/RequestContext.js";
 export * from "./validation/schemas.js";
 export * from "./validation/types.js";
+export * from "./validation/metadataSanitiser.js";
 export * from "./diagnostics/index.js";
 export * from "./headers/index.js";
 export * from "./middleware/index.js";
