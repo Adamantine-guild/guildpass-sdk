@@ -1,3 +1,4 @@
+export * from "./cache/CachePolicyEvaluator.js";
 export * from "./client/index.js";
 export * from "./context/RequestContext.js";
 export * from "./diagnostics/index.js";
