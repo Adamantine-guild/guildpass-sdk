@@ -40,3 +40,15 @@ export interface Schema<T> {
 
 /** Maximum recursion depth to prevent DoS attacks via circular objects */
 export const MAX_DEPTH = 20;
+
+/**
+ * Strategy for handling unknown keys in object validation.
+ */
+export enum UnknownKeyHandling {
+  /** Strip unknown keys from the result (default) */
+  STRIP = "strip",
+  /** Reject objects with unknown keys */
+  REJECT = "reject",
+  /** Preserve unknown keys in the result */
+  PRESERVE = "preserve",
+}

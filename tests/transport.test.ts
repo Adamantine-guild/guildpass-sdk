@@ -78,7 +78,7 @@ describe("HttpTransport", () => {
       expect(e).toBeInstanceOf(HttpError);
       const err = e as HttpError;
       expect(err.status).toBe(404);
-      expect(err.metadata).toEqual({ message: "Not Found" });
+      expect(err.metadata).toEqual({ status: 404, message: "Not Found" });
     }
   });
 
