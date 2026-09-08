@@ -9,8 +9,11 @@ import {
   array,
   object,
   union,
-} from "../../src/validation/schemas";
-import type { Schema, ValidationResult, ValidationError } from "../../src/validation/types";
+  nullable,
+  record,
+  UnknownKeyHandling,
+} from "../../src/validation";
+import type { Schema, ValidationResult, ValidationError } from "../../src/validation";
 
 describe("Primitive validation", () => {
   describe("string()", () => {
@@ -1064,6 +1067,312 @@ describe("Complex validation scenarios", () => {
       expect("extra" in result.data).toBe(false);
       expect("extra" in result.data.user).toBe(false);
       expect("more" in result.data.user).toBe(false);
+    }
+  });
+});
+
+describe("Unknown key handling", () => {
+  it("should strip unknown keys by default", () => {
+    const schema = object({ name: string() });
+    const result = schema.parse({ name: "John", extra: "data" });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ name: "John" });
+      expect("extra" in result.data).toBe(false);
+    }
+  });
+
+  it("should strip unknown keys when STRIP is specified", () => {
+    const schema = object({ name: string() }, { unknownKeys: UnknownKeyHandling.STRIP });
+    const result = schema.parse({ name: "John", extra: "data" });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ name: "John" });
+      expect("extra" in result.data).toBe(false);
+    }
+  });
+
+  it("should reject unknown keys when REJECT is specified", () => {
+    const schema = object({ name: string() }, { unknownKeys: UnknownKeyHandling.REJECT });
+    const result = schema.parse({ name: "John", extra: "data" });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain("Unknown keys not allowed");
+      expect(result.error.message).toContain("extra");
+    }
+  });
+
+  it("should accept objects with only known keys when REJECT is specified", () => {
+    const schema = object({ name: string() }, { unknownKeys: UnknownKeyHandling.REJECT });
+    const result = schema.parse({ name: "John" });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ name: "John" });
+    }
+  });
+
+  it("should preserve unknown keys when PRESERVE is specified", () => {
+    const schema = object({ name: string() }, { unknownKeys: UnknownKeyHandling.PRESERVE });
+    const result = schema.parse({ name: "John", extra: "data", more: 123 });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ name: "John", extra: "data", more: 123 });
+      expect("extra" in result.data).toBe(true);
+      expect("more" in result.data).toBe(true);
+    }
+  });
+
+  it("should apply unknown key handling to nested objects", () => {
+    const schema = object({
+      user: object({ name: string() }, { unknownKeys: UnknownKeyHandling.REJECT }),
+    });
+
+    const result = schema.parse({
+      user: { name: "John", extra: "data" },
+      extra: "top",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.path).toEqual(["user"]);
+    }
+  });
+
+  it("should strip unknown keys at top level but preserve in nested when configured", () => {
+    const schema = object({
+      user: object({ name: string() }, { unknownKeys: UnknownKeyHandling.PRESERVE }),
+    });
+
+    const result = schema.parse({
+      user: { name: "John", extra: "data" },
+      extra: "top",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ user: { name: "John", extra: "data" } });
+      expect("extra" in result.data).toBe(false);
+      expect("extra" in result.data.user).toBe(true);
+    }
+  });
+});
+
+describe("Nullable values", () => {
+  it("should accept null", () => {
+    const schema = nullable(string());
+    const result = schema.parse(null);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe(null);
+    }
+  });
+
+  it("should validate matching schema when provided", () => {
+    const schema = nullable(string());
+    const result = schema.parse("hello");
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe("hello");
+    }
+  });
+
+  it("should reject undefined (unlike optional)", () => {
+    const schema = nullable(string());
+    const result = schema.parse(undefined);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should reject non-matching values", () => {
+    const schema = nullable(string());
+    const result = schema.parse(123);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should work with nullable numbers", () => {
+    const schema = nullable(number());
+    const result = schema.parse(42);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toBe(42);
+    }
+  });
+
+  it("should work with nullable objects", () => {
+    const schema = nullable(object({ name: string() }));
+    const result = schema.parse({ name: "John" });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ name: "John" });
+    }
+  });
+
+  it("should work with nullable arrays", () => {
+    const schema = nullable(array(string()));
+    const result = schema.parse(["a", "b"]);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual(["a", "b"]);
+    }
+  });
+
+  it("should distinguish from optional - nullable rejects undefined", () => {
+    const nullableSchema = nullable(string());
+    const optionalSchema = optional(string());
+
+    const nullableResult = nullableSchema.parse(undefined);
+    const optionalResult = optionalSchema.parse(undefined);
+
+    expect(nullableResult.success).toBe(false);
+    expect(optionalResult.success).toBe(true);
+  });
+
+  it("should distinguish from optional - nullable accepts null", () => {
+    const nullableSchema = nullable(string());
+    const optionalSchema = optional(string());
+
+    const nullableResult = nullableSchema.parse(null);
+    const optionalResult = optionalSchema.parse(null);
+
+    expect(nullableResult.success).toBe(true);
+    if (nullableResult.success) {
+      expect(nullableResult.data).toBe(null);
+    }
+    expect(optionalResult.success).toBe(true);
+    if (optionalResult.success) {
+      expect(optionalResult.data).toBe(undefined);
+    }
+  });
+});
+
+describe("Record validation", () => {
+  it("should validate record of strings", () => {
+    const schema = record(string());
+    const result = schema.parse({ a: "hello", b: "world" });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ a: "hello", b: "world" });
+    }
+  });
+
+  it("should validate record of numbers", () => {
+    const schema = record(number());
+    const result = schema.parse({ count1: 1, count2: 2 });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ count1: 1, count2: 2 });
+    }
+  });
+
+  it("should validate empty record", () => {
+    const schema = record(string());
+    const result = schema.parse({});
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({});
+    }
+  });
+
+  it("should reject non-objects", () => {
+    const schema = record(string());
+    const result = schema.parse("not an object");
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toBe("Expected object");
+    }
+  });
+
+  it("should reject arrays", () => {
+    const schema = record(string());
+    const result = schema.parse([]);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should reject null", () => {
+    const schema = record(string());
+    const result = schema.parse(null);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should report path for invalid values", () => {
+    const schema = record(string());
+    const result = schema.parse({ a: "valid", b: 123 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.path).toEqual(["b"]);
+    }
+  });
+
+  it("should validate record of objects", () => {
+    const schema = record(object({ value: number() }));
+    const result = schema.parse({
+      item1: { value: 1 },
+      item2: { value: 2 },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        item1: { value: 1 },
+        item2: { value: 2 },
+      });
+    }
+  });
+
+  it("should validate record of arrays", () => {
+    const schema = record(array(string()));
+    const result = schema.parse({
+      tags1: ["a", "b"],
+      tags2: ["c", "d"],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        tags1: ["a", "b"],
+        tags2: ["c", "d"],
+      });
+    }
+  });
+
+  it("should report nested path errors in record", () => {
+    const schema = record(object({ value: number() }));
+    const result = schema.parse({
+      item1: { value: 1 },
+      item2: { value: "invalid" },
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.path).toEqual(["item2", "value"]);
+    }
+  });
+
+  it("should preserve all keys in record", () => {
+    const schema = record(string());
+    const result = schema.parse({ a: "1", b: "2", c: "3" });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(Object.keys(result.data)).toEqual(["a", "b", "c"]);
     }
   });
 });

@@ -3,7 +3,7 @@ import type {
   ValidationError,
   ValidationResult,
 } from "./types.js";
-import { MAX_DEPTH } from "./types.js";
+import { MAX_DEPTH, UnknownKeyHandling } from "./types.js";
 
 /**
  * Helper function to create a validation error.
@@ -158,12 +158,23 @@ export function array<T>(itemSchema: Schema<T>): Schema<T[]> {
 }
 
 /**
+ * Object schema options for configuring validation behavior.
+ */
+export interface ObjectSchemaOptions {
+  /** How to handle unknown keys in the input object. @default UnknownKeyHandling.STRIP */
+  unknownKeys?: UnknownKeyHandling;
+}
+
+/**
  * Object schema - validates object shapes with explicitly declared keys.
- * Unknown keys are stripped from the result.
+ * Unknown keys behavior can be configured via options.
  */
 export function object<T extends Record<string, Schema<any>>>(
-  shape: T
+  shape: T,
+  options?: ObjectSchemaOptions
 ): Schema<{ [K in keyof T]: T[K] extends Schema<infer V> ? V : never }> {
+  const unknownKeyHandling = options?.unknownKeys ?? UnknownKeyHandling.STRIP;
+
   return {
     parse(input: unknown, path: string[] = [], depth: number = 0): ValidationResult<any> {
       checkDepth(depth);
@@ -177,6 +188,7 @@ export function object<T extends Record<string, Schema<any>>>(
       const result: Record<string, unknown> = {};
       const obj = input as Record<string, unknown>;
 
+      // Validate known keys
       for (const key in shape) {
         if (Object.prototype.hasOwnProperty.call(shape, key)) {
           const fieldPath = [...path, key];
@@ -188,6 +200,27 @@ export function object<T extends Record<string, Schema<any>>>(
           result[key] = fieldResult.data;
         }
       }
+
+      // Handle unknown keys based on strategy
+      if (unknownKeyHandling === UnknownKeyHandling.REJECT) {
+        const unknownKeys = Object.keys(obj).filter(key => !(key in shape));
+        if (unknownKeys.length > 0) {
+          return {
+            success: false,
+            error: createError(
+              `Unknown keys not allowed: ${unknownKeys.join(", ")}`,
+              path
+            ),
+          };
+        }
+      } else if (unknownKeyHandling === UnknownKeyHandling.PRESERVE) {
+        for (const key of Object.keys(obj)) {
+          if (!(key in shape)) {
+            result[key] = obj[key];
+          }
+        }
+      }
+      // STRIP is default - unknown keys are simply not copied to result
 
       return { success: true, data: result };
     },
@@ -219,6 +252,54 @@ export function union<T>(...schemas: Schema<T>[]): Schema<T> {
           path
         ),
       };
+    },
+  };
+}
+
+/**
+ * Nullable schema - allows null or validates against the underlying schema.
+ * Unlike optional, this does not accept undefined.
+ */
+export function nullable<T>(schema: Schema<T>): Schema<T | null> {
+  return {
+    parse(input: unknown, path: string[] = [], depth: number = 0): ValidationResult<T | null> {
+      checkDepth(depth);
+      if (input === null) {
+        return { success: true, data: null };
+      }
+      return schema.parse(input, path, depth);
+    },
+  };
+}
+
+/**
+ * Record schema - validates an object with dynamic string keys and uniform value type.
+ * Useful for dictionary-like structures where keys are not known in advance.
+ */
+export function record<T>(valueSchema: Schema<T>): Schema<Record<string, T>> {
+  return {
+    parse(input: unknown, path: string[] = [], depth: number = 0): ValidationResult<Record<string, T>> {
+      checkDepth(depth);
+      if (typeof input !== "object" || input === null || Array.isArray(input)) {
+        return {
+          success: false,
+          error: createError("Expected object", path),
+        };
+      }
+
+      const result: Record<string, T> = {};
+      const obj = input as Record<string, unknown>;
+
+      for (const key of Object.keys(obj)) {
+        const fieldPath = [...path, key];
+        const fieldResult = valueSchema.parse(obj[key], fieldPath, depth + 1);
+        if (!fieldResult.success) {
+          return fieldResult;
+        }
+        result[key] = fieldResult.data;
+      }
+
+      return { success: true, data: result };
     },
   };
 }
