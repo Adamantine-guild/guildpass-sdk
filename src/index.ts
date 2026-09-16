@@ -18,3 +18,4 @@ export * from "./transport/index.js";
 export * from "./errors/index.js";
 export * from "./capabilities/index.js";
 export * from "./retry/index.js";
+export * from "./resources/index.js";
