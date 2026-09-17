@@ -116,3 +116,29 @@ export function safeParseStellarAccountId(input: unknown): { success: true; data
         return { success: false, error: e };
     }
 }
+
+/**
+ * Truncates a Stellar account ID for safe UI display (e.g., "GAAZ...CWN7").
+ *
+ * @param account - Stellar account ID string
+ * @param prefixLength - Leading characters to keep (default 4)
+ * @param suffixLength - Trailing characters to keep (default 4)
+ * @returns Abbreviated account string
+ */
+export function truncateStellarAccountId(
+    account: string,
+    prefixLength = 4,
+    suffixLength = 4
+): string {
+    if (typeof account !== 'string' || !account.trim()) {
+        throw new Error('Stellar account must be a non-empty string');
+    }
+
+    const trimmed = account.trim();
+    if (trimmed.length <= prefixLength + suffixLength) {
+        return trimmed;
+    }
+
+    return `${trimmed.slice(0, prefixLength)}...${trimmed.slice(-suffixLength)}`;
+}
+
