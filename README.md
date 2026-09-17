@@ -239,18 +239,73 @@ pnpm 11.16.0
 GuildPass SDK is designed to be consumed as:
 
 ```ts
-import { GuildPassClient } from "@guildpass/sdk";
+import {
+  GuildPassClient,
+  isStellarAccountId,
+  parseStellarAccountId,
+  isGuildPassError,
+  HttpError,
+  type AccessDecision,
+} from "@guildpass/sdk";
 ```
 
-The current client foundation looks conceptually like:
+### Client Initialization
+
+Initialize `GuildPassClient` with your GuildPass Core API endpoint:
 
 ```ts
 const client = new GuildPassClient({
-  baseUrl: "https://api.guildpass.example",
+  baseUrl: "https://api.testnet.guildpass.io",
+  timeoutMs: 10_000,
+  headers: {
+    "x-api-key": "your-api-key-here",
+  },
 });
 ```
 
-As V2 develops, additional APIs will be introduced through this package while keeping the public interface predictable and strongly typed.
+### Stellar Account Validation
+
+Lightweight, zero-dependency helpers validate Stellar StrKey public keys:
+
+```ts
+const account = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";
+
+if (isStellarAccountId(account)) {
+  const validatedAccount = parseStellarAccountId(account);
+  console.log("Valid Stellar account:", validatedAccount);
+}
+```
+
+### Evaluating Community Access
+
+Use `client.access.check` to evaluate role and access permissions against GuildPass Core:
+
+```ts
+try {
+  const decision: AccessDecision = await client.access.check({
+    guildId: "guild-builders",
+    account: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7",
+    resource: "governance-portal",
+    action: "vote",
+  });
+
+  if (decision.allowed) {
+    console.log("Access granted!");
+  } else {
+    console.log("Access denied:", decision.reason);
+  }
+} catch (error: unknown) {
+  if (error instanceof HttpError) {
+    console.error(`API returned error status ${error.status}: ${error.message}`);
+  } else if (isGuildPassError(error)) {
+    console.error(`GuildPass SDK error [${error.code}]: ${error.message}`);
+  } else {
+    console.error("Unexpected error:", error);
+  }
+}
+```
+
+For complete documentation, see the [V2 API Reference](docs/api-reference.md) and runnable [Quickstart Example](examples/quickstart.ts).
 
 ---
 
